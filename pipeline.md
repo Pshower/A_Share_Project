@@ -31,6 +31,7 @@
 ```text
 project/
   data/                 # 原始数据、处理后数据、特征数据
+    clean               # 清洗后标准化数据
     history_data        # 历史数据
     raw                 # 下载的原始数据和缓存
     stock_list          # 需要的股票列表

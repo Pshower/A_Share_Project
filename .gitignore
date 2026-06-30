@@ -1,6 +1,8 @@
 # 数据文件
 data/raw/*.csv
 data/raw/*.parquet
+data/clean/*.csv
+data/clean/*.parquet
 
 # 缓存文件
 __pycache__
