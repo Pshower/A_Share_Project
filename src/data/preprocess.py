@@ -1,5 +1,6 @@
 # src/data/preprocess.py
 import os
+import json
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -248,15 +249,121 @@ class DataPreprocessor:
         test_df = df[df['date'].isin(test_dates)]
 
         return train_df, val_df, test_df
+    
+    def _save_scaler(self, scaler_params: dict, save_path: Path):
+        """保存标准化参数为JSON文件"""
+        with open(save_path, 'w') as f:
+            json.dump(scaler_params, f, indent=2)
+        print(f"✅ 标准化参数已保存至 {save_path}")
+
+    def _load_scaler(self, load_path: Path) -> dict:
+        """从JSON文件加载标准化参数"""
+        with open(load_path, 'r') as f:
+            return json.load(f)
+
+    def process_all_stocks_and_save_scaler(self, 
+                                           normalize: bool = True,
+                                           save_combined: bool = True,
+                                           scaler_path: Optional[Path] = None) -> pd.DataFrame:
+        """
+        处理所有股票，并基于**全部数据**拟合全局标准化参数，保存到文件。
+        修改点：将所有股票数据合并后，统一计算均值和标准差，而不是逐只股票独立计算。
+        """
+        all_dfs = []
+        for code in self.stock_list:
+            try:
+                df = self._read_stock_data(code)
+                df = self.clean_single_stock(df)
+                df = self.add_features(df)
+                df['code'] = code
+                all_dfs.append(df)
+                print(f"✅ {code} 处理完成，共 {len(df)} 条记录")
+            except Exception as e:
+                print(f"❌ {code} 处理失败：{e}")
+
+        if not all_dfs:
+            return None
+
+        # 合并所有数据
+        combined = pd.concat(all_dfs, ignore_index=True)
+        
+        # 选择需要标准化的特征列
+        feature_cols = [col for col in combined.columns if col not in ['date', 'code'] 
+                        and combined[col].dtype in ['float64', 'int64']]
+
+        if normalize:
+            # 1. 计算全局均值和标准差（基于所有股票所有时间点）
+            scaler_params = {}
+            for col in feature_cols:
+                # 去除缺失值（如果有）
+                valid_vals = combined[col].dropna()
+                mean = valid_vals.mean()
+                std = valid_vals.std()
+                if std == 0:
+                    std = 1e-8
+                scaler_params[col] = {'mean': mean, 'std': std}
+                # 2. 应用转换
+                combined[col] = (combined[col] - mean) / std
+
+            # 3. 保存标准化参数
+            if scaler_path is None:
+                scaler_path = self.clean_dir / "scaler_params.json"
+            self._save_scaler(scaler_params, scaler_path)
+        else:
+            scaler_params = None
+
+        # 保存单个股票的特征数据（此时已经标准化）
+        for code in self.stock_list:
+            stock_df = combined[combined['code'] == code]
+            save_path = self.clean_dir / f"{code}_features.parquet"
+            stock_df.to_parquet(save_path, index=False)
+
+        # 保存合并数据
+        if save_combined:
+            combined_path = self.clean_dir / "all_stocks_features.parquet"
+            combined.to_parquet(combined_path, index=False)
+            print(f"📦 合并数据保存至 {combined_path}")
+
+        return combined
+
+    def transform_new_data(self, 
+                           raw_df: pd.DataFrame, 
+                           scaler_path: Path,
+                           code: Optional[str] = None) -> pd.DataFrame:
+        """
+        对新的原始数据（如新获取的单日数据）应用保存的标准化参数
+        :param raw_df: 原始数据DataFrame（包含开盘、收盘等列）
+        :param scaler_path: 标准化参数JSON文件路径
+        :param code: 可选股票代码，用于添加code列
+        :return: 标准化后的DataFrame
+        """
+        # 加载参数
+        scaler_params = self._load_scaler(scaler_path)
+        
+        # 清洗和特征工程
+        df = self.clean_single_stock(raw_df)
+        df = self.add_features(df)
+        if code:
+            df['code'] = code
+        
+        # 应用标准化（只对训练集存在的特征进行转换）
+        feature_cols = [col for col in scaler_params.keys() if col in df.columns]
+        for col in feature_cols:
+            std = scaler_params[col]['std']
+            mean = scaler_params[col]['mean']
+            df[col] = (df[col] - mean) / std
+        
+        # 如果新数据中有训练集没有的特征（例如因为新增了特征），这里可以忽略或填充
+        return df
 
 
 # ==================== 命令行入口 ====================
 if __name__ == "__main__":
-    # 配置路径（根据实际项目调整）
     PROJECT_ROOT = Path(__file__).parent.parent.parent
     RAW_DIR = PROJECT_ROOT / "data" / "raw"
     CLEAN_DIR = PROJECT_ROOT / "data" / "clean"
     STOCK_LIST_FILE = PROJECT_ROOT / "data" / "stock_list" / "hs300_20260629.txt"
+    SCALER_PATH = CLEAN_DIR / "scaler_params.json"
 
     preprocessor = DataPreprocessor(
         raw_dir=RAW_DIR,
@@ -266,14 +373,32 @@ if __name__ == "__main__":
         end_date="2024-12-31"
     )
 
-    # 执行处理
-    combined_df = preprocessor.process_all_stocks(normalize=True, save_combined=True)
+    # 执行处理并保存全局标准化参数
+    combined_df = preprocessor.process_all_stocks_and_save_scaler(
+        normalize=True, 
+        save_combined=True,
+        scaler_path=SCALER_PATH
+    )
 
     if combined_df is not None:
-        # 划分数据集
-        train, val, test = preprocessor.split_time_series(combined_df, train_ratio=0.7, val_ratio=0.15)
-        # 保存划分结果（含股票代码和日期）
+        # 划分数据集（基于标准化后的数据）
+        train, val, test = preprocessor.split_time_series(combined_df)
         train.to_parquet(CLEAN_DIR / "train.parquet", index=False)
         val.to_parquet(CLEAN_DIR / "val.parquet", index=False)
         test.to_parquet(CLEAN_DIR / "test.parquet", index=False)
         print("🎯 数据集划分完成并保存。")
+    
+    '''
+    # 假设 new_df 是从 AKShare 最新获取的原始数据
+    new_df = ak.stock_zh_a_hist(...)  # 原始格式
+
+    # 加载之前保存的标准化参数并转换
+    preprocessor = DataPreprocessor(...)  # 初始化（无需设置股票列表）
+    scaled_new = preprocessor.transform_new_data(
+        raw_df=new_df, 
+        scaler_path=CLEAN_DIR / "scaler_params.json",
+        code="000001"
+    )
+
+    # 现在 scaled_new 与训练集处于同一分布，可送入模型预测
+    '''
