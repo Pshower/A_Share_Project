@@ -1,0 +1,7 @@
+# 数据文件
+data/raw/*.csv
+data/raw/*.parquet
+
+# 缓存文件
+__pycache__
+.pytest_cache

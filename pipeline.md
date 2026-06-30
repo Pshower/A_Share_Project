@@ -31,9 +31,14 @@
 ```text
 project/
   data/                 # 原始数据、处理后数据、特征数据
+    history_data        # 历史数据
+    raw                 # 下载的原始数据和缓存
+    stock_list          # 需要的股票列表
   configs/              # 数据、模型、训练、回测配置
   src/
     data/               # 数据采集、清洗、校验
+      data_socket.py    # 数据下载接口
+      download.py       # 数据下载脚本
     features/           # 特征工程
     envs/               # 强化学习交易环境
     agents/             # 智能体封装
