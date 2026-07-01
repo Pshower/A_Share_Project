@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -10,34 +10,51 @@ warnings.filterwarnings('ignore')
 class CleanDataAnalyzer:
     """
     分析清洗后的特征数据（Parquet格式）
-    - 统计每只股票的特征缺失率、异常值
-    - 计算特征间的相关性（可选）
-    - 检查标准化后特征分布
-    - 生成汇总统计报告
+    - 优先加载 all_stocks_features.parquet（合并长表）
+    - 若不存在则加载单个股票 Parquet 文件并合并
+    - 统计每只股票的数据长度、日期范围、缺失率
+    - 检查标准化质量（均值、标准差）
+    - 检测异常值比例（绝对值>3）
+    - 生成汇总报告
     """
 
     def __init__(self, clean_dir: Path):
         self.clean_dir = Path(clean_dir)
+        self.combined_file = self.clean_dir / "all_stocks_features.parquet"
+        self.panel_file = self.clean_dir / "panel_data.parquet"
 
     def load_clean_data(self) -> pd.DataFrame:
-        """读取所有股票的清洗后特征并合并"""
-        all_dfs = []
-        parquet_files = list(self.clean_dir.glob("*_features.parquet"))
-        if not parquet_files:
-            raise FileNotFoundError(f"在 {self.clean_dir} 中未找到任何 Parquet 文件")
-        for f in parquet_files:
-            df = pd.read_parquet(f)
-            all_dfs.append(df)
-        combined = pd.concat(all_dfs, ignore_index=True)
-        return combined
+        """
+        加载清洗后的数据
+        优先使用 all_stocks_features.parquet，若不存在则合并单个股票文件
+        """
+        if self.combined_file.exists():
+            df = pd.read_parquet(self.combined_file)
+            print(f"✅ 加载合并文件: {self.combined_file.name}, 共 {len(df)} 条记录")
+            return df
+        else:
+            # 回退到单个文件合并
+            print("⚠️ 未找到合并文件，尝试加载单个股票特征文件...")
+            all_dfs = []
+            parquet_files = list(self.clean_dir.glob("*_features.parquet"))
+            if not parquet_files:
+                raise FileNotFoundError(f"在 {self.clean_dir} 中未找到任何 Parquet 文件")
+            for f in parquet_files:
+                df = pd.read_parquet(f)
+                all_dfs.append(df)
+            combined = pd.concat(all_dfs, ignore_index=True)
+            print(f"✅ 合并了 {len(all_dfs)} 个股票文件，共 {len(combined)} 条记录")
+            return combined
 
     def analyze_per_stock(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         按股票统计：
-        - 记录数、特征缺失率（标准化后不应有缺失）
-        - 检查是否存在无穷值（inf/-inf）
-        - 特征均值（应接近0）、标准差（应接近1）——标准化验证
-        - 异常值比例（绝对值>3）
+        - 记录数、日期范围
+        - 特征缺失率（应无缺失）
+        - 无穷值数量
+        - 特征均值和标准差（验证标准化效果）
+        - 异常值比例（|z|>3）
+        - 平均绝对差分（波动稳定性）
         """
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         # 排除 code 列（如果是数值型但不应作为特征）
@@ -48,21 +65,24 @@ class CleanDataAnalyzer:
             sub = df[df['code'] == code]
             n_rows = len(sub)
 
-            # 检查是否有缺失（标准化后不应有）
+            # 日期范围
+            start_date = sub['date'].min()
+            end_date = sub['date'].max()
+
+            # 缺失值（标准化后不应有）
             missing_ratio = sub[numeric_cols].isnull().mean().mean()
 
-            # 检查无穷值
+            # 无穷值
             inf_count = sub[numeric_cols].isin([np.inf, -np.inf]).sum().sum()
 
-            # 均值与标准差
+            # 均值和标准差（越接近0和1越好）
             means = sub[numeric_cols].mean()
             stds = sub[numeric_cols].std()
 
-            # 异常值比例（绝对值>3）
+            # 异常值比例 (|z| > 3)
             outlier_ratio = (np.abs(sub[numeric_cols]) > 3).mean().mean()
 
-            # 特征波动性：每日特征变化的平均绝对值（衡量稳定性）
-            # 只取日期时间特征，排除非时间序列
+            # 特征时间序列平均绝对差分（稳定性）
             if 'date' in sub.columns:
                 sub_sorted = sub.sort_values(['code', 'date'])
                 # 对所有数值特征计算差分绝对值的均值
@@ -73,6 +93,8 @@ class CleanDataAnalyzer:
             records.append({
                 'code': code,
                 'rows': n_rows,
+                'start_date': start_date,
+                'end_date': end_date,
                 'missing_ratio': missing_ratio,
                 'inf_count': inf_count,
                 'mean_feature': means.mean(),
@@ -106,16 +128,28 @@ class CleanDataAnalyzer:
         }
         return stats
 
-    def generate_report(self, save_path: Path = None) -> pd.DataFrame:
-        """生成完整报告并保存为CSV"""
-        df = self.load_clean_data()
-        print(f"✅ 加载了 {len(df)} 条记录，涵盖 {df['code'].nunique()} 只股票")
+    def check_panel_data(self) -> Optional[Dict]:
+        """如果面板数据存在，输出其形状信息"""
+        if self.panel_file.exists():
+            panel = pd.read_parquet(self.panel_file)
+            return {
+                'shape': panel.shape,
+                'n_dates': len(panel.index),
+                'n_stocks': panel.columns.get_level_values(0).nunique(),
+                'n_features': panel.columns.get_level_values(1).nunique()
+            }
+        return None
 
-        # 按股票分析
+    def generate_report(self, save_path: Optional[Path] = None) -> pd.DataFrame:
+        """生成完整报告并打印摘要"""
+        df = self.load_clean_data()
+        print(f"总记录数: {len(df)}, 涵盖 {df['code'].nunique()} 只股票")
+
+        # 按股票统计
         per_stock = self.analyze_per_stock(df)
         overall = self.analyze_overall_distribution(df)
 
-        # 打印摘要
+        # 打印总体统计
         print("\n" + "="*60)
         print("清洗后数据质量报告")
         print("="*60)
@@ -130,21 +164,39 @@ class CleanDataAnalyzer:
             overall['percentiles'][99]
         ))
 
-        # 每只股票的统计摘要
-        print("\n每只股票统计摘要（前10行）：")
-        print(per_stock.head(10).to_string(index=False))
-
-        # 检查标准化是否合格：均值是否接近0，标准差是否接近1
+        # 标准化质量检查
         mean_means = per_stock['mean_feature'].mean()
         mean_stds = per_stock['std_feature'].mean()
         print(f"\n标准化质量检查：")
         print(f"  所有特征平均均值: {mean_means:.6f} (理想为0)")
         print(f"  所有特征平均标准差: {mean_stds:.6f} (理想为1)")
 
+        # 检查是否有股票记录数过少（如 < 100）
+        short_stocks = per_stock[per_stock['rows'] < 100]
+        if not short_stocks.empty:
+            print(f"\n⚠️ 以下股票交易日数少于100，建议检查或剔除：")
+            print(short_stocks[['code', 'rows']].to_string(index=False))
+
+        # 检查是否有异常股票（标准差偏离1太多）
+        std_deviation = per_stock['std_feature']
+        abnormal_std = per_stock[(std_deviation < 0.5) | (std_deviation > 1.5)]
+        if not abnormal_std.empty:
+            print(f"\n⚠️ 以下股票特征标准差异常（<0.5 或 >1.5），可能存在标准化问题：")
+            print(abnormal_std[['code', 'std_feature']].to_string(index=False))
+
+        # 面板数据信息（如果有）
+        panel_info = self.check_panel_data()
+        if panel_info:
+            print(f"\n📊 面板数据信息:")
+            print(f"  形状: {panel_info['shape']}")
+            print(f"  日期数: {panel_info['n_dates']}")
+            print(f"  股票数: {panel_info['n_stocks']}")
+            print(f"  特征数: {panel_info['n_features']}")
+
         # 保存报告
         if save_path:
             per_stock.to_csv(save_path, index=False, encoding='utf-8-sig')
-            print(f"📊 报告已保存至 {save_path}")
+            print(f"\n📊 详细报告已保存至 {save_path}")
 
         return per_stock
 

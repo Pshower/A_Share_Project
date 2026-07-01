@@ -40,6 +40,11 @@ project/
     data/               # 数据采集、清洗、校验
       data_socket.py    # 数据下载接口
       download.py       # 数据下载脚本
+      data_preview.py   # 下载数据预览
+      preprocess.py     # 特征扩展、标准化和数据集划分
+      clean_data_
+        analysis.py     # 清洗数据分析
+      
     features/           # 特征工程
     envs/               # 强化学习交易环境
     agents/             # 智能体封装

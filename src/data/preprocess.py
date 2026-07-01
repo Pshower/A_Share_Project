@@ -9,6 +9,7 @@ from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
+
 class DataPreprocessor:
     """
     股票数据预处理类
@@ -18,6 +19,7 @@ class DataPreprocessor:
     - 标准化（Z-Score）
     - 按时间划分数据集
     - 保存为Parquet格式
+    - 时间序列对齐生成面板数据
     """
 
     def __init__(self,
@@ -82,20 +84,17 @@ class DataPreprocessor:
         # 确保日期排序
         df = df.sort_values('date').reset_index(drop=True)
 
-        # 去除停牌日：若 close 为 NaN 或成交量0，视为缺失
-        # 但后复权数据通常每日有值，成交量可能为0（停牌），保留这些行但标记
-        # 我们前向填充close，其余特征也可填充
+        # 前向填充价格列
         df['close'] = df['close'].ffill()
         # 其他价格列也可前向填充
         for col in ['open', 'high', 'low']:
             df[col] = df[col].ffill()
-        # 成交量可能为0，保持0
+        # 成交量等填充0
         df['volume'] = df['volume'].fillna(0)
         df['amount'] = df['amount'].fillna(0)
         df['turnover'] = df['turnover'].fillna(0)
 
-        # 删除开盘价为0的异常行（可能上市前数据）
-        df = df[df['open'] > 0]
+        df = df[df['open'] > 0]  # 删除无效行
 
         # 过滤日期范围
         if self.start_date:
@@ -106,16 +105,7 @@ class DataPreprocessor:
         return df
 
     def add_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        添加技术特征
-        - 日收益率、对数收益率
-        - 滚动波动率（20日）
-        - 价格相对均线（5,10,20,60日）
-        - RSI（14日）
-        - MACD
-        - 布林带上下轨
-        """
-        # 收益
+        """添加技术特征"""
         df['return'] = df['close'].pct_change()
         df['log_return'] = np.log(df['close'] / df['close'].shift(1))
 
@@ -156,14 +146,7 @@ class DataPreprocessor:
 
     def normalize_features(self, df: pd.DataFrame, fit: bool = True,
                            stats: Optional[dict] = None) -> Tuple[pd.DataFrame, dict]:
-        """
-        对特征列进行Z-Score标准化（按股票自身历史）
-        :param df: 包含特征列的DataFrame
-        :param fit: True时计算均值和标准差；False时使用传入的stats
-        :param stats: 包含均值和标准差的字典，用于变换
-        :return: 标准化后的DataFrame, 统计量字典
-        """
-        # 需要标准化的列（排除日期、价格、非数值列）
+        """Z-Score标准化"""
         feature_cols = [col for col in df.columns if col not in ['date', 'code'] and
                         df[col].dtype in ['float64', 'int64']]
 
@@ -186,70 +169,57 @@ class DataPreprocessor:
 
         return df, stats
 
-    def process_all_stocks(self, normalize: bool = True,
-                           save_combined: bool = True) -> pd.DataFrame:
+    def align_to_panel(self, 
+                       combined_df: pd.DataFrame,
+                       feature_cols: Optional[List[str]] = None,
+                       fill_method: str = 'ffill',
+                       output_path: Optional[Path] = None) -> pd.DataFrame:
         """
-        处理所有股票，返回合并后的DataFrame（按日期对齐）
-        - 每个股票处理完后，统一日期索引，合并为面板数据
-        - 保存每个股票的清洗特征到clean目录
-        - 可选保存合并后的全量数据
+        将多只股票的长表数据对齐为面板数据（宽表）
+        :param combined_df: 包含 'date', 'code' 及特征列的DataFrame
+        :param feature_cols: 需要对齐的特征列，若为None则使用所有数值列（除date, code）
+        :param fill_method: 缺失值填充方法 'ffill' (前向填充) 或 'bfill' 或 'zero'
+        :param output_path: 保存路径（可选）
+        :return: MultiIndex列的面板DataFrame，索引为日期，列为(code, feature)
         """
-        all_dfs = []
-        for code in self.stock_list:
-            try:
-                df = self._read_stock_data(code)
-                df = self.clean_single_stock(df)
-                df = self.add_features(df)
-                df['code'] = code  # 添加股票代码列
+        if feature_cols is None:
+            feature_cols = [col for col in combined_df.columns if col not in ['date', 'code']
+                            and combined_df[col].dtype in ['float64', 'int64']]
 
-                # 标准化（如果启用）
-                if normalize:
-                    df, _ = self.normalize_features(df, fit=True)
+        # 确保日期排序
+        combined_df = combined_df.sort_values(['date', 'code']).reset_index(drop=True)
 
-                # 保存单个股票的清洗结果（带日期和code，不含标准化？含标准化？建议保存标准化后的）
-                save_path = self.clean_dir / f"{code}_features.parquet"
-                df.to_parquet(save_path, index=False)
+        # 透视：索引=日期，列=股票代码，值=特征（需要分别处理每个特征）
+        # 方法：使用 pivot_table，但需要处理多列，先 melt 再 pivot
+        # 更高效：对每个特征分别 pivot，然后合并
+        panel_dfs = []
+        for feat in feature_cols:
+            pivot = combined_df.pivot(index='date', columns='code', values=feat)
+            # 填充缺失值
+            if fill_method == 'ffill':
+                pivot = pivot.ffill()
+            elif fill_method == 'bfill':
+                pivot = pivot.bfill()
+            elif fill_method == 'zero':
+                pivot = pivot.fillna(0)
+            else:
+                raise ValueError(f"不支持的填充方法: {fill_method}")
+            # 添加列层级（股票，特征）
+            pivot.columns = pd.MultiIndex.from_product([pivot.columns, [feat]],
+                                                       names=['code', 'feature'])
+            panel_dfs.append(pivot)
 
-                all_dfs.append(df)
-                print(f"✅ {code} 处理完成，共 {len(df)} 条记录")
-            except Exception as e:
-                print(f"❌ {code} 处理失败：{e}")
+        # 合并所有特征
+        panel = pd.concat(panel_dfs, axis=1)
+        # 排序列层级
+        panel = panel.sort_index(axis=1, level=0)
 
-        if save_combined and all_dfs:
-            # 合并所有股票数据，按日期对齐（outer join）
-            combined = pd.concat(all_dfs, ignore_index=True)
-            # 保存合并数据（便于后续使用）
-            combined_path = self.clean_dir / "all_stocks_features.parquet"
-            combined.to_parquet(combined_path, index=False)
-            print(f"📦 合并数据保存至 {combined_path}")
-            return combined
-        else:
-            return None
+        # 保存（可选）
+        if output_path:
+            panel.to_parquet(output_path)
+            print(f"📊 面板数据已保存至 {output_path}")
+        return panel
 
-    def split_time_series(self, df: pd.DataFrame,
-                          train_ratio: float = 0.7,
-                          val_ratio: float = 0.15,
-                          test_ratio: float = 0.15) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        """
-        按时间顺序划分数据集（保留时间顺序）
-        :param df: 包含date列的DataFrame
-        :return: train_df, val_df, test_df
-        """
-        dates = sorted(df['date'].unique())
-        n = len(dates)
-        train_end = int(n * train_ratio)
-        val_end = int(n * (train_ratio + val_ratio))
-
-        train_dates = dates[:train_end]
-        val_dates = dates[train_end:val_end]
-        test_dates = dates[val_end:]
-
-        train_df = df[df['date'].isin(train_dates)]
-        val_df = df[df['date'].isin(val_dates)]
-        test_df = df[df['date'].isin(test_dates)]
-
-        return train_df, val_df, test_df
-    
     def _save_scaler(self, scaler_params: dict, save_path: Path):
         """保存标准化参数为JSON文件"""
         with open(save_path, 'w') as f:
@@ -261,10 +231,13 @@ class DataPreprocessor:
         with open(load_path, 'r') as f:
             return json.load(f)
 
-    def process_all_stocks_and_save_scaler(self, 
+    def process_all_stocks_and_save_scaler(self,
                                            normalize: bool = True,
                                            save_combined: bool = True,
-                                           scaler_path: Optional[Path] = None) -> pd.DataFrame:
+                                           scaler_path: Optional[Path] = None,
+                                           align_panel: bool = True,
+                                           panel_feature_cols: Optional[List[str]] = None,
+                                           panel_fill: str = 'ffill') -> pd.DataFrame:
         """
         处理所有股票，并基于**全部数据**拟合全局标准化参数，保存到文件。
         修改点：将所有股票数据合并后，统一计算均值和标准差，而不是逐只股票独立计算。
@@ -286,9 +259,9 @@ class DataPreprocessor:
 
         # 合并所有数据
         combined = pd.concat(all_dfs, ignore_index=True)
-        
+
         # 选择需要标准化的特征列
-        feature_cols = [col for col in combined.columns if col not in ['date', 'code'] 
+        feature_cols = [col for col in combined.columns if col not in ['date', 'code']
                         and combined[col].dtype in ['float64', 'int64']]
 
         if normalize:
@@ -318,16 +291,51 @@ class DataPreprocessor:
             save_path = self.clean_dir / f"{code}_features.parquet"
             stock_df.to_parquet(save_path, index=False)
 
-        # 保存合并数据
+        # 保存合并数据（长表）
         if save_combined:
             combined_path = self.clean_dir / "all_stocks_features.parquet"
             combined.to_parquet(combined_path, index=False)
-            print(f"📦 合并数据保存至 {combined_path}")
+            print(f"📦 合并数据（长表）保存至 {combined_path}")
+
+        # 生成面板数据（多股票×多特征宽表）
+        if align_panel:
+            panel_path = self.clean_dir / "panel_data.parquet"
+            panel = self.align_to_panel(
+                combined_df=combined,
+                feature_cols=panel_feature_cols,
+                fill_method=panel_fill,
+                output_path=panel_path
+            )
+            # 额外保存面板数据的日期索引，便于快速切片
+            dates = panel.index
+            dates_path = self.clean_dir / "panel_dates.parquet"
+            pd.DataFrame({'date': panel.index}).to_parquet(dates_path, index=False)
+            print(f"📅 面板日期索引已保存至 {dates_path}")
 
         return combined
 
-    def transform_new_data(self, 
-                           raw_df: pd.DataFrame, 
+    def split_time_series(self, df: pd.DataFrame,
+                          train_ratio: float = 0.7,
+                          val_ratio: float = 0.15,
+                          test_ratio: float = 0.15) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """按时间顺序划分数据集"""
+        dates = sorted(df['date'].unique())
+        n = len(dates)
+        train_end = int(n * train_ratio)
+        val_end = int(n * (train_ratio + val_ratio))
+
+        train_dates = dates[:train_end]
+        val_dates = dates[train_end:val_end]
+        test_dates = dates[val_end:]
+
+        train_df = df[df['date'].isin(train_dates)]
+        val_df = df[df['date'].isin(val_dates)]
+        test_df = df[df['date'].isin(test_dates)]
+
+        return train_df, val_df, test_df
+
+    def transform_new_data(self,
+                           raw_df: pd.DataFrame,
                            scaler_path: Path,
                            code: Optional[str] = None) -> pd.DataFrame:
         """
@@ -373,15 +381,18 @@ if __name__ == "__main__":
         end_date="2024-12-31"
     )
 
-    # 执行处理并保存全局标准化参数
+    # 执行处理并保存全局标准化参数，同时生成面板数据
     combined_df = preprocessor.process_all_stocks_and_save_scaler(
-        normalize=True, 
+        normalize=True,
         save_combined=True,
-        scaler_path=SCALER_PATH
+        scaler_path=SCALER_PATH,
+        align_panel=True,                     # 开启面板数据生成
+        panel_feature_cols=None,              # 使用所有数值特征
+        panel_fill='ffill'                    # 前向填充缺失交易日
     )
 
     if combined_df is not None:
-        # 划分数据集（基于标准化后的数据）
+        # 划分数据集（基于长表）
         train, val, test = preprocessor.split_time_series(combined_df)
         train.to_parquet(CLEAN_DIR / "train.parquet", index=False)
         val.to_parquet(CLEAN_DIR / "val.parquet", index=False)
