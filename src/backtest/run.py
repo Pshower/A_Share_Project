@@ -30,9 +30,15 @@ def git_metadata():
 
 def run_strategy(market, name, settings):
     broker_config = BrokerConfig(**settings["broker"])
-    env = TradingEnv(market, initial_capital=settings["initial_capital"], broker_config=broker_config)
     strategy = Baseline(name, market.feature_cols, max_weight=broker_config.max_weight,
                         rebalance_every=settings["rebalance_every"], top_k=settings["momentum_top_k"])
+    return run_policy(market, strategy, settings)
+
+
+def run_policy(market, strategy, settings):
+    """Shared execution and accounting audit for baselines and learned policies."""
+    env = TradingEnv(market, initial_capital=settings["initial_capital"],
+                     broker_config=BrokerConfig(**settings["broker"]))
     obs, initial = env.reset(seed=settings["seed"])
     daily = [dict(date=initial["date"], equity=initial["equity"], cash=initial["cash"],
                   daily_return=0.0, fee=0.0, slippage_cost=0.0, turnover=0.0,
@@ -79,7 +85,7 @@ def run_strategy(market, name, settings):
     return daily, holdings, orders, info["assumptions"]
 
 
-def plot_report(results, output):
+def plot_report(results, output, title="Validation baselines - HFQ research simulation"):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -93,7 +99,7 @@ def plot_report(results, output):
         axis.set_ylabel(label)
         axis.grid(alpha=0.25)
     axes[0].legend(ncol=2)
-    fig.suptitle("Validation baselines - HFQ research simulation")
+    fig.suptitle(title)
     fig.savefig(output / "curves.png", dpi=150)
     plt.close(fig)
 

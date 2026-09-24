@@ -1,0 +1,25 @@
+{
+  "research_config": "configs/research.json",
+  "stock_codes": null,
+  "lookback": 1,
+  "seed": 42,
+  "device": "cpu",
+  "torch_threads": 1,
+  "hidden_sizes": [128, 64],
+  "logit_bound": 8.0,
+  "ppo": {
+    "n_steps": 256,
+    "batch_size": 64,
+    "learning_rate": 0.0003,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "target_kl": 0.03,
+    "ent_coef": 0.0,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5
+  },
+  "validation_rollouts": 10,
+  "output_root": "reports/runs/ppo"
+}
