@@ -265,3 +265,44 @@ def test_hfq_mode_and_missing_constraints_are_disclosed():
     assert info["price_basis"] == "hfq_research"
     assert any("No suspended" in a for a in info["assumptions"])
     assert any("not real execution" in a for a in info["assumptions"])
+
+
+def test_dividend_receivable_payment_and_bonus_share_unlock():
+    f, p = panels()
+    p.loc[p.index[2]:, ("000001", "open")] = 4.5
+    p.loc[p.index[2]:, ("000001", "close")] = 4.5
+    p.loc[p.index[2]:, ("000001", "limit_up")] = 5.0
+    p.loc[p.index[2]:, ("000001", "limit_down")] = 4.0
+    events = pd.DataFrame([dict(date=f.index[2], code="000001", cash_per_share=1.0,
+                                share_multiplier=2.0, payment_date=f.index[3], share_available_date=f.index[4])])
+    env = TradingEnv(market(f, p, corporate_actions=events), initial_capital=1000,
+                     broker_config=BrokerConfig(commission=0))
+    env.reset()
+    env.step([1, 0])
+    obs, reward, _, _, info = env.advance()
+    assert info["positions"][0] == 200
+    assert info["available_positions"][0] == 100
+    assert info["receivables"] == 100 and info["cash"] == 0
+    assert info["equity"] == 1000 and reward == 0
+    assert obs["receivable_ratio"][0] == pytest.approx(0.1)
+    _, reward, _, _, info = env.advance()
+    assert info["cash"] == 100 and info["receivables"] == 0
+    assert info["available_positions"][0] == 100
+    assert info["equity"] == 1000 and reward == 0
+    _, _, _, _, info = env.advance()
+    assert info["available_positions"][0] == 200
+    env.reset()
+    assert env.portfolio.receivable_value == 0
+    assert env.portfolio.share_locks == []
+
+
+def test_corporate_actions_reject_hfq_double_counting_and_fractional_shares():
+    f, p = panels()
+    with pytest.raises(ValueError, match="second time"):
+        MarketDataProvider(f, price_path=p, price_basis="hfq_research", corporate_actions=pd.DataFrame())
+    portfolio = account()
+    portfolio.fill(0, 1, 10, 0)
+    before = portfolio.cash
+    with pytest.raises(ValueError, match="Fractional"):
+        portfolio.apply_corporate_action(0, 1, 1.5, "2024-01-02", "2024-01-02")
+    assert portfolio.cash == before and portfolio.positions[0] == 1

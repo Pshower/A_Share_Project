@@ -30,11 +30,11 @@ def test_download_aggregates_each_stock_once_with_hfq(tmp_path):
     expected = pd.concat(frames, ignore_index=True)
     pd.testing.assert_frame_equal(combined, expected)
     assert not combined.duplicated(["date", "code"]).any()
-    saved = pd.read_csv(tmp_path / "stock_data_hs300_2017_2024_hfq.csv",
+    saved = pd.read_csv(tmp_path / "stock_data_hs300_20170101_20260626_hfq.csv",
                         dtype={"code": str})
     pd.testing.assert_frame_equal(saved, expected)
     for code, frame in zip(codes, frames):
-        individual = pd.read_csv(tmp_path / f"{code}_data_2017_2024_hfq.csv",
+        individual = pd.read_csv(tmp_path / f"{code}_data_20170101_20260626_hfq.csv",
                                  dtype={"code": str})
         pd.testing.assert_frame_equal(individual, frame)
 

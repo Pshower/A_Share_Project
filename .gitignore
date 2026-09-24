@@ -7,3 +7,7 @@ data/clean/*.parquet
 # 缓存文件
 __pycache__
 .pytest_cache
+
+# Versioned research artifacts and detailed local experiment outputs
+data/clean/*/
+reports/runs/

@@ -22,14 +22,58 @@ class Portfolio:
         self.cost_basis = np.zeros(self.n_stocks, dtype=np.float64)
         self.current_date = None
         self.total_fees = 0.0
+        self.receivables = []
+        self.share_locks = []
+        self.event_cash = 0.0
+        self.event_shares = np.zeros(self.n_stocks)
 
     def start_day(self, date):
         date = pd.Timestamp(date).normalize()
         if pd.isna(date) or (self.current_date is not None and date < self.current_date):
             raise ValueError("Trading dates must be valid and nondecreasing")
         if self.current_date is None or date > self.current_date:
+            self.event_cash = sum(amount for due, amount in self.receivables if due <= date)
+            self.cash += self.event_cash
+            self.receivables = [(due, amount) for due, amount in self.receivables if due > date]
+            self.share_locks = [(due, asset, qty) for due, asset, qty in self.share_locks if due > date]
             self.available_positions = self.positions.copy()
+            for _, asset, qty in self.share_locks:
+                self.available_positions[asset] -= qty
+            self.event_shares = np.zeros(self.n_stocks)
             self.current_date = date
+
+    @property
+    def receivable_value(self):
+        return sum(amount for _, amount in self.receivables)
+
+    def apply_corporate_action(self, asset, cash_per_share, share_multiplier, payment_date, share_available_date):
+        """Apply ex-date entitlements to pre-event holdings; bonus shares can remain locked."""
+        if self.current_date is None or not 0 <= asset < self.n_stocks:
+            raise ValueError("Corporate action requires a trading day and valid asset")
+        payment_date, share_available_date = pd.Timestamp(payment_date), pd.Timestamp(share_available_date)
+        if (not np.isfinite([cash_per_share, share_multiplier]).all() or cash_per_share < 0
+                or share_multiplier < 1 or pd.isna(payment_date) or pd.isna(share_available_date)
+                or payment_date < self.current_date or share_available_date < self.current_date):
+            raise ValueError("Invalid corporate action dates or ratios")
+        old = self.positions[asset]
+        bonus = old * (share_multiplier - 1)
+        if not np.isclose(bonus, round(bonus), rtol=0, atol=1e-8):
+            raise ValueError("Fractional bonus shares require an explicit cash-in-lieu policy")
+        bonus = float(round(bonus))
+        dividend = old * cash_per_share
+        if payment_date == self.current_date:
+            self.cash += dividend
+            self.event_cash += dividend
+        elif dividend:
+            self.receivables.append((payment_date, dividend))
+        if bonus:
+            self.positions[asset] += bonus
+            self.event_shares[asset] += bonus
+            self.cost_basis[asset] /= share_multiplier
+            if share_available_date <= self.current_date:
+                self.available_positions[asset] += bonus
+            else:
+                self.share_locks.append((share_available_date, asset, bonus))
 
     def _vector(self, values, name):
         values = np.asarray(values, dtype=np.float64)
@@ -42,7 +86,7 @@ class Portfolio:
         held = self.positions > 0
         if np.any(~np.isfinite(prices[held]) | (prices[held] <= 0)):
             raise ValueError("Held assets require finite positive valuation prices")
-        return float(self.cash + np.dot(self.positions[held], prices[held]))
+        return float(self.cash + self.receivable_value + np.dot(self.positions[held], prices[held]))
 
     def fill(self, asset, shares, price, fee):
         if self.current_date is None:

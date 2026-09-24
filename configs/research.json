@@ -1,0 +1,38 @@
+{
+  "dataset": {
+    "version": "research_v3",
+    "raw_dir": "data/raw",
+    "clean_dir": "data/clean/research_v3",
+    "stock_list_path": "data/stock_list/hs300_20260629.txt",
+    "raw_pattern": "{code}_data_2017_2024_hfq.csv",
+    "start_date": "2017-01-01",
+    "train_end": "2022-08-05",
+    "val_end": "2023-10-20",
+    "end_date": "2024-12-31",
+    "train_codes": null,
+    "volume_multiplier": 100
+  },
+  "backtest": {
+    "split": "val",
+    "initial_capital": 1000000,
+    "seed": 42,
+    "lookback": 1,
+    "rebalance_every": 20,
+    "momentum_top_k": 20,
+    "broker": {
+      "commission": 0.0003,
+      "min_commission": 5.0,
+      "sell_tax": 0.0005,
+      "slippage": 0.001,
+      "lot_size": 100,
+      "max_weight": 0.05,
+      "volume_fraction": 0.01
+    },
+    "benchmark_path": null,
+    "output_root": "reports/runs"
+  },
+  "download": {
+    "start_date": "20170101",
+    "end_date": "20260626"
+  }
+}

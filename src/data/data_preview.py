@@ -21,7 +21,7 @@ class DataPreview:
 
     def _load_stock_list(self, file_path: Path) -> List[str]:
         """从文本文件读取股票代码"""
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, 'r', encoding='utf-8-sig') as f:
             codes = [line.strip() for line in f if line.strip()]
         return codes
 
@@ -29,10 +29,8 @@ class DataPreview:
         """查找后复权数据文件"""
         # 匹配模式：{code}_data_*_hfq.csv
         candidates = list(self.raw_dir.glob(f"{code}_data_*_hfq.csv"))
-        if not candidates:
-            # 尝试无hfq后缀或其它命名，但建议使用后复权
-            candidates = list(self.raw_dir.glob(f"{code}_data_*.csv"))
-            # 过滤掉可能包含 "hfq" 的已经捕获，所以这里可以保留
+        if len(candidates) > 1:
+            raise ValueError(f"Multiple HFQ sources for {code}; select a version explicitly")
         if candidates:
             return candidates[0]  # 取第一个
         return None

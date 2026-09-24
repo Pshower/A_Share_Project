@@ -115,8 +115,7 @@ class DataFetcher:
             params=params,
             fetcher_func=ak.stock_szse_summary,
             use_cache=use_cache,
-            max_age=max_age,
-            date=date
+            max_age=max_age
         )
 
     def get_szse_area_summary(self, date: str, use_cache: bool = True, max_age: Optional[float] = 86400) -> pd.DataFrame:
@@ -130,8 +129,7 @@ class DataFetcher:
             params=params,
             fetcher_func=ak.stock_szse_area_summary,
             use_cache=use_cache,
-            max_age=max_age,
-            date=date
+            max_age=max_age
         )
 
     # ==================== 实时行情 ====================
@@ -263,9 +261,7 @@ class DataFetcher:
             params=params,
             fetcher_func=ak.stock_individual_fund_flow,
             use_cache=use_cache,
-            max_age=max_age,
-            stock=stock,
-            market=market
+            max_age=max_age
         )
 
     def get_sector_fund_flow_rank(self, indicator: str = "今日", sector_type: str = "行业资金流",
@@ -281,9 +277,7 @@ class DataFetcher:
             params=params,
             fetcher_func=ak.stock_sector_fund_flow_rank,
             use_cache=use_cache,
-            max_age=max_age,
-            indicator=indicator,
-            sector_type=sector_type
+            max_age=max_age
         )
 
     def get_north_south_fund_flow(self, symbol: str = "北向资金",
@@ -298,8 +292,7 @@ class DataFetcher:
             params=params,
             fetcher_func=ak.stock_hsgt_hist_em,
             use_cache=use_cache,
-            max_age=max_age,
-            symbol=symbol
+            max_age=max_age
         )
 
     # ==================== 板块行情 ====================
@@ -334,8 +327,7 @@ class DataFetcher:
             params=params,
             fetcher_func=ak.stock_board_industry_cons_em,
             use_cache=use_cache,
-            max_age=max_age,
-            symbol=symbol
+            max_age=max_age
         )
 
     def get_concept_board_cons(self, symbol: str, use_cache: bool = True, max_age: Optional[float] = 3600) -> pd.DataFrame:
@@ -349,8 +341,7 @@ class DataFetcher:
             params=params,
             fetcher_func=ak.stock_board_concept_cons_em,
             use_cache=use_cache,
-            max_age=max_age,
-            symbol=symbol
+            max_age=max_age
         )
 
     # ==================== 股票基础信息 ====================
@@ -375,8 +366,7 @@ class DataFetcher:
             params=params,
             fetcher_func=ak.stock_individual_info_em,
             use_cache=use_cache,
-            max_age=max_age,
-            symbol=symbol
+            max_age=max_age
         )
 
     def get_stock_bid_ask(self, symbol: str, use_cache: bool = True, max_age: Optional[float] = 30) -> pd.DataFrame:
@@ -391,8 +381,7 @@ class DataFetcher:
             params=params,
             fetcher_func=ak.stock_bid_ask_em,
             use_cache=use_cache,
-            max_age=max_age,
-            symbol=symbol
+            max_age=max_age
         )
 
     # ==================== 辅助功能 ====================

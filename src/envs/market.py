@@ -8,7 +8,7 @@ import pandas as pd
 
 class MarketDataProvider:
     def __init__(self, panel_path, feature_cols=None, *, price_path,
-                 price_basis, start_date=None, end_date=None, lookback=1):
+                 price_basis, start_date=None, end_date=None, lookback=1, corporate_actions=None):
         if price_basis not in {"unadjusted", "hfq_research"}:
             raise ValueError("Explicit price_basis must be unadjusted or hfq_research")
         if not isinstance(lookback, int) or lookback < 1:
@@ -30,6 +30,24 @@ class MarketDataProvider:
         self.lookback = lookback
         self.price_basis = price_basis
         all_dates = self.panel.index
+        self.corporate_actions = pd.DataFrame()
+        if corporate_actions is not None:
+            if price_basis != "unadjusted":
+                raise ValueError("Corporate actions cannot be applied to HFQ prices a second time")
+            events = (pd.read_parquet(corporate_actions) if not isinstance(corporate_actions, pd.DataFrame)
+                      else corporate_actions.copy())
+            required = {"date", "code", "cash_per_share", "share_multiplier", "payment_date", "share_available_date"}
+            if not required <= set(events.columns):
+                raise ValueError("Incomplete corporate action schema")
+            for col in ["date", "payment_date", "share_available_date"]:
+                events[col] = pd.to_datetime(events[col])
+            if (events[list(required)].isna().any().any() or events.duplicated(["date", "code"]).any()
+                    or not events.code.isin(self.stock_codes).all() or not events.date.isin(all_dates).all()
+                    or not np.isfinite(events[["cash_per_share", "share_multiplier"]].to_numpy(dtype=float)).all()
+                    or (events.cash_per_share < 0).any() or (events.share_multiplier < 1).any()
+                    or (events.payment_date < events.date).any() or (events.share_available_date < events.date).any()):
+                raise ValueError("Invalid corporate action values")
+            self.corporate_actions = events.sort_values(["date", "code"])
         self._features = np.stack([
             self.panel.loc[:, [(code, f) for f in self.feature_cols]].to_numpy(dtype=float)
             for code in self.stock_codes
@@ -68,7 +86,8 @@ class MarketDataProvider:
             raise ValueError("At least two dates are needed for next-day execution")
         self.prices = pd.DataFrame(self._valuation[selected], index=self.dates, columns=self.stock_codes)
         self.assumptions = [
-            "No corporate-action cash/share processing; provide an event-free interval or use explicit HFQ research mode.",
+            ("No corporate-action records supplied; use an event-free interval or explicit HFQ research mode."
+             if corporate_actions is None else "Corporate actions use supplied net dividends and integer bonus shares; no rights issues or cash-in-lieu."),
             "Missing closing quotes carry forward only for valuation; no delisting recovery model.",
         ]
         if price_basis == "hfq_research":
@@ -108,6 +127,11 @@ class MarketDataProvider:
     def get_state(self, idx=None):
         idx = self.current_index if idx is None else idx
         return self.observation(idx)[0][:, -1, :], self.prices.iloc[idx].to_numpy(copy=True)
+
+    def events_for(self, idx):
+        if self.corporate_actions.empty:
+            return []
+        return self.corporate_actions[self.corporate_actions.date == self.dates[idx]].to_dict("records")
 
     def execution(self, idx):
         j = self._indices[idx]

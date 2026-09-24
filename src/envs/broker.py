@@ -166,6 +166,7 @@ class BrokerSimulator:
             record = dict(date=date, code=portfolio.stock_codes[i], side="sell" if selling else "buy",
                           target_weight=float(weights[i]), requested_shares=requested,
                           filled_shares=float(filled), price=price, fee=float(fee),
+                          slippage_cost=float(filled * (price - prices[i])) if filled else 0.0,
                           status="rejected" if filled == 0 else "filled" if filled == requested else "partial",
                           reasons=why, cash_after=portfolio.cash,
                           position_after=float(portfolio.positions[i]))

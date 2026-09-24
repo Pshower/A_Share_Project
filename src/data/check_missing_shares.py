@@ -1,26 +1,14 @@
+"""Print source exclusion reasons from the offline dataset audit."""
+
+import argparse
 from pathlib import Path
-import numpy as np
+
 import pandas as pd
 
-clean_dir = Path("data/clean")
-stock_list_path = Path("data/stock_list/hs300_20260629.txt")
-with open(stock_list_path) as f:
-    expected = [line.strip() for line in f if line.strip()]
 
-# 读取合并文件
-df = pd.read_parquet(clean_dir / "all_stocks_features.parquet")
-actual = df['code'].unique().tolist()
-
-missing = set(expected) - set(actual)
-print("缺失的股票代码：", missing)
-
-raw_dir = Path("data/raw")
-for code in missing:
-    files = list(raw_dir.glob(f"{code}_data_*_hfq.csv"))
-    if files:
-        df = pd.read_csv(files[0], parse_dates=['日期'])
-        print(f"{code} 数据行数: {len(df)}")
-        print(f"日期范围: {df['日期'].min()} 至 {df['日期'].max()}")
-        print(f"开盘价正数行数: {(df['开盘'] > 0).sum()}")
-    else:
-        print(f"{code} 未找到数据文件")
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--data", type=Path, default=Path(__file__).resolve().parents[2] / "data/clean/research_v3")
+    args = parser.parse_args()
+    audit = pd.read_csv(args.data / "source_audit.csv", dtype={"code": str})
+    print(audit.loc[audit.status != "included", ["code", "source_start", "source_end", "status"]].to_string(index=False))

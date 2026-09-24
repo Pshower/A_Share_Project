@@ -9,6 +9,8 @@ import pytest
 import pandas as pd
 from src.data.data_socket import DataFetcher
 
+pytestmark = pytest.mark.network
+
 
 @pytest.fixture
 def fetcher(tmp_path):
