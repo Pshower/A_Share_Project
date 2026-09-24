@@ -1,67 +1,118 @@
+"""Long-only cash and share accounting, including T+1 settlement."""
+
 import numpy as np
-from typing import Tuple
+import pandas as pd
+
 
 class Portfolio:
-    """
-    管理现金、持仓及资产估值
-    """
-    def __init__(self, initial_capital: float = 1e6, stock_codes: list = None):
-        self.initial_capital = initial_capital
-        self.cash = initial_capital
-        self.stock_codes = stock_codes or []
+    def __init__(self, initial_capital=1e6, stock_codes=None):
+        if not np.isfinite(initial_capital) or initial_capital <= 0:
+            raise ValueError("initial_capital must be finite and positive")
+        self.initial_capital = float(initial_capital)
+        self.stock_codes = list(stock_codes or [])
+        if len(set(self.stock_codes)) != len(self.stock_codes):
+            raise ValueError("stock_codes must be unique")
         self.n_stocks = len(self.stock_codes)
-        # 持仓股数
-        self.positions = np.zeros(self.n_stocks, dtype=np.float64)   # 股数
-        # 持仓成本（用于计算盈亏，可忽略）
-        self.cost_basis = np.zeros(self.n_stocks)
-    
+        self.reset()
+
     def reset(self):
         self.cash = self.initial_capital
-        self.positions = np.zeros(self.n_stocks)
-        self.cost_basis = np.zeros(self.n_stocks)
-    
-    def value(self, prices: np.ndarray) -> float:
-        """计算当前组合总资产 = 现金 + 持仓市值"""
-        return self.cash + np.sum(self.positions * prices)
-    
-    def update_positions(self, new_positions: np.ndarray, prices: np.ndarray, 
-                         transaction_cost: float = 0.0) -> Tuple[float, float]:
-        """
-        根据目标股数更新持仓，返回交易成本和交易金额（正为买入，负为卖出）
-        假设市价成交，无滑点（可由broker处理）
-        """
-        # 计算买卖股数差值
-        delta = new_positions - self.positions
-        # 交易金额（不含费用）
-        trade_amount = np.sum(delta * prices)
-        # 交易费用（假设按交易金额比例）
-        fee = abs(trade_amount) * transaction_cost
-        # 更新现金
-        self.cash -= (trade_amount + fee)
-        # 更新持仓
-        self.positions = new_positions.copy()
-        # 更新成本（简单起见，加权平均）
-        # 此处略，可后续实现
-        return fee, trade_amount
-    
-    def apply_weights(self, weights: np.ndarray, prices: np.ndarray, 
-                      transaction_cost: float = 0.0) -> Tuple[float, float]:
-        """
-        根据目标权重（占总资产比例）调整仓位
-        weights: (n_stocks,)，和为1（含现金？这里只处理股票部分）
-        假设现金为剩余部分
-        """
-        total_asset = self.value(prices)
-        target_values = weights * total_asset
-        target_shares = target_values / prices
-        return self.update_positions(target_shares, prices, transaction_cost)
-    
-    def get_weights(self, prices: np.ndarray) -> np.ndarray:
-        """计算当前股票权重（占总资产比例）"""
+        self.positions = np.zeros(self.n_stocks, dtype=np.float64)
+        self.available_positions = np.zeros(self.n_stocks, dtype=np.float64)
+        self.cost_basis = np.zeros(self.n_stocks, dtype=np.float64)
+        self.current_date = None
+        self.total_fees = 0.0
+
+    def start_day(self, date):
+        date = pd.Timestamp(date).normalize()
+        if pd.isna(date) or (self.current_date is not None and date < self.current_date):
+            raise ValueError("Trading dates must be valid and nondecreasing")
+        if self.current_date is None or date > self.current_date:
+            self.available_positions = self.positions.copy()
+            self.current_date = date
+
+    def _vector(self, values, name):
+        values = np.asarray(values, dtype=np.float64)
+        if values.shape != (self.n_stocks,):
+            raise ValueError(f"{name} must have shape ({self.n_stocks},)")
+        return values
+
+    def value(self, prices):
+        prices = self._vector(prices, "prices")
+        held = self.positions > 0
+        if np.any(~np.isfinite(prices[held]) | (prices[held] <= 0)):
+            raise ValueError("Held assets require finite positive valuation prices")
+        return float(self.cash + np.dot(self.positions[held], prices[held]))
+
+    def fill(self, asset, shares, price, fee):
+        if self.current_date is None:
+            raise ValueError("Call start_day before trading")
+        if not 0 <= asset < self.n_stocks:
+            raise ValueError("Invalid asset index")
+        if (not np.isfinite([shares, price, fee]).all() or price <= 0 or fee < 0
+                or shares == 0 or shares != np.floor(shares)):
+            raise ValueError("Fill requires integer shares, positive price and nonnegative fee")
+        if shares < 0 and -shares > self.available_positions[asset]:
+            raise ValueError("Sell exceeds T+1 available shares")
+        new_cash = self.cash - shares * price - fee
+        if new_cash < -1e-8:
+            raise ValueError("Insufficient cash including fees")
+        old_shares = self.positions[asset]
+        if shares > 0:
+            self.cost_basis[asset] = (
+                old_shares * self.cost_basis[asset] + shares * price + fee
+            ) / (old_shares + shares)
+        else:
+            self.available_positions[asset] += shares
+        self.positions[asset] += shares
+        if self.positions[asset] == 0:
+            self.cost_basis[asset] = 0
+        self.cash = max(0.0, float(new_cash))
+        self.total_fees += fee
+
+    def update_positions(self, new_positions, prices, transaction_cost=0.0):
+        """Apply an exact integer target atomically; use the broker for partial fills."""
+        target = self._vector(new_positions, "new_positions")
+        prices = self._vector(prices, "prices")
+        if (not np.isfinite(target).all() or np.any(target < 0)
+                or np.any(target != np.floor(target))):
+            raise ValueError("Target shares must be finite nonnegative integers")
+        if not np.isfinite(transaction_cost) or not 0 <= transaction_cost < 1:
+            raise ValueError("Invalid transaction_cost")
+        delta = target - self.positions
+        active = delta != 0
+        if np.any(~np.isfinite(prices[active]) | (prices[active] <= 0)):
+            raise ValueError("Trades require finite positive prices")
+        if self.current_date is None or np.any(-delta > self.available_positions):
+            raise ValueError("Call start_day and respect T+1 available shares")
+        net = float(np.dot(delta[active], prices[active]))
+        fees = float(np.dot(np.abs(delta[active]), prices[active]) * transaction_cost)
+        if self.cash - net - fees < -1e-8:
+            raise ValueError("Insufficient cash including fees")
+        for indices in (np.flatnonzero(delta < 0), np.flatnonzero(delta > 0)):
+            for i in indices:
+                self.fill(i, delta[i], prices[i], abs(delta[i]) * prices[i] * transaction_cost)
+        return fees, net
+
+    def apply_weights(self, weights, prices, transaction_cost=0.0):
+        """Compatibility helper for same-price, unconstrained research execution."""
+        from .broker import BrokerConfig, BrokerSimulator
+
+        if self.current_date is None:
+            raise ValueError("Call start_day before trading")
+        broker = BrokerSimulator(BrokerConfig(commission=transaction_cost))
+        orders = broker.rebalance(self, weights, prices, prices, self.current_date)
+        return (sum(o["fee"] for o in orders),
+                sum(o["filled_shares"] * o["price"] for o in orders if o["filled_shares"]))
+
+    def get_weights(self, prices):
         total = self.value(prices)
-        if total == 0:
-            return np.zeros(self.n_stocks)
-        return (self.positions * prices) / total
-    
-    def get_cash_ratio(self, prices: np.ndarray) -> float:
-        return self.cash / self.value(prices) if self.value(prices) > 0 else 1.0
+        weights = np.zeros(self.n_stocks)
+        held = self.positions > 0
+        if total > 0:
+            weights[held] = self.positions[held] * np.asarray(prices)[held] / total
+        return weights
+
+    def get_cash_ratio(self, prices):
+        total = self.value(prices)
+        return self.cash / total if total > 0 else 1.0
