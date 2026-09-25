@@ -1,0 +1,30 @@
+{
+  "research_config": "configs/research.json",
+  "stock_codes": [
+    "000001", "000408", "000708", "000963", "002028", "002241", "002463", "002648",
+    "300014", "300394", "300502", "301165", "600015", "600030", "600104", "600196",
+    "600415", "600522", "600690", "600893", "600989", "601077", "601169", "601336",
+    "601618", "601728", "601872", "601919", "603296", "605499", "688126", "688981"
+  ],
+  "lookback": 1,
+  "seed": 42,
+  "device": "cpu",
+  "torch_threads": 1,
+  "hidden_sizes": [128, 64],
+  "logit_bound": 8.0,
+  "ppo": {
+    "n_steps": 256,
+    "batch_size": 64,
+    "learning_rate": 0.0003,
+    "n_epochs": 10,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "target_kl": 0.03,
+    "ent_coef": 0.0,
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5
+  },
+  "validation_rollouts": 10,
+  "output_root": "reports/runs/ppo_lightweight"
+}

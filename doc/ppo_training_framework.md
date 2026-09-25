@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-阶段四的框架代码和无训练离线验收已完成，尚未启动 PPO 参数更新、短训练或正式训练，未评估真实数据测试集。不能据此判断策略收益或泛化效果。
+阶段四框架及无训练验收已完成，并已运行 32 只股票、8,192 步轻量训练及一次冻结测试。PPO 收益略高但风险指标不及等权，不能宣称策略优势或跨股票泛化；见 [摘要](reports/ppo_lightweight_20260925_summary.md) 和 [详细报告](reports/ppo_lightweight_20260925.md)。
 
 规划文档已先行提交：`66dbe26`，`docs: specify PPO agent and training framework plan`。本文负责实际运行方式；智能体行为与网络原理见 [PPO 设计](ppo_implementation_plan.md)，任务状态和验收证据统一见 [实施进度](implementation_plan.md)，其余文档见 [文档索引](README.md)。
 
@@ -68,11 +68,11 @@ python -B -m pytest -q -p no:cacheprovider
 
 初始化模型仅用于连通性检查，独立评估 CLI 会拒绝把它当成已训练的候选模型。
 
-## 未来如何启动训练
+## 显式启动训练
 
 只有同时提供 `--train` 和正整数 `--total-timesteps` 才会进入 PPO 更新。单独提供步数、遗漏训练预算、负数预算及同时提供检查/训练开关都会报错。
 
-下列命令只是未来短训练的示例，本次没有执行：
+下列为短训练命令示例；已完成的实验使用 `configs/ppo_lightweight.json`，具体预算和运行目录见报告：
 
 ```powershell
 python -B -m src.training.train --config configs/ppo.json --train --total-timesteps 512
@@ -88,12 +88,13 @@ SB3 按完整 rollout 执行，实际步数可能向上补足至 `n_steps` 的�
 - 每 10 个 rollout 更新完成后，在独立验证账户做确定性评估；最后一次更新完成后补做评估。
 - 按预先约定的验证 Sharpe 选模，同分比较累计收益；无定义 Sharpe 不参与最优模型选择。
 - 选出的模型与现金、买入持有、定期等权、定期动量及每日等权/动量对照使用同一账户审计与指标计算。无合法选模结果时，报告明确使用最终模型且未选出最优模型。
-- 不启动测试集，也不自动获取指数。PPO 报告目前不包含外部指数比较。
+- 训练入口不自动启动测试集；后述显式冻结流程用于独立测试。不会自动获取指数，PPO 报告目前不包含外部指数比较。
 
-每次运行独立目录，已有目录拒绝覆盖。未来训练输出包含：
+每次运行独立目录，已有目录拒绝覆盖。训练输出包含：
 
 ```text
 config.json / research_config.json / budget.json
+initial_model/ / training_audit.json / training_updates.csv
 logs/progress.csv
 validation_<step>/metrics.json、daily.csv、positions.parquet、orders.csv、report.md
 best_<step>/model.zip、metadata.json
@@ -104,13 +105,24 @@ selected_comparison/ 或 final_comparison_no_valid_selection/
 
 各策略的每日、持仓、订单文件分别位于报告目录下的策略子目录。元数据记录数据/scaler 哈希、股票和特征顺序、网络与映射版本、价格/成本口径、依赖、源码哈希、Git 状态及模型来源。
 
-未来可对已训练且契约匹配的模型单独运行验证：
+可对已训练且契约匹配的模型单独运行验证：
 
 ```powershell
 python -B -m src.training.evaluate --config configs/ppo.json --model reports/runs/ppo/RUN/best_STEP --output reports/runs/ppo/validation_review
 ```
 
-`RUN`、`STEP` 为未来实际产物标识，当前没有对应的已训练模型。
+`RUN`、`STEP` 为实际产物标识。轻量实验已选出 `reports/runs/ppo_lightweight/train_8192_20260925/best_7680`，不要把初始化模型当成已训练模型。
+
+## 冻结后的最终测试
+
+默认评估仍只运行验证集。执行最终测试前，用 `src.training.freeze` 为验证选出的 checkpoint 写入冻结文件，绑定模型文件/参数、配置、数据和源码哈希；只有显式传入 `--split test --frozen-selection` 且契约匹配才允许测试。
+
+```powershell
+python -B -m src.training.freeze --config configs/ppo_lightweight.json --model reports/runs/ppo_lightweight/RUN/best_STEP --output reports/runs/ppo_lightweight/RUN/frozen_selection.json
+python -B -m src.training.evaluate --config configs/ppo_lightweight.json --model reports/runs/ppo_lightweight/RUN/best_STEP --split test --frozen-selection reports/runs/ppo_lightweight/RUN/frozen_selection.json --output reports/runs/ppo_lightweight/RUN/final_test
+```
+
+`RUN` 和 `STEP` 必须对应实际验证选择，不得根据测试表现更换。冻结文件不是防恶意篡改机制，也不禁止另起目录重跑；一次性测试纪律由研究协议约束。本次已经查看该日期区间，后续不再将它用于宣称独立未见数据上的调参结果。
 
 ## 扩大股票池
 
@@ -128,4 +140,4 @@ python -B -m src.training.evaluate --config configs/ppo.json --model reports/run
 
 覆盖动作约束与买卖执行、冻结持仓、股票置换、参数量不依赖股票数、保存加载和显式迁移、未来数据隔离、元数据边界防护、原始潜在动作概率一致性、截断终止观测与 bootstrap、检查 CLI 防误训练，以及共享基线回测。
 
-后续仍需明确启动并验收：短训练的实际梯度更新与数值稳定性、正式训练、模型选择结果、冻结配置后的样本外测试及跨股票泛化。现有 HFQ 研究报价、固定股票名单、交易状态和公司行为数据缺口继续保留，不能用框架验收替代策略有效性验证。
+轻量实验已完成真实更新、选模和一次冻结日期留出测试；后续仍需更充分的训练、多种子、滚动及跨股票验证。现有 HFQ 研究报价、固定股票名单、交易状态和公司行为数据缺口继续保留，不能用框架验收替代策略有效性验证。

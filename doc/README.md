@@ -2,7 +2,7 @@
 
 更新日期：2026-09-25
 
-建议先读 [项目 Pipeline](../pipeline.md)，再看 [实施进度与验收记录](implementation_plan.md)。当前阶段四已完成框架，无训练验收不等于模型训练或策略效果验证。
+建议先读 [项目 Pipeline](../pipeline.md)，再看 [实施进度与验收记录](implementation_plan.md)。阶段四已完成框架及 32 只股票的轻量训练和冻结测试，但尚未证明策略优势。最新结果见 [报告摘要](reports/ppo_lightweight_20260925_summary.md) 和 [详细报告](reports/ppo_lightweight_20260925.md)。
 
 ## 文档分工
 
@@ -13,7 +13,9 @@
 | [research_workflow.md](research_workflow.md) | 数据产物、预处理和基线回测运行方式 | 重建本地数据或复现基线 |
 | [trading_environment.md](trading_environment.md) | 环境输入、动作、账户、成交、事件及约束契约 | 接入策略或修改记账逻辑 |
 | [ppo_implementation_plan.md](ppo_implementation_plan.md) | PPO 智能体输入与行为、动作映射、共享网络、扩池和训练设计 | 理解 PPO 为什么这样实现 |
-| [ppo_training_framework.md](ppo_training_framework.md) | 实际依赖、检查/未来训练命令、产物和操作限制 | 运行与排查 PPO 框架 |
+| [ppo_training_framework.md](ppo_training_framework.md) | 实际依赖、检查/训练/冻结测试命令、产物和操作限制 | 运行与排查 PPO 框架 |
+| [ppo_lightweight_protocol.md](ppo_lightweight_protocol.md) | 轻量实验预定股票池、预算和测试规则 | 核对是否按预定方案执行 |
+| [报告摘要](reports/ppo_lightweight_20260925_summary.md)、[详细报告](reports/ppo_lightweight_20260925.md) | 实际训练审计、验证与最终测试结果、局限 | 阅读本次实验结论 |
 
 ## 统一维护规则
 
@@ -39,4 +41,4 @@ python -B -m src.backtest.run --config configs/research.json
 python -B -m src.training.train --config configs/ppo.json --check-only
 ```
 
-训练必须另行明确启动，当前没有已训练 PPO 模型或最终测试集绩效。无论模型是否训练，当前 `hfq_research` 结果都不能等同于现实交易收益。
+训练必须显式启动；现已有轻量实验的模型和冻结测试报告，默认检查命令仍不训练。最终测试区间已查看，不再用作未见数据调参。当前 `hfq_research` 结果不能等同于现实交易收益。

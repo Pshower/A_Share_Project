@@ -4,8 +4,10 @@ import argparse
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 
 import numpy as np
+import pandas as pd
 import torch
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import configure
@@ -26,6 +28,22 @@ class ValidationCallback(BaseCallback):
         self.last_evaluated = None
         self.previous_equity = data.settings["initial_capital"]
         self.reason_counts = Counter()
+        self.update_records = []
+
+    def record_update(self):
+        if not self.model.num_timesteps or not self.model._n_updates:
+            return
+        values = self.model.logger.name_to_value
+        row = dict(timesteps=self.model.num_timesteps, updates=self.model._n_updates)
+        for key, value in values.items():
+            if key.startswith("train/") and np.isscalar(value):
+                row[key] = float(value) if np.isfinite(value) else None
+                if row[key] is None and key != "train/explained_variance":
+                    raise FloatingPointError(f"Nonfinite PPO diagnostic: {key}")
+        if any(not torch.isfinite(p).all() for p in self.model.policy.parameters()):
+            raise FloatingPointError("Nonfinite PPO parameters")
+        self.update_records.append(row)
+        pd.DataFrame(self.update_records).to_csv(self.output / "training_updates.csv", index=False)
 
     def evaluate(self):
         step = self.model.num_timesteps
@@ -51,7 +69,7 @@ class ValidationCallback(BaseCallback):
                 orders = info["orders"]
                 self.logger.record_mean("portfolio/fees", sum(o["fee"] for o in orders))
                 self.logger.record_mean("portfolio/unfilled_orders", sum(o["status"] != "filled" for o in orders))
-                gross = sum(abs(o["filled_shares"]) * o["price"] for o in orders)
+                gross = sum(abs(o["filled_shares"]) * o["price"] for o in orders if o["filled_shares"])
                 self.logger.record_mean("portfolio/gross_turnover", gross / self.previous_equity)
                 for order in orders:
                     self.reason_counts.update(order["reasons"])
@@ -63,10 +81,12 @@ class ValidationCallback(BaseCallback):
 
     def _on_rollout_start(self):
         # The previous rollout's PPO update is finished; evaluate that policy.
+        self.record_update()
         if self.model.num_timesteps and self.model.num_timesteps % self.frequency == 0:
             self.evaluate()
 
     def _on_training_end(self):
+        self.record_update()
         if self.last_evaluated != self.model.num_timesteps:
             self.evaluate()
 
@@ -137,12 +157,38 @@ def main(argv=None):
             check_only(agent, data, output)
             print(f"CHECK ONLY: no training or test evaluation. Report: {output / 'check.json'}")
         else:
+            before = {key: value.detach().clone() for key, value in model.policy.state_dict().items()}
+            agent.save(output / "initial_model", config, dict(trained=False))
             write_json(output / "budget.json", dict(requested_timesteps=args.total_timesteps,
                        rollout_size=config["ppo"]["n_steps"], note="SB3 completes full rollouts; actual timesteps may exceed the requested budget."))
             model.set_logger(configure(str(output / "logs"), ["stdout", "csv"]))
             callback = ValidationCallback(data, output)
+            started = perf_counter()
             model.learn(total_timesteps=args.total_timesteps, callback=callback)
+            elapsed = perf_counter() - started
+            model.logger.dump(step=model.num_timesteps)
+            deltas = {key: float(torch.linalg.vector_norm(value - before[key]))
+                      for key, value in model.policy.state_dict().items()}
+            optimizer_steps = [int(state["step"].item()) for state in model.policy.optimizer.state.values() if "step" in state]
+            audit = dict(requested_timesteps=args.total_timesteps, actual_timesteps=model.num_timesteps,
+                         ppo_epochs=model._n_updates, optimizer_steps_min=min(optimizer_steps, default=0),
+                         optimizer_steps_max=max(optimizer_steps, default=0),
+                         changed_tensors=sum(v > 0 for v in deltas.values()), tensor_count=len(deltas),
+                         parameter_delta_l2=float(np.linalg.norm(list(deltas.values()))),
+                         tensor_delta_l2=deltas, elapsed_seconds=elapsed,
+                         all_parameters_finite=all(bool(torch.isfinite(p).all()) for p in model.policy.parameters()),
+                         test_evaluated=False)
+            if not audit["changed_tensors"] or not audit["optimizer_steps_min"] or not audit["all_parameters_finite"]:
+                raise AssertionError("Training did not perform finite parameter updates")
+            write_json(output / "training_audit.json", audit)
             agent.save(output / "final_model", config)
+            restored = PPOAgent.load(output / "final_model", data.contract, config["device"])
+            obs = env.reset()
+            left, _ = model.predict(obs, deterministic=True)
+            right, _ = restored.model.predict(obs, deterministic=True)
+            np.testing.assert_array_equal(left, right)
+            audit["save_load_deterministic_equal"] = True
+            write_json(output / "training_audit.json", audit)
             if callback.best_path is not None:
                 selected = PPOAgent.load(output / callback.best_path, data.contract, config["device"])
                 evaluate_agent(selected, data, output / "selected_comparison", compare_baselines=True)

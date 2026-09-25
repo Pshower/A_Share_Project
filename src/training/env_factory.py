@@ -100,15 +100,17 @@ class ResearchData:
                              mapping_version=MAPPING_VERSION, logit_bound=config["logit_bound"],
                              hidden_sizes=config["hidden_sizes"])
 
-    def market(self, split):
-        if split not in {"train", "val"}:
+    def market(self, split, *, allow_test=False):
+        if split not in {"train", "val", "test"} or (split == "test" and not allow_test):
             raise ValueError("Only train and val are available; test evaluation is disabled")
-        end = pd.Timestamp(self.manifest["train_end" if split == "train" else "val_end"])
+        end = pd.Timestamp(self.manifest["build_config"]["end_date"] if split == "test"
+                           else self.manifest["train_end" if split == "train" else "val_end"])
         # Slice before provider construction: its internal arrays cannot expose later rows.
         features = self.features.loc[:end, pd.IndexSlice[self.codes, :]].copy()
         prices = self.prices.loc[:end, pd.IndexSlice[self.codes, :]].copy()
-        if split == "val":
-            start = features.index[features.index <= pd.Timestamp(self.manifest["train_end"])][-1]
+        if split in {"val", "test"}:
+            boundary = "train_end" if split == "val" else "val_end"
+            start = features.index[features.index <= pd.Timestamp(self.manifest[boundary])][-1]
         else:
             n = len(self.codes)
             complete = np.isfinite(features.to_numpy().reshape(len(features), n, -1)).all(axis=2)

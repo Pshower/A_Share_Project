@@ -1,4 +1,4 @@
-"""Validation-only evaluation using the same accounting audit as baselines."""
+"""Shared validation and explicitly frozen final-test accounting."""
 
 import argparse
 from copy import deepcopy
@@ -13,16 +13,23 @@ from src.backtest.metrics import performance
 from src.backtest.run import run_policy, run_strategy, plot_report, git_metadata
 from src.data.preprocess import ROOT, file_hash, read_config, resolve_path, write_json
 from .env_factory import ResearchData
+from .freeze import validate_frozen
 
 
-def evaluate_agent(agent, data, output, compare_baselines=False):
+def evaluate_agent(agent, data, output, compare_baselines=False, *, split="val", frozen=None):
     """No gradients; callers label initialized policies as connectivity checks only."""
     if agent.contract != data.contract:
         raise ValueError("Evaluation data does not match the model contract")
+    if split not in {"val", "test"}:
+        raise ValueError("Evaluation split must be val or test")
+    if split == "test":
+        if frozen is None:
+            raise ValueError("Final test requires a frozen selection")
+        validate_frozen(agent, data, frozen)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     results, metrics = {}, {}
-    daily, holdings, orders, assumptions = run_policy(data.market("val"), agent, data.settings)
+    daily, holdings, orders, assumptions = run_policy(data.market(split, allow_test=split == "test"), agent, data.settings)
 
     def record(name, daily, holdings, orders):
         folder = output / name
@@ -40,18 +47,19 @@ def evaluate_agent(agent, data, output, compare_baselines=False):
             settings = deepcopy(data.settings)
             if interval is not None:
                 settings["rebalance_every"] = interval
-            daily, holdings, orders, _ = run_strategy(data.market("val"), name, settings)
+            daily, holdings, orders, _ = run_strategy(data.market(split, allow_test=split == "test"), name, settings)
             record(name if interval is None else name + "_daily", daily, holdings, orders)
     write_json(output / "metrics.json", metrics)
     pd.DataFrame(metrics).T.to_csv(output / "metrics.csv")
     write_json(output / "experiment.json", dict(contract=data.contract, config=data.config,
-               research_config=data.research, split="val", num_timesteps=agent.model.num_timesteps,
+               research_config=data.research, split=split, num_timesteps=agent.model.num_timesteps,
+               frozen_selection=frozen,
                provenance=agent.provenance, git=git_metadata(),
                packages={name: version(name) for name in ["torch", "stable-baselines3", "gymnasium", "numpy", "pandas", "pyarrow", "matplotlib"]},
                source_hashes={str(p.relative_to(ROOT)): file_hash(p) for p in (ROOT / "src").rglob("*.py")},
                assumptions=data.manifest["limitations"] + assumptions))
-    plot_report(results, output, title="PPO validation - " + data.contract["price_basis"])
-    lines = ["# PPO Validation Report", "", "Split: val. No test evaluation. No parameter updates.",
+    plot_report(results, output, title=f"PPO {split} - " + data.contract["price_basis"])
+    lines = [f"# PPO {split.title()} Report", "", f"Split: {split}. No parameter updates during evaluation.",
              f"Model timesteps: {agent.model.num_timesteps}. Zero means no updates in this instance; inspect transfer provenance.",
              "", "| Strategy | Return | Sharpe | Max drawdown | Fees | Mean cash |",
              "| --- | ---: | ---: | ---: | ---: | ---: |"]
@@ -81,12 +89,17 @@ def main(argv=None):
     parser.add_argument("--config", type=Path, default=ROOT / "configs/ppo.json")
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--split", choices=["val", "test"], default="val")
+    parser.add_argument("--frozen-selection", type=Path)
     args = parser.parse_args(argv)
+    if (args.split == "test") != (args.frozen_selection is not None):
+        parser.error("--split test requires --frozen-selection; validation must not use it")
     data = ResearchData(read_config(args.config))
     agent = PPOAgent.load(resolve_path(args.model), data.contract, data.config["device"])
     if agent.model.num_timesteps == 0 and not agent.provenance.get("source_num_timesteps", 0):
         raise ValueError("Untrained artifacts are connectivity checks, not validation candidates")
-    evaluate_agent(agent, data, resolve_path(args.output), compare_baselines=True)
+    frozen = read_config(resolve_path(args.frozen_selection)) if args.frozen_selection else None
+    evaluate_agent(agent, data, resolve_path(args.output), compare_baselines=True, split=args.split, frozen=frozen)
 
 
 if __name__ == "__main__":
