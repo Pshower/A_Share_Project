@@ -16,6 +16,7 @@
 | [ppo_training_framework.md](ppo_training_framework.md) | 实际依赖、检查/训练/冻结测试命令、产物和操作限制 | 运行与排查 PPO 框架 |
 | [ppo_lightweight_protocol.md](ppo_lightweight_protocol.md) | 轻量实验预定股票池、预算和测试规则 | 核对是否按预定方案执行 |
 | [报告摘要](reports/ppo_lightweight_20260925_summary.md)、[详细报告](reports/ppo_lightweight_20260925.md) | 实际训练审计、验证与最终测试结果、局限 | 阅读本次实验结论 |
+| [frontend_workbench_design.md](frontend_workbench_design.md) | 数据选择、训练监控、模型管理、回测和动作预测的前后端设计 | 规划本地可视化研究工作台；目前仅设计，未实现 |
 
 ## 统一维护规则
 
