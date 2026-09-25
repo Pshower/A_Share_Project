@@ -14,6 +14,7 @@ from src.data.preprocess import ROOT, build_from_config, file_hash, read_config,
 from src.envs.broker import BrokerConfig
 from src.envs.market import MarketDataProvider
 from src.envs.trading import TradingEnv
+from src.runtime import events
 from .metrics import performance
 from .strategies import Baseline
 
@@ -47,6 +48,7 @@ def run_policy(market, strategy, settings):
     previous = initial
     step = 0
     while True:
+        events.check_cancel()
         action = strategy.act(obs, step)
         obs, reward, terminated, truncated, info = env.advance() if action is None else env.step(action)
         orders = info["orders"]
@@ -74,6 +76,8 @@ def run_policy(market, strategy, settings):
         positions.append(info["positions"].copy())
         previous = info
         step += 1
+        if step % 20 == 0 or terminated or truncated:
+            events.emit("backtest_progress", step=step, total=market.n_dates - 1)
         if terminated or truncated:
             break
     daily = pd.DataFrame(daily)

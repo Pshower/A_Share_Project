@@ -28,9 +28,9 @@
           公共回测审计、净值、持仓、订单和报告
 ```
 
-当前是 Python 函数调用、JSON 配置和本地文件组成的单进程研究系统，没有消息队列、模型注册服务、自动任务调度、模拟盘或实盘网关。
+计算核心仍由 Python 函数调用、JSON 配置和本地文件组成。现已增加本地 Web 工作台、持久任务队列与独立工作进程；没有外部消息中间件、定时自动任务、模拟盘或实盘网关。
 
-已新增 [前端研究工作台设计](doc/frontend_workbench_design.md)，计划通过本地 Web API 和受控工作进程提供数据选择、训练监控、模型管理、回测和动作预测。当前只有设计文档，前端和任务服务尚未实现；不会将此项完成等同于策略研究或实盘能力完成。
+本地工作台已实现数据选择/构建、训练监控、模型选择/迁移、回测与动作预测，并完成真实浏览器测试。设计见 [工作台设计](doc/frontend_workbench_design.md)，运行见 [启动说明](doc/workbench_runbook.md)，证据见 [验收记录](doc/reports/workbench_acceptance_20260925.md)。界面完成不等同于策略研究或实盘能力完成。
 
 | 模块 | 实际职责 |
 | --- | --- |
@@ -42,6 +42,8 @@
 | `configs/research.json` | 数据版本、日期边界和共同交易配置 |
 | `configs/ppo.json`、`configs/ppo_lightweight.json` | 默认和 32 只股票轻量实验的网络、PPO 与输出配置 |
 | `tests/` | 离线数据、账户、基线和 PPO 框架验证 |
+| `web/`、`src/web/` | React 界面、本地 API、模型/报告目录和持久任务管理 |
+| `src/runtime/`、`src/inference/` | 可选任务事件/取消信号，以及只读历史动作推理 |
 | `reports/runs/` | 本地实验、模型和报告，不纳入 Git |
 
 ## 2. 数据与特征
@@ -130,7 +132,7 @@ reward = 本日收盘净值 / 上日收盘净值 - 1
 | 策略与模型 | 市值加权、反转、监督学习打分基线；SAC/DQN、CNN/GRU/LSTM、Transformer、图网络、多智能体或分层动作 |
 | 风险与奖励 | 行业/风格暴露、黑名单、亏损和回撤告警、成本异常、风险惩罚与模型下线规则；不能重复扣费 |
 | 存储与实验管理 | DuckDB/数据库/对象存储、DVC、Hydra、MLflow/W&B；当前仅本地 Parquet、CSV、JSON 与模型文件 |
-| 调度与事件 | Prefect/Airflow/Dagster、Celery/RQ、Redis Stream、Kafka/Redpanda 均未接入；先验证确有服务化需求 |
+| 调度与事件 | 已有本地 SQLite 任务与 SSE 事件；Prefect/Airflow/Dagster、Celery/RQ、Redis Stream、Kafka/Redpanda 均未接入 |
 | 模拟盘与实盘 | 自动日更、订单网关、异常熔断、人工确认、审计与容量评估，单独立项；原先不少于三个月模拟盘的设想保留为未来准入条件，尚未执行 |
 
 若未来使用事件驱动，保留“数据就绪 -> 特征就绪 -> 训练完成 -> 回测报告 -> 候选发布”的流程及订单/风险事件；消息应包含事件 ID、类型、时间、来源、版本、payload 和 trace ID。当前没有这类总线或消息契约实现。

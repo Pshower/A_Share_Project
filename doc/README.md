@@ -1,6 +1,6 @@
 # 项目文档索引
 
-更新日期：2026-09-25
+更新日期：2026-09-26
 
 建议先读 [项目 Pipeline](../pipeline.md)，再看 [实施进度与验收记录](implementation_plan.md)。阶段四已完成框架及 32 只股票的轻量训练和冻结测试，但尚未证明策略优势。最新结果见 [报告摘要](reports/ppo_lightweight_20260925_summary.md) 和 [详细报告](reports/ppo_lightweight_20260925.md)。
 
@@ -16,7 +16,10 @@
 | [ppo_training_framework.md](ppo_training_framework.md) | 实际依赖、检查/训练/冻结测试命令、产物和操作限制 | 运行与排查 PPO 框架 |
 | [ppo_lightweight_protocol.md](ppo_lightweight_protocol.md) | 轻量实验预定股票池、预算和测试规则 | 核对是否按预定方案执行 |
 | [报告摘要](reports/ppo_lightweight_20260925_summary.md)、[详细报告](reports/ppo_lightweight_20260925.md) | 实际训练审计、验证与最终测试结果、局限 | 阅读本次实验结论 |
-| [frontend_workbench_design.md](frontend_workbench_design.md) | 数据选择、训练监控、模型管理、回测和动作预测的前后端设计 | 规划本地可视化研究工作台；目前仅设计，未实现 |
+| [frontend_workbench_design.md](frontend_workbench_design.md) | 数据选择、训练监控、模型管理、回测和动作预测的设计基线 | 理解交互和契约；首版已实现，扩展项另行标记 |
+| [workbench_runbook.md](workbench_runbook.md) | 前端构建、后端启动、任务和账户使用边界 | 运行本地研究工作台 |
+| [工作台验收记录](reports/workbench_acceptance_20260925.md) | 实际浏览器测试、修复问题、性能优化与截图 | 核对前端实现和剩余限制 |
+| [online_data_live_decision_plan.md](online_data_live_decision_plan.md) | 联网快照、新日线推理、当前行情参考判断及价格/时效边界 | 下一步接入方案；仅设计，未实现 |
 
 ## 统一维护规则
 
@@ -40,6 +43,9 @@ python -B -m src.backtest.run --config configs/research.json
 
 # 检查 PPO 接口、保存加载与参数不变，不训练
 python -B -m src.training.train --config configs/ppo.json --check-only
+
+# 前端已构建且 Web 依赖齐备时启动本地工作台
+python -B -m src.web.serve --port 8765
 ```
 
 训练必须显式启动；现已有轻量实验的模型和冻结测试报告，默认检查命令仍不训练。最终测试区间已查看，不再用作未见数据调参。当前 `hfq_research` 结果不能等同于现实交易收益。

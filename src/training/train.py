@@ -14,6 +14,7 @@ from stable_baselines3.common.logger import configure
 
 from src.agents.ppo_agent import PPOAgent, make_model
 from src.data.preprocess import ROOT, read_config, resolve_path, write_json
+from src.runtime import events
 from .env_factory import ResearchData
 from .evaluate import evaluate_agent, selection_score
 
@@ -44,8 +45,10 @@ class ValidationCallback(BaseCallback):
             raise FloatingPointError("Nonfinite PPO parameters")
         self.update_records.append(row)
         pd.DataFrame(self.update_records).to_csv(self.output / "training_updates.csv", index=False)
+        events.emit("metrics", timesteps=self.model.num_timesteps, metrics=row)
 
     def evaluate(self):
+        events.phase("validation")
         step = self.model.num_timesteps
         agent = PPOAgent(self.model, self.data.contract)
         metrics = evaluate_agent(agent, self.data, self.output / f"validation_{step}")
@@ -57,8 +60,12 @@ class ValidationCallback(BaseCallback):
             agent.save(self.output / self.best_path, self.data.config, dict(validation=metrics))
         write_json(self.output / "selection.json", dict(best_path=self.best_path,
                    score=self.best, last_evaluated=step, split="val", test_evaluated=False))
+        events.emit("validation", timesteps=step, metrics=metrics, best_path=self.best_path)
 
     def _on_step(self):
+        events.check_cancel()
+        if self.model.num_timesteps % 16 == 0:
+            events.emit("progress", phase="training", timesteps=self.model.num_timesteps)
         for index, info in enumerate(self.locals.get("infos", [])):
             diagnostics = info.get("action_diagnostics")
             if diagnostics:
@@ -84,6 +91,7 @@ class ValidationCallback(BaseCallback):
         self.record_update()
         if self.model.num_timesteps and self.model.num_timesteps % self.frequency == 0:
             self.evaluate()
+        events.phase("training")
 
     def _on_training_end(self):
         self.record_update()
@@ -141,6 +149,7 @@ def main(argv=None):
     if not args.train and args.total_timesteps is not None:
         parser.error("--total-timesteps requires --train; default mode is check-only")
     config = read_config(args.config)
+    events.phase("preparing")
     data = ResearchData(config)
     run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     if Path(run_id).name != run_id or run_id in {".", ".."}:
@@ -163,10 +172,12 @@ def main(argv=None):
                        rollout_size=config["ppo"]["n_steps"], note="SB3 completes full rollouts; actual timesteps may exceed the requested budget."))
             model.set_logger(configure(str(output / "logs"), ["stdout", "csv"]))
             callback = ValidationCallback(data, output)
+            events.phase("training", effective_budget=int(np.ceil(args.total_timesteps / config["ppo"]["n_steps"]) * config["ppo"]["n_steps"]))
             started = perf_counter()
             model.learn(total_timesteps=args.total_timesteps, callback=callback)
             elapsed = perf_counter() - started
             model.logger.dump(step=model.num_timesteps)
+            events.phase("saving")
             deltas = {key: float(torch.linalg.vector_norm(value - before[key]))
                       for key, value in model.policy.state_dict().items()}
             optimizer_steps = [int(state["step"].item()) for state in model.policy.optimizer.state.values() if "step" in state]
@@ -190,6 +201,7 @@ def main(argv=None):
             audit["save_load_deterministic_equal"] = True
             write_json(output / "training_audit.json", audit)
             if callback.best_path is not None:
+                events.phase("comparison")
                 selected = PPOAgent.load(output / callback.best_path, data.contract, config["device"])
                 evaluate_agent(selected, data, output / "selected_comparison", compare_baselines=True)
             else:

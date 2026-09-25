@@ -11,3 +11,8 @@ __pycache__
 # Versioned research artifacts and detailed local experiment outputs
 data/clean/*/
 reports/runs/
+.workbench/
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/

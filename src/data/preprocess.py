@@ -4,9 +4,14 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import sys
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import numpy as np
 import pandas as pd
+from src.runtime import events
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -167,6 +172,7 @@ class DataPreprocessor:
             raise FileExistsError(f"Use a new version directory; refusing to overwrite {self.clean_dir}")
         sources, rows, audit = [], {}, []
         for code in self.stock_list:
+            events.check_cancel()
             raw, path = self._read_stock_data(code)
             clean = self.clean_single_stock(raw)
             if not clean.code.eq(code).all():
@@ -186,6 +192,8 @@ class DataPreprocessor:
         dates = calendar[calendar >= self.start_date]
         features, prices, masks, source_masks = {}, {}, {}, {}
         for code, raw in rows.items():
+            events.check_cancel()
+            events.emit("build_progress", code=code, completed=len(features), total=len(rows))
             aligned = raw.reindex(calendar)
             feature = self.add_features(aligned).reindex(dates)
             features[code] = feature
