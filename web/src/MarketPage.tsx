@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { api, post, percent, number, dateTime } from './api'
 import MarketChart from './MarketChart'
+import SupplementDownloads from './SupplementDownloads'
 
 type Row = Record<string, any>
 type Props = {
@@ -79,7 +80,13 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export default function MarketPage(p: Props) {
   const [tab, setTab] = useState(
-    p.initialKind === 'quotes' ? 'quotes' : p.initialKind === 'plans' ? 'plan' : 'history'
+    p.initialKind === 'supplements'
+      ? 'supplements'
+      : p.initialKind === 'quotes'
+        ? 'quotes'
+        : p.initialKind === 'plans'
+          ? 'plan'
+          : 'history'
   )
   const [status, setStatus] = useState<Row>({ today: '', min_poll_seconds: 60 })
   const [histories, setHistories] = useState<Row[]>([])
@@ -329,7 +336,7 @@ export default function MarketPage(p: Props) {
     <>
       <div className="online-boundary">
         <Radio size={17} />
-        <span>东方财富 · 日线研究与报价快照</span>
+        <span>行情归档 · 日线研究与报价快照</span>
         <b>不下单 · 真实账户适配未启用</b>
       </div>
       <div className="tabs">
@@ -337,6 +344,7 @@ export default function MarketPage(p: Props) {
           ['history', '联网历史'],
           ['plan', '最新日线计划'],
           ['quotes', '报价与监控'],
+          ['supplements', '扩展数据'],
         ].map(([id, text]) => (
           <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>
             {text}
@@ -350,6 +358,13 @@ export default function MarketPage(p: Props) {
           <RefreshCw size={15} />
         </button>
       </div>
+      {tab === 'supplements' && (
+        <SupplementDownloads
+          initialId={p.initialKind === 'supplements' ? p.initialId : ''}
+          fail={p.fail}
+          openJob={p.openJob}
+        />
+      )}
       {tab === 'history' && (
         <>
           <div className="form-grid">

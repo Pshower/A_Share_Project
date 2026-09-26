@@ -12,6 +12,7 @@ if __package__ in {None, ""}:
 import numpy as np
 import pandas as pd
 from src.runtime import events
+from src.data.feature_definitions import validate_definitions, compute_extra_features, DEFINITION_VERSION
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -50,7 +51,7 @@ def resolve_path(path):
 class DataPreprocessor:
     def __init__(self, raw_dir, clean_dir, stock_list_path, start_date, end_date,
                  train_end, val_end, train_codes=None, volume_multiplier=100,
-                 raw_pattern="{code}_data_*_hfq.csv", version="research_v2"):
+                 raw_pattern="{code}_data_*_hfq.csv", version="research_v2", extra_features=None):
         self.raw_dir = Path(raw_dir)
         self.clean_dir = Path(clean_dir)
         self.stock_list_path = Path(stock_list_path)
@@ -70,6 +71,8 @@ class DataPreprocessor:
         self.volume_multiplier = volume_multiplier
         self.raw_pattern = raw_pattern
         self.version = version
+        self.extra_features = validate_definitions([] if extra_features is None else extra_features, FEATURES)
+        self.feature_cols = FEATURES + [d["name"] for d in self.extra_features]
 
     def _read_stock_data(self, code):
         candidates = sorted(self.raw_dir.glob(self.raw_pattern.format(code=code)))
@@ -105,7 +108,8 @@ class DataPreprocessor:
         return df
 
     @staticmethod
-    def add_features(df):
+    def add_features(df, extra_features=None):
+        definitions = validate_definitions([] if extra_features is None else extra_features, FEATURES)
         result = pd.DataFrame(index=df.index)
         close = df["close"].where(df["valid_price"].eq(True))
         result["return"] = close.pct_change(fill_method=None)
@@ -131,22 +135,24 @@ class DataPreprocessor:
         for window in [20, 60]:
             result[f"volatility_{window}"] = result["return"].rolling(window).std(ddof=0)
         result.loc[~df["valid_price"].eq(True), :] = np.nan
-        return result[FEATURES].replace([np.inf, -np.inf], np.nan)
+        result = pd.concat([result[FEATURES], compute_extra_features(df, definitions)], axis=1)
+        return result.replace([np.inf, -np.inf], np.nan)
 
     @staticmethod
-    def normalize_features(df, fit=True, stats=None):
-        features = df[FEATURES].copy()
+    def normalize_features(df, fit=True, stats=None, feature_cols=None):
+        columns = FEATURES if feature_cols is None else list(feature_cols)
+        features = df[columns].copy()
         if fit:
             usable = features.dropna()
             if usable.empty:
                 raise ValueError("No complete training feature rows")
             stats = {}
-            for col in FEATURES:
+            for col in columns:
                 scale = float(usable[col].std(ddof=0))
                 stats[col] = {"mean": float(usable[col].mean()), "std": scale if scale > 1e-12 else 1.0}
-        if stats is None or set(stats) != set(FEATURES):
+        if stats is None or set(stats) != set(columns):
             raise ValueError("Scaler features do not match the feature schema")
-        for col in FEATURES:
+        for col in columns:
             features[col] = (features[col] - stats[col]["mean"]) / stats[col]["std"]
         return features, stats
 
@@ -195,17 +201,17 @@ class DataPreprocessor:
             events.check_cancel()
             events.emit("build_progress", code=code, completed=len(features), total=len(rows))
             aligned = raw.reindex(calendar)
-            feature = self.add_features(aligned).reindex(dates)
+            feature = self.add_features(aligned, self.extra_features).reindex(dates)
             features[code] = feature
             prices[code] = aligned[["open", "close", "volume"]].reindex(dates)
             masks[code] = feature.notna().all(axis=1) & prices[code]["close"].notna()
             source_masks[code] = pd.Series(dates.isin(raw.index), index=dates)
         long = pd.concat(features, names=["code", "date"]).reset_index()
         train = long[(long.date <= self.train_end) & long.code.isin(self.train_codes)]
-        _, stats = self.normalize_features(train)
-        scaled, _ = self.normalize_features(long, fit=False, stats=stats)
+        _, stats = self.normalize_features(train, feature_cols=self.feature_cols)
+        scaled, _ = self.normalize_features(long, fit=False, stats=stats, feature_cols=self.feature_cols)
         combined = pd.concat([long[["date", "code"]], scaled], axis=1)
-        panel = self.align_to_panel(combined)
+        panel = self.align_to_panel(combined, feature_cols=self.feature_cols)
         price_panel = pd.concat(prices, axis=1).sort_index(axis=1)
         price_panel.columns.names = ["code", "feature"]
         valid = pd.DataFrame(masks)[panel.columns.get_level_values(0).unique()]
@@ -229,15 +235,17 @@ class DataPreprocessor:
             group.to_parquet(self.clean_dir / f"{code}_features.parquet", index=False)
         pd.DataFrame(audit).to_csv(self.clean_dir / "source_audit.csv", index=False, encoding="utf-8-sig")
         pd.DataFrame(quality).to_csv(self.clean_dir / "quality.csv", index=False)
-        fit_rows = train.dropna(subset=FEATURES)
-        scaler = dict(schema_version=2, feature_cols=FEATURES, stats=stats,
+        fit_rows = train.dropna(subset=self.feature_cols)
+        scaler = dict(schema_version=2, feature_cols=self.feature_cols, stats=stats,
                       train_start=str(self.start_date.date()), train_end=str(self.train_end.date()),
                       train_codes=self.train_codes, fit_rows=len(fit_rows), ddof=0)
+        if self.extra_features:
+            scaler.update(extra_features=self.extra_features, feature_definition_version=DEFINITION_VERSION)
         write_json(self.clean_dir / "scaler_params.json", scaler)
-        fitted, _ = self.normalize_features(fit_rows, fit=False, stats=stats)
+        fitted, _ = self.normalize_features(fit_rows, fit=False, stats=stats, feature_cols=self.feature_cols)
         fitted.agg(["mean", "std"]).T.to_csv(self.clean_dir / "training_feature_distribution.csv")
         manifest = dict(version=self.version, schema_version=2, price_basis="hfq_research",
-                        feature_cols=FEATURES, stock_codes=list(features), n_dates=len(dates),
+                        feature_cols=self.feature_cols, stock_codes=list(features), n_dates=len(dates),
                         rows=len(combined), source_rows=sum(a["rows_in_range"] for a in audit),
                         start_date=str(dates.min().date()), end_date=str(dates.max().date()),
                         train_end=str(self.train_end.date()), val_end=str(self.val_end.date()),
@@ -253,6 +261,10 @@ class DataPreprocessor:
                                       val_end=str(self.val_end.date()), train_codes=self.train_codes,
                                       raw_pattern=self.raw_pattern, volume_multiplier=self.volume_multiplier)
         manifest["builder_sha256"] = file_hash(__file__)
+        if self.extra_features:
+            manifest.update(extra_features=self.extra_features, feature_definition_version=DEFINITION_VERSION,
+                            feature_engine_sha256=file_hash(Path(__file__).with_name("feature_definitions.py")))
+            manifest["build_config"]["extra_features"] = self.extra_features
         manifest["artifacts"] = {p.name: file_hash(p) for p in self.clean_dir.glob("*.parquet")}
         manifest["artifacts"]["scaler_params.json"] = file_hash(self.clean_dir / "scaler_params.json")
         write_json(self.clean_dir / "manifest.json", manifest)
@@ -260,7 +272,9 @@ class DataPreprocessor:
 
     def transform_new_data(self, raw_df, scaler_path, code=None):
         scaler = json.loads(Path(scaler_path).read_text(encoding="utf-8"))
-        if scaler.get("schema_version") != 2 or scaler["feature_cols"] != FEATURES:
+        if (scaler.get("schema_version") != 2 or scaler["feature_cols"] != self.feature_cols
+                or scaler.get("extra_features", []) != self.extra_features
+                or (self.extra_features and scaler.get("feature_definition_version") != DEFINITION_VERSION)):
             raise ValueError("Incompatible scaler version")
         clean = self.clean_single_stock(raw_df)
         if code is not None and not clean.code.eq(code).all():
@@ -268,8 +282,8 @@ class DataPreprocessor:
         if clean.code.nunique() != 1:
             raise ValueError("Transform one stock at a time with sufficient historical warmup")
         # Caller supplies the complete trading-date history, including missing-date rows.
-        feature = self.add_features(clean.set_index("date"))
-        scaled, _ = self.normalize_features(feature, fit=False, stats=scaler["stats"])
+        feature = self.add_features(clean.set_index("date"), self.extra_features)
+        scaled, _ = self.normalize_features(feature, fit=False, stats=scaler["stats"], feature_cols=self.feature_cols)
         scaled["code"] = clean.code.iloc[0]
         return scaled.reset_index()
 

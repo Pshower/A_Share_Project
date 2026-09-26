@@ -42,7 +42,19 @@ class Coverage(Request):
     lookback: int = Field(default=1, ge=1, le=60)
 
 
+class FeatureDefinition(Request):
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]{2,39}$")
+    kind: Literal["momentum", "ma_gap", "log_volatility", "drawdown", "atr_ratio", "relative_volume", "relative_amount", "bb_width"]
+    window: int = Field(ge=2, le=250, strict=True)
+
+
+class FeaturePreview(Request):
+    code: str = Field(pattern=r"^[0-9]{6}$")
+    extra_features: list[FeatureDefinition] = Field(min_length=1, max_length=12)
+
+
 class Build(Request):
+    extra_features: list[FeatureDefinition] | None = Field(default=None, max_length=12)
     dataset_id: str
     version: str = Field(pattern=r"^[a-zA-Z][a-zA-Z0-9_]{2,47}$")
     codes: list[str] = Field(min_length=1, max_length=500)
@@ -53,6 +65,10 @@ class Build(Request):
 
     @model_validator(mode="after")
     def valid_dates(self):
+        if self.extra_features is not None:
+            from src.data.feature_definitions import validate_definitions
+            from src.data.preprocess import FEATURES
+            validate_definitions([d.model_dump() for d in self.extra_features], FEATURES)
         if not self.start_date < self.train_end < self.val_end < self.end_date:
             raise ValueError("Expected start < train_end < val_end < end")
         if len(set(self.codes)) != len(self.codes):
@@ -130,6 +146,23 @@ class OnlineHistory(Request):
 class StockList(Request):
     text: str = Field(min_length=1, max_length=200000)
     format: Literal["txt", "csv"] = "txt"
+
+
+class Supplement(Request):
+    data_type: Literal["profile", "fund_flow", "minute", "index_daily", "dividend"]
+    codes: list[str] = Field(min_length=1, max_length=20)
+    market: Literal["sh", "sz", "bj"] = "sz"
+    start_date: date
+    end_date: date
+    period: Literal["1", "5", "15", "30", "60"] = "5"
+    allow_network: Literal[True]
+    resume_id: str | None = None
+
+    @model_validator(mode="after")
+    def valid_request(self):
+        from src.data.supplement import validate_request
+        validate_request(self.model_dump(mode="json", exclude={"allow_network", "resume_id"}))
+        return self
 
 
 class OnlineQuotes(Request):

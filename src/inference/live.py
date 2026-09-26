@@ -27,8 +27,13 @@ def feature_history_origin(research):
 def build_daily_plan(agent, data, history_id, *, model_id, accept_revisions=False, research_weights=None, root=ROOT, now=None):
     if agent.contract != data.contract or data.contract["price_basis"] != "hfq_research":
         raise ValueError("This binding only supports the existing HFQ research contract")
-    if data.manifest["feature_cols"] != FEATURES:
+    from src.data.feature_definitions import validate_definitions
+    definitions = validate_definitions(data.research["dataset"].get("extra_features", []), FEATURES)
+    columns = FEATURES + [d["name"] for d in definitions]
+    if data.manifest["feature_cols"] != columns:
         raise ValueError("Feature definition mismatch")
+    if definitions and data.manifest.get("feature_engine_sha256") != file_hash(ROOT / "src/data/feature_definitions.py"):
+        raise ValueError("Custom feature implementation changed; rebuild and review the model contract")
     store = Snapshots(root)
     research_weights = research_weights or {}
     if (not set(research_weights) <= set(data.codes) or any(not np.isfinite(v) or v < 0 for v in research_weights.values())
@@ -72,12 +77,12 @@ def build_daily_plan(agent, data, history_id, *, model_id, accept_revisions=Fals
     for code, raw in frames.items():
         aligned = raw.reindex(calendar).copy()
         aligned["valid_price"] = aligned[["open", "close", "high", "low"]].notna().all(axis=1)
-        feature = DataPreprocessor.add_features(aligned)
-        scaled, _ = DataPreprocessor.normalize_features(feature, fit=False, stats=scaler["stats"])
+        feature = DataPreprocessor.add_features(aligned, definitions)
+        scaled, _ = DataPreprocessor.normalize_features(feature, fit=False, stats=scaler["stats"], feature_cols=columns)
         normalized[code] = scaled
         shared = scaled.index.intersection(data.features.index)
-        old = data.features.loc[shared, pd.IndexSlice[code, FEATURES]].to_numpy(dtype=float)
-        new = scaled.loc[shared, FEATURES].to_numpy(dtype=float)
+        old = data.features.loc[shared, pd.IndexSlice[code, columns]].to_numpy(dtype=float)
+        new = scaled.loc[shared, columns].to_numpy(dtype=float)
         paired = np.isfinite(old) & np.isfinite(new)
         revision[code] = dict(compared_values=int(paired.sum()),
                               missing_pattern_changed=bool(np.any(np.isfinite(old) != np.isfinite(new))),
@@ -107,6 +112,7 @@ def build_daily_plan(agent, data, history_id, *, model_id, accept_revisions=Fals
                          latent=float(mapped["latent"][i]), research_intent=intent))
     identifier, target = store.begin("plans")
     binding = dict(model_id=model_id, model_sha256=agent.provenance.get("loaded_model_sha256"),
+                   extra_features=definitions, extra_feature_implementation_sha256=data.manifest.get("feature_engine_sha256"),
                    training_contract=agent.contract, source_history_id=history_id,
                    source_manifest_sha256=file_hash(directory / "manifest.json"), feature_as_of=str(as_of.date()),
                    history_origin=str(origin.date()), capture_cutoffs=cutoffs, source_audit_sha256=origin_audit, scaler_sha256=file_hash(scaler_path),

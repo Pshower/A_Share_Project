@@ -7,11 +7,11 @@ import sqlite3
 import uuid
 import time
 
-NETWORK_KINDS = {"online_history", "online_quotes"}
+NETWORK_KINDS = {"online_history", "online_quotes", "online_supplement"}
 
 
 def lane_for(kind):
-    return "history" if kind == "online_history" else "quotes" if kind == "online_quotes" else "research"
+    return "history" if kind in {"online_history", "online_supplement"} else "quotes" if kind == "online_quotes" else "research"
 
 
 def now():
@@ -75,7 +75,7 @@ class Store:
     def claim_next(self, lane="research"):
         if lane not in {"research", "history", "quotes"}:
             raise ValueError("Unknown execution lane")
-        clause = "kind NOT IN ('online_history','online_quotes')" if lane == "research" else "kind='online_history'" if lane == "history" else "kind='online_quotes'"
+        clause = "kind NOT IN ('online_history','online_quotes','online_supplement')" if lane == "research" else "kind IN ('online_history','online_supplement')" if lane == "history" else "kind='online_quotes'"
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             if conn.execute(f"SELECT 1 FROM jobs WHERE status IN ('running','stop_requested') AND {clause} LIMIT 1").fetchone():

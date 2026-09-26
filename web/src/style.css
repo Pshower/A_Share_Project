@@ -1234,3 +1234,13 @@ footer {
 .market-canvas { height: 460px; width: 100%; min-width: 0; }
 @media (max-width: 600px) { .market-canvas { height: 400px; } .market-chart-summary { gap: 8px 14px; } }
 .training-coverage-table table { min-width: 700px; }
+.feature-definition-table { table-layout: fixed; min-width: 650px; }
+.feature-definition-table th:nth-child(1) { width: 30%; }
+.feature-definition-table th:nth-child(2) { width: 45%; }
+.feature-definition-table th:nth-child(3) { width: 17%; }
+.feature-definition-table input, .feature-definition-table select { width: 100%; min-width: 0; }
+.feature-formula { overflow-wrap: anywhere; }
+.feature-editor .form-actions select { width: 150px; }
+.feature-editor .form-actions { flex-wrap: wrap; }
+.feature-editor .form-actions button { white-space: nowrap; flex-shrink: 0; }
+.supplement-table th, .supplement-table td { min-width: 120px; max-width: 350px; overflow-wrap: anywhere; }

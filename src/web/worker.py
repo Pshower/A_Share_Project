@@ -37,6 +37,12 @@ def execute(job, directory):
     payload, kind = job["payload"], job["kind"]
     output = ROOT / "reports/runs/workbench" / job["id"]
     events.phase("validating")
+    if kind == "online_supplement":
+        from src.data.supplement import capture_supplement
+        events.phase("downloading")
+        request = {k: v for k, v in payload.items() if k not in {"allow_network", "resume_id"}}
+        result = capture_supplement(request, allow_network=payload.get("allow_network", False), resume_id=payload.get("resume_id"))
+        return dict(snapshot_id=result["id"], snapshot_kind="supplements", capture_status=result["status"])
     if kind in {"online_history", "online_quotes"}:
         from src.data.online import download_history, capture_quotes
         if not payload.get("allow_network"):
@@ -64,6 +70,8 @@ def execute(job, directory):
     if kind in {"build", "online_build"}:
         from src.data.preprocess import build_from_config
         cfg = catalog.research_config(payload["dataset_id"])
+        if payload.get("extra_features") is not None:
+            cfg["dataset"]["extra_features"] = payload["extra_features"]
         if kind == "online_build":
             from src.data.snapshots import Snapshots
             history, history_dir = Snapshots().get("history", payload["history_id"])

@@ -18,8 +18,8 @@ from src.data.preprocess import ROOT, read_config
 from .catalog import Catalog, inside
 from .jobs import JobManager, TERMINAL, read_events
 from .store import Store
-from .schemas import Training, Build, Evaluation, ModelRequest, Prediction, Transfer, Label, Coverage
-from .schemas import OnlineHistory, OnlineQuotes, DailyPlan, OnlineBuild, MonitorRequest, StockList
+from .schemas import Training, Build, Evaluation, ModelRequest, Prediction, Transfer, Label, Coverage, FeaturePreview
+from .schemas import OnlineHistory, OnlineQuotes, DailyPlan, OnlineBuild, MonitorRequest, StockList, Supplement
 from src.data.snapshots import Snapshots
 
 
@@ -108,6 +108,41 @@ def create_app(root=ROOT, start_workers=True):
                     today=str(datetime.now(CHINA).date()), min_poll_seconds=60, max_quote_stocks=50,
                     real_account_compatible=False, supports_orders=False,
                     timestamp_semantics="unverified f86 Unix-seconds field; not exchange-certified trade time")
+
+    @app.get("/api/market/supplement-types")
+    def supplement_types():
+        from src.data.supplement import TYPES
+        return [dict(id=k, **v) for k, v in TYPES.items()]
+
+    @app.post("/api/market/supplements")
+    def supplement_download(body: Supplement, idempotency_key: str | None = Header(default=None)):
+        if body.resume_id:
+            old, _ = snapshots.get("supplements", body.resume_id)
+            if old["request"] != body.model_dump(mode="json", exclude={"allow_network", "resume_id"}):
+                raise ValueError("Retry request differs from the saved capture")
+        return submit("online_supplement", body.model_dump(mode="json"), idempotency_key)
+
+    def supplemental_file(snapshot_id, code, extension):
+        record, directory = snapshots.get("supplements", snapshot_id)
+        entry = next((e for e in record["entries"] if e["code"] == code and e["status"] in {"ready", "empty"}), None)
+        if entry is None or f"{code}.{extension}" not in record["files"]:
+            raise ValueError("No saved table for this code")
+        return entry, inside(directory / f"{code}.{extension}", directory)
+
+    @app.get("/api/market/supplements/{snapshot_id}/rows")
+    def supplement_rows(snapshot_id: str, code: str, page: int = 0):
+        if page < 0:
+            raise ValueError("Invalid page")
+        entry, path = supplemental_file(snapshot_id, code, "json")
+        data = read_config(path)
+        return dict(columns=data["columns"], rows=data["data"][page * 50:(page + 1) * 50], total=entry["rows"])
+
+    @app.get("/api/market/supplements/{snapshot_id}/files/{code}/{extension}")
+    def supplement_file(snapshot_id: str, code: str, extension: str):
+        if extension not in {"json", "csv"}:
+            raise ValueError("Unsupported download type")
+        _, path = supplemental_file(snapshot_id, code, extension)
+        return FileResponse(path, filename=f"{snapshot_id}_{code}.{extension}")
 
     @app.get("/api/market/model-requirements/{model_id}")
     def model_requirements(model_id: str):
@@ -233,6 +268,37 @@ def create_app(root=ROOT, start_workers=True):
     def datasets():
         return [{k: v for k, v in row.items() if k != "manifest"} for row in catalog.datasets()]
 
+    @app.get("/api/feature-types")
+    def feature_types():
+        from src.data.feature_definitions import KINDS, DEFINITION_VERSION, RESERVED_COLUMNS
+        from src.data.preprocess import FEATURES
+        return dict(base_features=FEATURES, reserved_names=sorted(set(FEATURES) | RESERVED_COLUMNS), version=DEFINITION_VERSION, max_extra=12,
+                    kinds=[dict(id=k, label=v[0], formula=v[1]) for k, v in KINDS.items()])
+
+    @app.post("/api/datasets/{dataset_id}/features/preview")
+    def feature_preview(dataset_id: str, body: FeaturePreview):
+        from src.data.preprocess import DataPreprocessor, FEATURES
+        from src.data.feature_definitions import validate_definitions
+        definitions = validate_definitions([d.model_dump() for d in body.extra_features], FEATURES)
+        record, directory = catalog.dataset(dataset_id)
+        raw = pd.DataFrame(catalog.source_bars(dataset_id, body.code)["rows"])
+        raw["date"] = pd.to_datetime(raw["date"])
+        raw = raw.set_index("date")
+        # Use the existing version's calendar plus original warmup, never compress missing days.
+        calendar = pd.read_parquet(directory / "prices.parquet").index
+        calendar = raw.index[raw.index < calendar[0]].union(calendar)
+        raw = raw.reindex(calendar)
+        raw["valid_price"] = raw[["open", "close", "high", "low"]].notna().all(axis=1)
+        columns = [d["name"] for d in definitions]
+        values = DataPreprocessor.add_features(raw, definitions).loc[record["start_date"]:record["end_date"], columns]
+        stats = [dict(name=c, valid=int(values[c].notna().sum()), missing=int(values[c].isna().sum()),
+                      first_valid=str(values[c].first_valid_index().date()) if values[c].notna().any() else None)
+                 for c in columns]
+        rows = values.tail(120).reset_index(names="date")
+        rows["date"] = rows.date.dt.strftime("%Y-%m-%d")
+        return dict(code=body.code, columns=columns, stats=stats, rows=json.loads(rows.to_json(orient="records")),
+                    scaled=False, calendar_dataset=dataset_id, start_date=record["start_date"], end_date=record["end_date"])
+
     @app.get("/api/datasets/{dataset_id}")
     def dataset(dataset_id: str):
         record, path = catalog.dataset(dataset_id)
@@ -258,6 +324,7 @@ def create_app(root=ROOT, start_workers=True):
     @app.post("/api/training/jobs")
     def train(body: Training, idempotency_key: str | None = Header(default=None)):
         validate_pool(body.dataset_id, body.codes)
+        check_training_allocation(body)
         if body.training_date_policy == "intersection":
             coverage = catalog.coverage(body.dataset_id, body.codes, body.lookback)
             if not coverage["eligible"]:
@@ -267,11 +334,17 @@ def create_app(root=ROOT, start_workers=True):
     @app.post("/api/training/validate")
     def check(body: Training, idempotency_key: str | None = Header(default=None)):
         validate_pool(body.dataset_id, body.codes)
+        check_training_allocation(body)
         if body.training_date_policy == "intersection":
             coverage = catalog.coverage(body.dataset_id, body.codes, body.lookback)
             if not coverage["eligible"]:
                 raise ValueError(coverage["reason"])
         return submit("check", body.model_dump(mode="json"), idempotency_key)
+
+    def check_training_allocation(body):
+        record, _ = catalog.dataset(body.dataset_id)
+        if body.n_steps * len(body.codes) * body.lookback * record["features"] * 4 * 3 > 512 * 1024 * 1024:
+            raise ValueError("Estimated rollout allocation exceeds 512 MB with this dataset's feature count")
 
     @app.post("/api/datasets/build")
     def build(body: Build, idempotency_key: str | None = Header(default=None)):

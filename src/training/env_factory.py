@@ -70,6 +70,14 @@ class ResearchData:
             if hashes[name] != manifest["artifacts"][name]:
                 raise ValueError(f"Dataset artifact was modified: {name}")
         scaler = json.loads((directory / "scaler_params.json").read_text(encoding="utf-8"))
+        from src.data.preprocess import FEATURES
+        from src.data.feature_definitions import validate_definitions, DEFINITION_VERSION
+        definitions = validate_definitions(dataset.get("extra_features", []), FEATURES)
+        if (manifest.get("extra_features", []) != definitions or scaler.get("extra_features", []) != definitions
+                or manifest["feature_cols"] != FEATURES + [d["name"] for d in definitions]
+                or (definitions and (manifest.get("feature_definition_version") != DEFINITION_VERSION
+                                     or scaler.get("feature_definition_version") != DEFINITION_VERSION))):
+            raise ValueError("Feature definitions do not match dataset/scaler contract")
         if (scaler.get("schema_version") != 2 or scaler["feature_cols"] != manifest["feature_cols"]
                 or scaler["train_end"] != manifest["train_end"] or scaler["train_codes"] != train_codes):
             raise ValueError("Scaler feature order or training boundary mismatch")

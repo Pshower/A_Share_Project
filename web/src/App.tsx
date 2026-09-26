@@ -37,6 +37,7 @@ import {
   X,
 } from 'lucide-react'
 import { api, post, percent, number, dateTime, statusName, kindName, phaseName } from './api'
+import FeatureEditor, { type FeatureDefinition } from './FeatureEditor'
 const AsyncChart = lazy(() => import('./Chart'))
 const MarketPage = lazy(() => import('./MarketPage'))
 function Chart(props: ComponentProps<typeof AsyncChart>) {
@@ -727,7 +728,10 @@ function TrainingForm(p: Shared) {
               {coverage && (
                 <details>
                   <summary>已下载数据与日期交集</summary>
-                  <p className="subtle-note">共同特征覆盖：{coverage.common_start || '—'} 至 {coverage.common_end || '—'} · {coverage.common_rows} 条</p>
+                  <p className="subtle-note">
+                    共同特征覆盖：{coverage.common_start || '—'} 至 {coverage.common_end || '—'} ·{' '}
+                    {coverage.common_rows} 条
+                  </p>
                   <div className="table-wrap training-coverage-table">
                     <table>
                       <thead>
@@ -918,6 +922,8 @@ function TrainingForm(p: Shared) {
 }
 
 function DataPage(p: Shared) {
+  const [extraFeatures, setExtraFeatures] = useState<FeatureDefinition[]>([])
+  const [featuresValid, setFeaturesValid] = useState(true)
   const [id, setId] = useState(
     p.datasets.find((d) => d.name === 'research_v3')?.id || p.datasets[0]?.id || ''
   )
@@ -939,6 +945,7 @@ function DataPage(p: Shared) {
         .then((d) => {
           if (live) {
             setDetail(d)
+            setExtraFeatures(d.manifest.extra_features || [])
             setCodes(
               p.defaults.light_codes.filter((c: string) => d.quality.some((s: Row) => s.code === c))
             )
@@ -961,7 +968,14 @@ function DataPage(p: Shared) {
   async function startBuild() {
     setBusy(true)
     try {
-      p.openJob(await post('/datasets/build', { ...form, dataset_id: id, codes }))
+      p.openJob(
+        await post('/datasets/build', {
+          ...form,
+          dataset_id: id,
+          codes,
+          extra_features: extraFeatures,
+        })
+      )
     } catch (e) {
       p.fail(e)
     } finally {
@@ -984,6 +998,10 @@ function DataPage(p: Shared) {
           <Plus size={16} />
           {build ? '关闭构建表单' : '构建新版本'}
         </button>
+        <button onClick={() => setBuild(true)}>
+          <Plus size={16} />
+          新建特征
+        </button>
       </div>
       {detail && (
         <>
@@ -993,58 +1011,96 @@ function DataPage(p: Shared) {
             <Stat label="特征数" value={detail.features} />
             <Stat label="数据截止" value={<span className="date-value">{detail.end_date}</span>} />
           </div>
-          {build ? (
-            <div className="form-grid">
-              <section className="section form-section">
-                <div className="section-heading">
-                  <h2>新版本范围</h2>
-                  <span>本地原始文件</span>
-                </div>
-                <Field label="新版本标识">
-                  <input
-                    placeholder="research_custom_01"
-                    value={form.version}
-                    onChange={(e) => setForm({ ...form, version: e.target.value })}
-                  />
-                </Field>
-                <div className="field-grid">
-                  {(['start_date', 'train_end', 'val_end', 'end_date'] as const).map((k, i) => (
-                    <Field key={k} label={['研究起始', '训练截止', '验证截止', '研究截止'][i]}>
-                      <input
-                        type="date"
-                        value={form[k]}
-                        onChange={(e) => setForm({ ...form, [k]: e.target.value })}
-                      />
-                    </Field>
-                  ))}
-                </div>
-                <p className="subtle-note">
-                  新版本只保留勾选股票，并在所选训练日期拟合
-                  scaler。现有版本不会被覆盖，不自动下载。
-                </p>
-                <div className="form-actions">
-                  <button
-                    className="primary"
-                    disabled={busy || !codes.length || !form.version}
-                    onClick={startBuild}
-                  >
-                    <Database size={16} />
-                    {busy ? '提交中…' : '开始构建'}
-                  </button>
-                </div>
-              </section>
-              <section className="section form-section">
-                <div className="section-heading">
-                  <h2>构建 / 拟合股票池</h2>
-                </div>
-                <StockPicker
-                  stocks={detail.quality}
-                  selected={codes}
-                  onChange={setCodes}
-                  preset={p.defaults.light_codes}
-                />
-              </section>
+          <details className="section">
+            <summary>当前版本特征清单 · {detail.features} 列</summary>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>特征</th>
+                    <th>类别</th>
+                    <th>窗口 / 定义</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.manifest.feature_cols.map((name: string) => {
+                    const custom = detail.manifest.extra_features?.find(
+                      (d: FeatureDefinition) => d.name === name
+                    )
+                    return (
+                      <tr key={name}>
+                        <td className="feature-formula">{name}</td>
+                        <td>{custom ? '追加' : '基础'}</td>
+                        <td>{custom ? `${custom.window} / ${custom.kind}` : '固定基础定义'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
+          </details>
+          {build ? (
+            <>
+              <FeatureEditor
+                datasetId={id}
+                codes={codes}
+                definitions={extraFeatures}
+                onChange={setExtraFeatures}
+                onValidity={setFeaturesValid}
+                fail={p.fail}
+              />
+              <div className="form-grid">
+                <section className="section form-section">
+                  <div className="section-heading">
+                    <h2>新版本范围</h2>
+                    <span>本地原始文件</span>
+                  </div>
+                  <Field label="新版本标识">
+                    <input
+                      placeholder="research_custom_01"
+                      value={form.version}
+                      onChange={(e) => setForm({ ...form, version: e.target.value })}
+                    />
+                  </Field>
+                  <div className="field-grid">
+                    {(['start_date', 'train_end', 'val_end', 'end_date'] as const).map((k, i) => (
+                      <Field key={k} label={['研究起始', '训练截止', '验证截止', '研究截止'][i]}>
+                        <input
+                          type="date"
+                          value={form[k]}
+                          onChange={(e) => setForm({ ...form, [k]: e.target.value })}
+                        />
+                      </Field>
+                    ))}
+                  </div>
+                  <p className="subtle-note">
+                    新版本只保留勾选股票，并在所选训练日期拟合
+                    scaler。现有版本不会被覆盖，不自动下载。
+                  </p>
+                  <div className="form-actions">
+                    <button
+                      className="primary"
+                      disabled={busy || !codes.length || !form.version || !featuresValid}
+                      onClick={startBuild}
+                    >
+                      <Database size={16} />
+                      {busy ? '提交中…' : '开始构建'}
+                    </button>
+                  </div>
+                </section>
+                <section className="section form-section">
+                  <div className="section-heading">
+                    <h2>构建 / 拟合股票池</h2>
+                  </div>
+                  <StockPicker
+                    stocks={detail.quality}
+                    selected={codes}
+                    onChange={setCodes}
+                    preset={p.defaults.light_codes}
+                  />
+                </section>
+              </div>
+            </>
           ) : (
             <section className="section">
               <div className="section-heading">
@@ -2097,6 +2153,8 @@ function JobPage(p: Shared & { id: string }) {
   const progress = [...events].reverse().find((e) => e.type === 'progress')
   const download = [...events].reverse().find((e) => e.type === 'download_progress')
   const savedDownload = [...events].reverse().find((e) => e.type === 'download_snapshot')
+  const supplement = [...events].reverse().find((e) => e.type === 'supplement_progress')
+  const supplementSaved = [...events].reverse().find((e) => e.type === 'supplement_snapshot')
   const phase = [...events].reverse().find((e) => e.phase)?.phase
   const metrics = events.filter((e) => e.type === 'metrics')
   const validations = events.filter((e) => e.type === 'validation')
@@ -2197,6 +2255,31 @@ function JobPage(p: Shared & { id: string }) {
             >
               <ArrowUpRight size={15} />
               查看已保存批次
+            </button>
+          )}
+        </section>
+      )}
+      {job.kind === 'online_supplement' && (
+        <section className="section">
+          <div className="section-heading">
+            <h2>扩展采集进度</h2>
+            <span>
+              {supplement?.completed || 0} / {job.payload.codes.length} 个代码
+            </span>
+          </div>
+          <p>
+            已保存 {supplement?.saved || 0} · 失败 {supplement?.failed || 0} · 最近处理{' '}
+            {supplement?.code || '—'}
+          </p>
+          {supplementSaved && (
+            <button
+              className="text-button"
+              onClick={() =>
+                navigate('market', { kind: 'supplements', id: supplementSaved.snapshot_id })
+              }
+            >
+              <ArrowUpRight size={15} />
+              查看已保存扩展数据
             </button>
           )}
         </section>
