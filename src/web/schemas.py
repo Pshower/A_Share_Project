@@ -11,6 +11,7 @@ class Request(BaseModel):
 
 
 class Training(Request):
+    device: Literal["auto", "cpu", "cuda"] = "auto"
     dataset_id: str
     codes: list[str] = Field(min_length=1, max_length=500)
     total_timesteps: int = Field(default=8192, ge=8, le=1000000)

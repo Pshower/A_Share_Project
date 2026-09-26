@@ -250,7 +250,7 @@ export default function App() {
   }
   const active = jobs.filter((j) => !terminal.has(j.status)).length
   const current = views.find((v) => v.id === route.view) || views[0]
-  const shared = { datasets, models, reports, jobs, fail, refresh, openJob, defaults }
+  const shared = { datasets, models, reports, jobs, fail, refresh, openJob, defaults, system }
   return (
     <div className="app">
       <aside className={'sidebar ' + (mobile ? 'open' : '')}>
@@ -281,7 +281,8 @@ export default function App() {
         <div className="sidebar-bottom">
           <span className="environment-label">LOCAL ENVIRONMENT</span>
           <strong>
-            Graduate <span>CPU</span>
+            {system.environment || 'Python'}{' '}
+            <span title={system.gpu_name || ''}>{system.device === 'cuda' ? 'CUDA' : 'CPU'}</span>
           </strong>
           <small>本地数据 · HFQ 研究口径</small>
           <a href="#jobs">
@@ -413,6 +414,7 @@ export default function App() {
 }
 
 type Shared = {
+  system: Row
   datasets: Row[]
   models: Row[]
   reports: Row[]
@@ -590,6 +592,7 @@ function Dashboard(p: Shared & { active: number }) {
 }
 
 function TrainingForm(p: Shared) {
+  const [device, setDevice] = useState('auto')
   const [dataset, setDataset] = useState(
     p.datasets.find((d) => d.name === 'research_v3')?.id || p.datasets[0]?.id || ''
   )
@@ -632,6 +635,7 @@ function TrainingForm(p: Shared) {
       p.openJob(
         await post(check ? '/training/validate' : '/training/jobs', {
           ...form,
+          device,
           dataset_id: dataset,
           codes,
           hidden_sizes: [128, 64],
@@ -704,6 +708,17 @@ function TrainingForm(p: Shared) {
               onChange={(e) => field('name', e.target.value)}
               maxLength={80}
             />
+          </Field>
+          <Field label="计算设备">
+            <select
+              aria-label="计算设备"
+              value={device}
+              onChange={(e) => setDevice(e.target.value)}
+            >
+              <option value="auto">自动（优先 CUDA）</option>
+              <option value="cuda">GPU / CUDA</option>
+              <option value="cpu">CPU</option>
+            </select>
           </Field>
           <div className="field-grid">
             <Field label="总训练步数">
@@ -782,7 +797,11 @@ function TrainingForm(p: Shared) {
             <span>网络</span>
             <b>共享 MLP · 128 → 64</b>
             <span>运行环境</span>
-            <b>Graduate · CPU · 单进程</b>
+            <b>
+              {p.system.environment || 'Python'} ·{' '}
+              {device === 'auto' ? (p.system.device || 'auto').toUpperCase() : device.toUpperCase()}{' '}
+              · 单进程
+            </b>
             <span>执行预算</span>
             <b>{number(Math.ceil(form.total_timesteps / form.n_steps) * form.n_steps)} steps</b>
             <span>保存位置</span>

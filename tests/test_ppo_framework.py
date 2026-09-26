@@ -127,8 +127,10 @@ def test_artifact_roundtrip_contract_hash_and_explicit_pool_transfer(tmp_path):
     agent = PPOAgent(make_model(small, cfg), contract(small, cfg))
     obs, _ = small.reset()
     agent.save(tmp_path / "saved", cfg)
-    loaded = PPOAgent.load(tmp_path / "saved", agent.contract)
+    loaded = PPOAgent.load(tmp_path / "saved", agent.contract, cfg["device"])
     np.testing.assert_array_equal(agent.act(obs), loaded.act(obs))
+    cpu_loaded = PPOAgent.load(tmp_path / "saved", agent.contract, "cpu")
+    np.testing.assert_allclose(agent.act(obs), cpu_loaded.act(obs), rtol=1e-5, atol=1e-7)
     with pytest.raises(FileExistsError):
         agent.save(tmp_path / "saved", cfg)
     big = synthetic_env()

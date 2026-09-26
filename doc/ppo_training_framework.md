@@ -40,7 +40,7 @@ PPO 的 rollout 保留原始潜在动作和对应 log probability；环境只执
 
 ## 环境与依赖
 
-实际验收环境：Conda `Graduate`，Python 3.11，PyTorch 2.7.1，Stable-Baselines3 2.7.1，Gymnasium 1.2.3。默认 CPU、单进程、单 PyTorch 线程。
+原轻量实验验收环境：Conda `Graduate`，Python 3.11，PyTorch 2.7.1 CPU，Stable-Baselines3 2.7.1，Gymnasium 1.2.3，单进程、单 PyTorch 线程。新增 [AShareGPU 环境](gpu_environment.md) 单独维护；通用 `ppo.json` 已改为 auto 设备，轻量历史配置仍保留 CPU。
 
 新增依赖清单为 `requirements-ppo.txt`，复用现有数据和回测依赖。在其他环境复现时，从仓库根目录执行：
 

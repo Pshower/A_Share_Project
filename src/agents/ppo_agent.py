@@ -11,13 +11,14 @@ from stable_baselines3 import PPO
 
 from src.backtest.run import git_metadata
 from src.data.preprocess import ROOT, file_hash, write_json
+from src.runtime.device import resolve_device
 from .action_mapping import map_action, MAPPING_VERSION
 from .ppo_policy import SharedStockPolicy
 
 
 def make_model(env, config):
     torch.set_num_threads(config["torch_threads"])
-    return PPO(SharedStockPolicy, env, seed=config["seed"], device=config["device"],
+    return PPO(SharedStockPolicy, env, seed=config["seed"], device=resolve_device(config["device"]),
                policy_kwargs=dict(hidden_sizes=tuple(config["hidden_sizes"])),
                verbose=0, **config["ppo"])
 
@@ -61,6 +62,7 @@ class PPOAgent:
         self.model.save(directory / "model.zip")
         metadata = dict(contract=self.contract, config=config, provenance=self.provenance,
                         num_timesteps=self.model.num_timesteps, git=git_metadata(),
+                        actual_device=str(self.model.device), cuda_build=torch.version.cuda,
                         model_sha256=file_hash(directory / "model.zip"),
                         packages={name: version(name) for name in ["torch", "stable-baselines3", "gymnasium", "numpy", "pandas", "pyarrow"]},
                         source_hashes={str(p.relative_to(ROOT)): file_hash(p) for p in (ROOT / "src").rglob("*.py")},
@@ -75,7 +77,7 @@ class PPOAgent:
             raise ValueError("Artifact contract mismatch; pool changes require explicit transfer")
         if file_hash(directory / "model.zip") != metadata["model_sha256"]:
             raise ValueError("Model artifact hash mismatch")
-        model = PPO.load(directory / "model.zip", device=device)
+        model = PPO.load(directory / "model.zip", device=resolve_device(device))
         provenance = deepcopy(metadata.get("provenance", {}))
         provenance.update(loaded_from=str(directory.resolve()), loaded_model_sha256=metadata["model_sha256"])
         return cls(model, metadata["contract"], provenance)

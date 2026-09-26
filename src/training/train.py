@@ -118,6 +118,7 @@ def check_only(agent, data, output):
         if agent.model.num_timesteps != 0:
             raise AssertionError("Check mode must not collect training rollouts")
         report = dict(mode="check_only", trained=False, test_evaluated=False,
+                      actual_device=str(agent.model.device), cuda_build=torch.version.cuda,
                       stock_count=len(data.codes), observation_shape=list(obs["stock_features"].shape),
                       action_shape=list(agent.model.action_space.shape), parameters=sum(p.numel() for p in agent.model.policy.parameters()),
                       train_initial_date=str(env.unwrapped.market.dates[0].date()),

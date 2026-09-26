@@ -1,4 +1,4 @@
-"""One task per process, using Graduate's interpreter and existing research code."""
+"""One task per process, using the server's interpreter and existing research code."""
 
 import argparse
 from copy import deepcopy
@@ -14,6 +14,7 @@ from .store import Store
 
 
 def training_config(catalog, job, directory):
+    from src.runtime.device import resolve_device
     payload = job["payload"]
     research = catalog.research_config(payload["dataset_id"])
     research_path = directory / "research.json"
@@ -21,7 +22,8 @@ def training_config(catalog, job, directory):
     cfg = read_config(ROOT / "configs/ppo.json")
     cfg.update(research_config=str(research_path), stock_codes=payload["codes"], seed=payload["seed"],
                lookback=payload["lookback"], hidden_sizes=payload["hidden_sizes"],
-               validation_rollouts=payload["validation_rollouts"], device="cpu", torch_threads=1,
+               validation_rollouts=payload["validation_rollouts"],
+               device=resolve_device(payload.get("device", "cpu")), torch_threads=1,
                output_root=str(ROOT / "reports/runs/workbench"))
     for key in ["n_steps", "batch_size", "n_epochs", "learning_rate"]:
         cfg["ppo"][key] = payload[key]

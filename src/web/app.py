@@ -84,13 +84,15 @@ def create_app(root=ROOT, start_workers=True):
 
     @app.get("/api/system")
     def system():
+        from src.runtime.device import device_status
         packages = {}
         for name in ["torch", "stable-baselines3", "fastapi", "gymnasium"]:
             try:
                 packages[name] = version(name)
             except PackageNotFoundError:
                 packages[name] = None
-        return dict(interpreter=sys.executable, packages=packages, device="cpu", heavy_slots=1,
+        return dict(interpreter=sys.executable, environment=Path(sys.prefix).name,
+                    packages=packages, **device_status(), heavy_slots=1,
                     price_basis="hfq_research", workspace=str(root), exposures=store.exposures())
 
     @app.get("/api/defaults")

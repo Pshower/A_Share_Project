@@ -18,9 +18,11 @@
 | [报告摘要](reports/ppo_lightweight_20260925_summary.md)、[详细报告](reports/ppo_lightweight_20260925.md) | 实际训练审计、验证与最终测试结果、局限 | 阅读本次实验结论 |
 | [frontend_workbench_design.md](frontend_workbench_design.md) | 数据选择、训练监控、模型管理、回测和动作预测的设计基线 | 理解交互和契约；首版已实现，扩展项另行标记 |
 | [workbench_runbook.md](workbench_runbook.md) | 前端构建、后端启动、任务和账户使用边界 | 运行本地研究工作台 |
+| [gpu_environment.md](gpu_environment.md) | AShareGPU 独立环境、驱动兼容、设备选择与验证 | 使用 RTX 3050 运行框架；Graduate 保留供旧实验使用 |
 | [工作台验收记录](reports/workbench_acceptance_20260925.md) | 实际浏览器测试、修复问题、性能优化与截图 | 核对前端实现和剩余限制 |
 | [online_data_live_decision_plan.md](online_data_live_decision_plan.md) | 联网快照、新日线推理及价格/时效边界 | 设计基线；部分能力已接入，真实连通与账户适配仍受限 |
 | [online_market_runbook.md](online_market_runbook.md) | 显式下载、日线研究计划、报价监控和停止 | 使用联网工作区，识别失败和陈旧数据 |
+| [market_information_indicator_plan.md](market_information_indicator_plan.md) | 行情信息扩展、手动导入、技术指标计算契约及页面设计 | 待实施设计；区分本地可计算指标与需额外下载的数据 |
 | [联网验收记录](reports/online_market_acceptance_20260926.md) | 模拟测试、真实连接失败及未完成项 | 区分代码通过与实时数据实际可用 |
 
 ## 统一维护规则
@@ -34,7 +36,7 @@
 
 ## 运行入口
 
-所有命令从仓库根目录、Conda `Graduate` 执行。依赖安装见 [研究流程](research_workflow.md) 和 [PPO 运行说明](ppo_training_framework.md)。
+所有命令从仓库根目录执行。原 CPU 实验使用 Conda `Graduate`；新 GPU 环境 `AShareGPU` 的安装与验收状态见 [GPU 配置](gpu_environment.md)。依赖安装另见 [研究流程](research_workflow.md) 和 [PPO 运行说明](ppo_training_framework.md)。
 
 ```powershell
 # 只运行离线测试，默认排除联网测试

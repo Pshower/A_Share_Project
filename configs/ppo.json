@@ -3,7 +3,7 @@
   "stock_codes": null,
   "lookback": 1,
   "seed": 42,
-  "device": "cpu",
+  "device": "auto",
   "torch_threads": 1,
   "hidden_sizes": [128, 64],
   "logit_bound": 8.0,
