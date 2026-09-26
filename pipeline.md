@@ -32,6 +32,8 @@
 
 本地工作台已实现数据选择/构建、训练监控、模型选择/迁移、回测与动作预测，并完成真实浏览器测试。设计见 [工作台设计](doc/frontend_workbench_design.md)，运行见 [启动说明](doc/workbench_runbook.md)，证据见 [验收记录](doc/reports/workbench_acceptance_20260925.md)。界面完成不等同于策略研究或实盘能力完成。
 
+已增加显式联网采集和报价监控工作区。新数据以分口径快照保存，旧 scaler 的日线研究计划另行绑定；当前供应商连接不稳定，真实完整链路尚未通过，所有最新判断仍不可作为真实订单。见 [联网运行说明](doc/online_market_runbook.md) 和 [验收记录](doc/reports/online_market_acceptance_20260926.md)。
+
 | 模块 | 实际职责 |
 | --- | --- |
 | `src/data/` | AKShare 接口与缓存、本地重建、相对特征、标准化、质量审计 |
@@ -44,6 +46,7 @@
 | `tests/` | 离线数据、账户、基线和 PPO 框架验证 |
 | `web/`、`src/web/` | React 界面、本地 API、模型/报告目录和持久任务管理 |
 | `src/runtime/`、`src/inference/` | 可选任务事件/取消信号，以及只读历史动作推理 |
+| `data/online/`、`src/data/online.py` | 显式联网历史/报价快照、失败审计与限流；不覆盖旧训练数据 |
 | `reports/runs/` | 本地实验、模型和报告，不纳入 Git |
 
 ## 2. 数据与特征

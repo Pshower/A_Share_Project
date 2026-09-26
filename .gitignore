@@ -12,7 +12,9 @@ __pycache__
 data/clean/*/
 reports/runs/
 .workbench/
+data/online/
 web/node_modules/
 web/dist/
 web/test-results/
+web/test-results-online/
 web/playwright-report/

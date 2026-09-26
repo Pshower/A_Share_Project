@@ -19,7 +19,9 @@
 | [frontend_workbench_design.md](frontend_workbench_design.md) | 数据选择、训练监控、模型管理、回测和动作预测的设计基线 | 理解交互和契约；首版已实现，扩展项另行标记 |
 | [workbench_runbook.md](workbench_runbook.md) | 前端构建、后端启动、任务和账户使用边界 | 运行本地研究工作台 |
 | [工作台验收记录](reports/workbench_acceptance_20260925.md) | 实际浏览器测试、修复问题、性能优化与截图 | 核对前端实现和剩余限制 |
-| [online_data_live_decision_plan.md](online_data_live_decision_plan.md) | 联网快照、新日线推理、当前行情参考判断及价格/时效边界 | 下一步接入方案；仅设计，未实现 |
+| [online_data_live_decision_plan.md](online_data_live_decision_plan.md) | 联网快照、新日线推理及价格/时效边界 | 设计基线；部分能力已接入，真实连通与账户适配仍受限 |
+| [online_market_runbook.md](online_market_runbook.md) | 显式下载、日线研究计划、报价监控和停止 | 使用联网工作区，识别失败和陈旧数据 |
+| [联网验收记录](reports/online_market_acceptance_20260926.md) | 模拟测试、真实连接失败及未完成项 | 区分代码通过与实时数据实际可用 |
 
 ## 统一维护规则
 

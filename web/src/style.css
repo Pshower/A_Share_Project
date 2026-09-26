@@ -988,6 +988,37 @@ pre {
   color: #819086;
   font-size: 11px;
 }
+.online-boundary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #faf8f1;
+  border-left: 3px solid #b69a50;
+  margin-bottom: 20px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.online-boundary b {
+  font-weight: 500;
+  color: #8c743b;
+  margin-left: auto;
+}
+.online-history {
+  max-height: 400px;
+}
+.market-quotes-table table {
+  min-width: 960px;
+}
+.market-quotes-table td:nth-child(5) {
+  white-space: nowrap;
+}
+textarea {
+  resize: vertical;
+  min-height: 70px;
+  line-height: 1.6;
+}
 .audit-strip b {
   color: #305b42;
   margin-left: 5px;

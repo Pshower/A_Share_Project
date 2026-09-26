@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timezone
 
 from src.data.preprocess import ROOT, write_json
+from .store import lane_for
 
 TERMINAL = {"succeeded", "failed", "cancelled", "interrupted"}
 
@@ -30,13 +31,14 @@ def read_events(directory, after=0):
 
 
 class JobManager:
-    def __init__(self, store, root=ROOT):
+    def __init__(self, store, root=ROOT, lane="research"):
         self.store, self.root = store, Path(root)
         self.stop_event = threading.Event()
         self.process = None
         self.active_id = None
         self.log_stream = None
         self.thread = None
+        self.lane = lane
 
     def directory(self, identifier):
         self.store.get(identifier)
@@ -74,13 +76,24 @@ class JobManager:
             alive = (datetime.now(timezone.utc) - datetime.fromisoformat(job["updated"])).total_seconds() < 60
         if self.active_id == job["id"] and self.process is not None:
             alive = self.process.poll() is None
+            elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(job["updated"])).total_seconds()
+            limit = 660 if self.lane == "history" else 150
+            timed_out = self.lane != "research" and elapsed > limit
+            stopped_late = self.lane != "research" and job["status"] == "stop_requested" and elapsed > 20
+            if alive and (timed_out or stopped_late):
+                self.process.terminate()
+                self.process.wait(timeout=5)
+                self.store.update(job["id"], "cancelled" if stopped_late else "failed", error="Owned network worker reached cancellation/deadline limit")
+                return False
         if alive:
             return True
         self.store.update(job["id"], "interrupted", error="Worker exited without a complete result; no automatic restart")
         return False
 
     def tick(self):
-        active = [j for j in self.store.jobs() if j["status"] in {"running", "stop_requested"}]
+        if self.lane == "quotes":
+            self.store.tick_monitors()
+        active = [j for j in self.store.jobs() if j["status"] in {"running", "stop_requested"} and lane_for(j["kind"]) == self.lane]
         if any(self.reconcile(job) for job in active):
             return
         if self.process is not None and self.process.poll() is None:
@@ -88,7 +101,7 @@ class JobManager:
         if self.log_stream:
             self.log_stream.close()
             self.log_stream = None
-        job = self.store.claim_next()
+        job = self.store.claim_next(self.lane)
         if job is None:
             return
         self.active_id = job["id"]
@@ -101,7 +114,8 @@ class JobManager:
         self.log_stream = (directory / "worker.log").open("w", encoding="utf-8")
         args = [sys.executable, "-B", "-u", "-m", "src.web.worker", "--job", job["id"]]
         self.process = subprocess.Popen(args, cwd=self.root, stdout=self.log_stream, stderr=subprocess.STDOUT,
-                                        shell=False, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+                                        shell=False, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
 
     def loop(self):
         while not self.stop_event.is_set():

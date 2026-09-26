@@ -211,7 +211,8 @@ class DataFetcher:
     # ==================== 历史行情 ====================
     def get_stock_hist(self, symbol: str, start_date: str, end_date: str,
                        period: str = "daily", adjust: str = "",
-                       use_cache: bool = True, max_age: Optional[float] = None) -> pd.DataFrame:
+                       use_cache: bool = True, max_age: Optional[float] = None,
+                       *, timeout: Optional[float] = None, retries: int = 3) -> pd.DataFrame:
         """
         单个股票历史行情（日/周/月）
         :param symbol: 股票代码，如 "000001"
@@ -229,12 +230,17 @@ class DataFetcher:
             "period": period,
             "adjust": adjust
         }
+        if timeout is not None:
+            if timeout <= 0:
+                raise ValueError("timeout must be positive")
+            params["timeout"] = timeout
         return self._fetch_with_cache(
             func_name="stock_hist",
             params=params,
             fetcher_func=ak.stock_zh_a_hist,
             use_cache=use_cache,
-            max_age=max_age
+            max_age=max_age,
+            retries=retries
         )
 
     # ==================== 资金流向 ====================

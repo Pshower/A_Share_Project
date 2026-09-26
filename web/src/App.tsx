@@ -33,10 +33,12 @@ import {
   SlidersHorizontal,
   Square,
   Target,
+  Radio,
   X,
 } from 'lucide-react'
 import { api, post, percent, number, dateTime, statusName, kindName, phaseName } from './api'
 const AsyncChart = lazy(() => import('./Chart'))
+const MarketPage = lazy(() => import('./MarketPage'))
 function Chart(props: ComponentProps<typeof AsyncChart>) {
   return (
     <Suspense
@@ -56,6 +58,7 @@ type Route = { view: string; query: URLSearchParams }
 const views = [
   { id: 'training', name: '训练工作台', icon: Activity },
   { id: 'data', name: '数据管理', icon: Database },
+  { id: 'market', name: '联网行情', icon: Radio },
   { id: 'models', name: '模型库', icon: Box },
   { id: 'backtest', name: '回测评估', icon: FlaskConical },
   { id: 'predict', name: '动作预测', icon: Target },
@@ -352,6 +355,19 @@ export default function App() {
                   <Dashboard {...shared} active={active} />
                 ))}
               {route.view === 'data' && <DataPage {...shared} />}
+              {route.view === 'market' && (
+                <Suspense fallback={<Empty>读取联网工作区…</Empty>}>
+                  <MarketPage
+                    models={models}
+                    datasets={datasets}
+                    fail={fail}
+                    openJob={openJob}
+                    initialModel={route.query.get('model') || ''}
+                    initialKind={route.query.get('kind') || ''}
+                    initialId={route.query.get('id') || ''}
+                  />
+                </Suspense>
+              )}
               {route.view === 'models' && (
                 <ModelsPage {...shared} initial={route.query.get('model') || ''} />
               )}
@@ -2149,6 +2165,24 @@ function JobPage(p: Shared & { id: string }) {
           <div className="section-heading">
             <h2>任务产物</h2>
           </div>
+          {job.result?.snapshot_id && (
+            <>
+              <button
+                className="primary"
+                onClick={() =>
+                  navigate('market', { kind: job.result.snapshot_kind, id: job.result.snapshot_id })
+                }
+              >
+                <Radio size={16} />
+                查看联网快照
+              </button>
+              <span className="subtle-note">
+                {job.result.capture_status === 'partial'
+                  ? '部分请求失败；该批次不能作为完整模型输入'
+                  : '快照已保存，行情时效需单独核验'}
+              </span>
+            </>
+          )}
           {job.check && (
             <div className="audit-strip">
               <span>

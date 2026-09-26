@@ -18,12 +18,16 @@ from .catalog import Catalog, inside
 from .jobs import JobManager, TERMINAL, read_events
 from .store import Store
 from .schemas import Training, Build, Evaluation, ModelRequest, Prediction, Transfer, Label
+from .schemas import OnlineHistory, OnlineQuotes, DailyPlan, OnlineBuild, MonitorRequest
+from src.data.snapshots import Snapshots
 
 
 def create_app(root=ROOT, start_workers=True):
     root = Path(root).resolve()
     catalog, store = Catalog(root), Store(root / ".workbench")
     manager = JobManager(store, root)
+    market_managers = [JobManager(store, root, lane="history"), JobManager(store, root, lane="quotes")]
+    snapshots = Snapshots(root)
     token = secrets.token_urlsafe(32)
 
     @asynccontextmanager
@@ -39,8 +43,12 @@ def create_app(root=ROOT, start_workers=True):
                     pass
         if start_workers:
             manager.start()
+            for runner in market_managers:
+                runner.start()
         yield
         manager.close()
+        for runner in market_managers:
+            runner.close()
 
     app = FastAPI(title="A-share Research Workbench", lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.store, app.state.manager, app.state.catalog = store, manager, catalog
@@ -88,6 +96,113 @@ def create_app(root=ROOT, start_workers=True):
     def defaults():
         return dict(ppo=read_config(root / "configs/ppo.json"),
                     light_codes=read_config(root / "configs/ppo_lightweight.json")["stock_codes"])
+
+    @app.get("/api/market/status")
+    def market_status():
+        from datetime import datetime
+        from src.data.online import CHINA
+        return dict(provider="eastmoney", history_basis=["hfq", "unadjusted"], quote_basis="unadjusted",
+                    today=str(datetime.now(CHINA).date()), min_poll_seconds=60, max_quote_stocks=50,
+                    real_account_compatible=False, supports_orders=False,
+                    timestamp_semantics="unverified f86 Unix-seconds field; not exchange-certified trade time")
+
+    @app.get("/api/market/model-requirements/{model_id}")
+    def model_requirements(model_id: str):
+        cfg, record, _ = catalog.model_config(model_id)
+        research_path = Path(cfg["research_config"])
+        research = read_config(research_path if research_path.is_absolute() else root / research_path)
+        from src.inference.live import feature_history_origin
+        origin, _ = feature_history_origin(research)
+        return dict(codes=record["metadata"]["contract"]["stock_codes"],
+                    history_origin=str(origin.date()),
+                    price_basis=record["price_basis"], trained=record["trained"])
+
+    @app.get("/api/market/snapshots/{kind}")
+    def online_snapshots(kind: str):
+        if kind not in Snapshots.KINDS:
+            raise ValueError("Unknown snapshot kind")
+        return snapshots.list(kind)
+
+    @app.get("/api/market/snapshots/{kind}/{snapshot_id}")
+    def online_snapshot(kind: str, snapshot_id: str, plan_id: str | None = None):
+        if kind not in Snapshots.KINDS:
+            raise ValueError("Unknown snapshot kind")
+        record, _ = snapshots.get(kind, snapshot_id)
+        if kind == "quotes":
+            from src.inference.live import judge_quotes
+            plan = snapshots.get("plans", plan_id)[0] if plan_id else None
+            return dict(snapshot=record, judgment=judge_quotes(record, plan))
+        return record
+
+    @app.post("/api/market/downloads")
+    def online_download(body: OnlineHistory, idempotency_key: str | None = Header(default=None)):
+        if body.resume_id:
+            old, _ = snapshots.get("history", body.resume_id)
+            expected = dict(provider="eastmoney", codes=body.codes, start_date=str(body.start_date), end_date=str(body.end_date), bases=body.bases)
+            if old["request"] != expected:
+                raise ValueError("Retry request differs from original capture")
+        return submit("online_history", body.model_dump(mode="json"), idempotency_key)
+
+    def quote_pool(body):
+        if body.plan_id:
+            plan, _ = snapshots.get("plans", body.plan_id)
+            if body.codes != plan["stock_codes"]:
+                raise ValueError("Quote the entire ordered plan pool, not just displayed stocks")
+
+    @app.post("/api/market/quotes")
+    def online_quote(body: OnlineQuotes, idempotency_key: str | None = Header(default=None)):
+        quote_pool(body)
+        return submit("online_quotes", body.model_dump(mode="json"), idempotency_key)
+
+    @app.post("/api/market/plans")
+    def daily_plan(body: DailyPlan, idempotency_key: str | None = Header(default=None)):
+        record, _ = catalog.model(body.model_id)
+        history, _ = snapshots.get("history", body.history_id)
+        if not record["trained"] or history["status"] != "ready":
+            raise ValueError("A trained model and complete download are required")
+        return submit("daily_plan", body.model_dump(mode="json"), idempotency_key)
+
+    @app.post("/api/market/build")
+    def online_build(body: OnlineBuild, idempotency_key: str | None = Header(default=None)):
+        catalog.dataset(body.dataset_id)
+        history, _ = snapshots.get("history", body.history_id)
+        if history["status"] != "ready" or "hfq" not in history["request"]["bases"]:
+            raise ValueError("A complete HFQ snapshot is required")
+        return submit("online_build", body.model_dump(mode="json"), idempotency_key)
+
+    @app.post("/api/market/monitors")
+    def monitor_start(body: MonitorRequest):
+        quote_pool(body)
+        return store.create_monitor(body.model_dump(mode="json"))
+
+    @app.get("/api/market/monitors")
+    def monitors():
+        with store.connect() as conn:
+            ids = [row[0] for row in conn.execute("SELECT id FROM monitors ORDER BY created DESC LIMIT 20")]
+        return [store.monitor(identifier) for identifier in ids]
+
+    @app.get("/api/market/monitors/{monitor_id}")
+    def monitor_detail(monitor_id: str):
+        from src.inference.live import judge_quotes
+        record = store.monitor(monitor_id)
+        record["last_job_record"] = store.get(record["last_job"]) if record["last_job"] else None
+        last = record["last_job_record"]
+        if last and last["status"] == "succeeded" and last["result"].get("snapshot_id"):
+            quote = snapshots.get("quotes", last["result"]["snapshot_id"])[0]
+            plan = snapshots.get("plans", record["payload"]["plan_id"])[0] if record["payload"]["plan_id"] else None
+            record["judgment"] = judge_quotes(quote, plan)
+        return record
+
+    @app.post("/api/market/monitors/{monitor_id}/heartbeat")
+    def monitor_renew(monitor_id: str):
+        return store.renew_monitor(monitor_id)
+
+    @app.post("/api/market/monitors/{monitor_id}/stop")
+    def monitor_stop(monitor_id: str):
+        record = store.stop_monitor(monitor_id)
+        if record["last_job"]:
+            manager.request_stop(record["last_job"])
+        return store.monitor(monitor_id)
 
     @app.get("/api/datasets")
     def datasets():

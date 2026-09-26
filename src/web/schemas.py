@@ -100,3 +100,55 @@ class Prediction(ModelRequest):
 
 class Label(Request):
     label: str = Field(min_length=1, max_length=80)
+
+
+class OnlineHistory(Request):
+    codes: list[str] = Field(min_length=1, max_length=100)
+    start_date: date
+    end_date: date
+    bases: list[Literal["hfq", "unadjusted"]] = Field(default=["hfq", "unadjusted"], min_length=1, max_length=2)
+    allow_network: Literal[True]
+    resume_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_request(self):
+        from src.data.online import valid_codes, CHINA
+        from datetime import datetime
+        valid_codes(self.codes)
+        if self.start_date > self.end_date or self.end_date > datetime.now(CHINA).date() or len(set(self.bases)) != len(self.bases):
+            raise ValueError("Invalid download dates or repeated price basis")
+        return self
+
+
+class OnlineQuotes(Request):
+    codes: list[str] = Field(min_length=1, max_length=50)
+    allow_network: Literal[True]
+    plan_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_codes(self):
+        from src.data.online import valid_codes
+        valid_codes(self.codes)
+        return self
+
+
+class DailyPlan(ModelRequest):
+    history_id: str
+    accept_revisions: bool = False
+    acknowledge_research: Literal[True]
+    research_weights: dict[str, float] = Field(default={})
+
+    @model_validator(mode="after")
+    def weights(self):
+        if any(v < 0 for v in self.research_weights.values()) or sum(self.research_weights.values()) > 1:
+            raise ValueError("Research weights must be nonnegative and sum to at most one")
+        return self
+
+
+class OnlineBuild(Build):
+    history_id: str
+
+
+class MonitorRequest(OnlineQuotes):
+    interval_seconds: int = Field(default=60, ge=60, le=600)
+    duration_seconds: int = Field(default=300, ge=60, le=1800)

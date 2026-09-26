@@ -5,6 +5,13 @@ import json
 from pathlib import Path
 import sqlite3
 import uuid
+import time
+
+NETWORK_KINDS = {"online_history", "online_quotes"}
+
+
+def lane_for(kind):
+    return "history" if kind == "online_history" else "quotes" if kind == "online_quotes" else "research"
 
 
 def now():
@@ -26,6 +33,8 @@ class Store:
                 CREATE TABLE IF NOT EXISTS exposures (id INTEGER PRIMARY KEY, created TEXT,
                     kind TEXT, dataset TEXT, start TEXT, end TEXT, source TEXT,
                     UNIQUE(kind, dataset, start, end, source));
+                CREATE TABLE IF NOT EXISTS monitors (id TEXT PRIMARY KEY, created TEXT, payload TEXT,
+                    status TEXT, expires REAL, lease REAL, next_due REAL, last_job TEXT);
             """)
 
     def connect(self):
@@ -63,12 +72,15 @@ class Store:
             raise ValueError("Unknown job")
         return self.decode(row)
 
-    def claim_next(self):
+    def claim_next(self, lane="research"):
+        if lane not in {"research", "history", "quotes"}:
+            raise ValueError("Unknown execution lane")
+        clause = "kind NOT IN ('online_history','online_quotes')" if lane == "research" else "kind='online_history'" if lane == "history" else "kind='online_quotes'"
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            if conn.execute("SELECT 1 FROM jobs WHERE status IN ('running','stop_requested') LIMIT 1").fetchone():
+            if conn.execute(f"SELECT 1 FROM jobs WHERE status IN ('running','stop_requested') AND {clause} LIMIT 1").fetchone():
                 return None
-            row = conn.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created LIMIT 1").fetchone()
+            row = conn.execute(f"SELECT * FROM jobs WHERE status='queued' AND {clause} ORDER BY created LIMIT 1").fetchone()
             if row is None:
                 return None
             conn.execute("UPDATE jobs SET status='running',updated=? WHERE id=?", (now(), row["id"]))
@@ -100,3 +112,60 @@ class Store:
     def exposures(self):
         with self.connect() as conn:
             return [dict(row) for row in conn.execute("SELECT * FROM exposures ORDER BY id DESC")]
+
+    def create_monitor(self, payload):
+        identifier = "m_" + uuid.uuid4().hex[:16]
+        stamp = time.time()
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("UPDATE monitors SET status='expired' WHERE status='active' AND (lease<? OR expires<?)", (stamp, stamp))
+            if conn.execute("SELECT 1 FROM monitors WHERE status='active'").fetchone():
+                raise ValueError("Stop the existing monitor before starting another")
+            conn.execute("INSERT INTO monitors VALUES(?,?,?,?,?,?,?,?)", (identifier, now(), json.dumps(payload), "active", stamp + payload["duration_seconds"], stamp + 45, stamp, None))
+        return self.monitor(identifier)
+
+    def monitor(self, identifier):
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM monitors WHERE id=?", (identifier,)).fetchone()
+        if row is None:
+            raise ValueError("Unknown monitor")
+        record = dict(row)
+        record["payload"] = json.loads(record["payload"])
+        return record
+
+    def renew_monitor(self, identifier):
+        record = self.monitor(identifier)
+        stamp = time.time()
+        if record["status"] != "active" or min(record["lease"], record["expires"]) < stamp:
+            raise ValueError("Monitor lease expired; explicitly start a new session")
+        with self.connect() as conn:
+            conn.execute("UPDATE monitors SET lease=? WHERE id=? AND status='active'", (min(stamp + 45, record["expires"]), identifier))
+        return self.monitor(identifier)
+
+    def stop_monitor(self, identifier):
+        record = self.monitor(identifier)
+        with self.connect() as conn:
+            conn.execute("UPDATE monitors SET status='stopped' WHERE id=? AND status='active'", (identifier,))
+        return record
+
+    def tick_monitors(self):
+        stamp = time.time()
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            expired = conn.execute("SELECT last_job FROM monitors WHERE status='active' AND (lease<? OR expires<?)", (stamp, stamp)).fetchall()
+            conn.execute("UPDATE monitors SET status='expired' WHERE status='active' AND (lease<? OR expires<?)", (stamp, stamp))
+            for old in expired:
+                if old["last_job"]:
+                    directory = self.directory / "jobs" / old["last_job"]
+                    directory.mkdir(parents=True, exist_ok=True)
+                    (directory / "stop").touch()
+                    conn.execute("UPDATE jobs SET status=CASE WHEN status='queued' THEN 'cancelled' ELSE 'stop_requested' END WHERE id=? AND status IN ('queued','running')", (old["last_job"],))
+            for row in conn.execute("SELECT * FROM monitors WHERE status='active' AND next_due<=?", (stamp,)).fetchall():
+                if row["last_job"] and conn.execute("SELECT 1 FROM jobs WHERE id=? AND status IN ('queued','running','stop_requested')", (row["last_job"],)).fetchone():
+                    continue
+                payload = json.loads(row["payload"])
+                request = {key: payload[key] for key in ["codes", "allow_network", "plan_id"]}
+                request["monitor_id"] = row["id"]
+                identifier = "j_" + uuid.uuid4().hex[:16]
+                conn.execute("INSERT INTO jobs(id,kind,status,created,updated,payload,idempotency) VALUES(?,?,?,?,?,?,?)", (identifier, "online_quotes", "queued", now(), now(), json.dumps(request), "monitor:" + row["id"] + ":" + identifier))
+                conn.execute("UPDATE monitors SET last_job=?, next_due=? WHERE id=?", (identifier, stamp + payload["interval_seconds"], row["id"]))

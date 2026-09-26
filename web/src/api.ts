@@ -55,6 +55,10 @@ export const statusName: Record<string, string> = {
   interrupted: '已中断',
 }
 export const kindName: Record<string, string> = {
+  online_history: '联网历史下载',
+  online_quotes: '报价快照',
+  daily_plan: '日线研究计划',
+  online_build: '联网数据构建',
   training: 'PPO 训练',
   check: '配置检查',
   build: '构建数据',
@@ -64,6 +68,9 @@ export const kindName: Record<string, string> = {
   transfer: '股票池迁移',
 }
 export const phaseName: Record<string, string> = {
+  downloading: '联网下载',
+  quotes: '获取报价',
+  binding: '绑定新日线',
   validating: '校验输入',
   preparing: '准备数据',
   training: '训练',

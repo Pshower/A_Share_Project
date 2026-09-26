@@ -5,6 +5,7 @@ from copy import deepcopy
 import re
 import threading
 import traceback
+import time
 
 from src.data.preprocess import ROOT, read_config, write_json
 from src.runtime import events
@@ -33,6 +34,23 @@ def execute(job, directory):
     payload, kind = job["payload"], job["kind"]
     output = ROOT / "reports/runs/workbench" / job["id"]
     events.phase("validating")
+    if kind in {"online_history", "online_quotes"}:
+        from src.data.online import download_history, capture_quotes
+        if not payload.get("allow_network"):
+            raise ValueError("Explicit network consent required")
+        if kind == "online_history":
+            events.phase("downloading")
+            result = download_history(payload["codes"], payload["start_date"], payload["end_date"], payload["bases"],
+                                      allow_network=True, resume_id=payload.get("resume_id"))
+        else:
+            events.phase("quotes")
+            def permission():
+                if payload.get("monitor_id"):
+                    record = Store(ROOT / ".workbench").monitor(payload["monitor_id"])
+                    if record["status"] != "active" or min(record["lease"], record["expires"]) < time.time():
+                        raise events.Cancelled("Monitor stopped or lease expired")
+            result = capture_quotes(payload["codes"], allow_network=True, permission_check=permission)
+        return dict(snapshot_id=result["id"], snapshot_kind=result["kind"], capture_status=result["status"])
     if kind in {"training", "check"}:
         from src.training.train import main
         training_config(catalog, job, directory)
@@ -40,9 +58,18 @@ def execute(job, directory):
         args += ["--train", "--total-timesteps", str(payload["total_timesteps"])] if kind == "training" else ["--check-only"]
         main(args)
         return dict(output=str(output.relative_to(ROOT)), trained=kind == "training")
-    if kind == "build":
+    if kind in {"build", "online_build"}:
         from src.data.preprocess import build_from_config
         cfg = catalog.research_config(payload["dataset_id"])
+        if kind == "online_build":
+            from src.data.snapshots import Snapshots
+            history, history_dir = Snapshots().get("history", payload["history_id"])
+            if history["status"] != "ready" or "hfq" not in history["request"]["bases"] or not set(payload["codes"]) <= set(history["request"]["codes"]):
+                raise ValueError("A complete HFQ download is required")
+            if payload["start_date"] < history["request"]["start_date"] or payload["end_date"] > history["request"]["end_date"]:
+                raise ValueError("Build dates must lie inside the downloaded range")
+            cfg["dataset"].update(raw_dir=str(history_dir / "hfq"), raw_pattern="{code}.csv", volume_multiplier=1)
+            cfg["online_source"] = dict(history_id=payload["history_id"], provider=history["request"]["provider"])
         final = inside(ROOT / "data/clean" / payload["version"], ROOT / "data/clean")
         if final.exists():
             raise FileExistsError("Dataset version already exists")
@@ -71,6 +98,12 @@ def execute(job, directory):
     if kind != "prediction" and not record["trained"]:
         raise ValueError("Initialized models cannot be used as trained candidates")
     agent = PPOAgent.load(model_path, data.contract, cfg["device"])
+    if kind == "daily_plan":
+        from src.inference.live import build_daily_plan
+        events.phase("binding")
+        plan = build_daily_plan(agent, data, payload["history_id"], model_id=payload["model_id"],
+                                accept_revisions=payload["accept_revisions"], research_weights=payload["research_weights"])
+        return dict(snapshot_id=plan["id"], snapshot_kind="plans", capture_status="ready")
     if kind == "evaluation":
         frozen = None
         if payload["split"] == "test":
