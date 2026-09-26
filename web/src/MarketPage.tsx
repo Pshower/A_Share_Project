@@ -24,6 +24,7 @@ type Props = {
   initialId: string
 }
 const explanations: Record<string, string> = {
+  data_source_mismatch: '报价来源与模型训练来源不一致',
   unverified_vendor_time: '供方时间字段语义待核验',
   missing_quote: '缺少报价',
   unknown_quote_time: '报价时间未知',

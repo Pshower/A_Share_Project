@@ -159,6 +159,16 @@ def test_inference_rejects_different_training_source(local_data, tmp_path):
         env.close()
 
 
+def test_quote_judgment_blocks_source_mixing(tmp_path):
+    now = datetime.now(timezone.utc)
+    snapshot = capture_quotes(["000001"], allow_network=True, root=tmp_path, provider=FakeProvider(timestamp=now))
+    plan = dict(stock_codes=["000001"], feature_as_of=str(now.date()), rows=[],
+                training_contract=dict(data_source="sina"), id="fixture")
+    judged = judge_quotes(snapshot, plan, now=now)
+    assert "data_source_mismatch" in judged["rows"][0]["reasons"]
+    assert judged["rows"][0]["status"] == "waiting" and not judged["actionable"]
+
+
 def test_explicit_close_date_includes_same_day_and_blocks_intraday_capture(local_data, tmp_path):
     from src.data.preprocess import write_json
     history = history_fixture(local_data, tmp_path)

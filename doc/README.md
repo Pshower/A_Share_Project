@@ -4,6 +4,8 @@
 
 当前执行协议：[新浪沪深300与多初始持仓](sina_hs300_protocol_20260927.md)，包含指定300股名单、来源一致性和训练/验证日期边界。
 
+该轮已完成：[新浪沪深300报告摘要](reports/sina_hs300_20260927_summary.md) 与 [详细报告](reports/sina_hs300_20260927.md)。模型训练成功但未证明策略优势，未晋升默认。
+
 更新日期：2026-09-26
 
 建议先读 [项目 Pipeline](../pipeline.md)，再看 [实施进度与验收记录](implementation_plan.md)。阶段四已完成框架及 32 只股票的轻量训练和冻结测试，但尚未证明策略优势。最新结果见 [报告摘要](reports/ppo_lightweight_20260925_summary.md) 和 [详细报告](reports/ppo_lightweight_20260925.md)。

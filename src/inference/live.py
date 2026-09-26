@@ -168,6 +168,9 @@ def judge_quotes(snapshot, plan=None, *, now=None, ttl_seconds=120):
         if snapshot["status"] != "ready" or set(codes) - set(by_code):
             reasons.append("incomplete_snapshot")
         if plan:
+            trained_source = plan.get("training_contract", {}).get("data_source")
+            if trained_source is not None and snapshot.get("provider") != trained_source:
+                reasons.append("data_source_mismatch")
             plan_age = (now.astimezone(CHINA).date() - pd.Timestamp(plan["feature_as_of"]).date()).days
             if plan_age < 0 or plan_age > 4:
                 reasons.append("stale_daily_plan")
@@ -178,7 +181,7 @@ def judge_quotes(snapshot, plan=None, *, now=None, ttl_seconds=120):
             reasons.append("at_vendor_limit_up")
         if quote and quote.get("limit_down") and quote["last"] <= quote["limit_down"]:
             reasons.append("at_vendor_limit_down")
-        waiting = any(r in reasons for r in ["missing_quote", "unknown_quote_time", "future_timestamp", "stale_quote", "incomplete_snapshot", "stale_daily_plan"])
+        waiting = any(r in reasons for r in ["missing_quote", "unknown_quote_time", "future_timestamp", "stale_quote", "incomplete_snapshot", "stale_daily_plan", "data_source_mismatch"])
         rows.append(dict(code=code, quote=quote, quote_age_seconds=age,
                          target_weight=targets.get(code, {}).get("target_weight"),
                          research_intent=targets.get(code, {}).get("research_intent"),
