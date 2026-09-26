@@ -4,6 +4,9 @@ import argparse
 from copy import deepcopy
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
+
 from src.agents.ppo_agent import PPOAgent
 from src.data.preprocess import ROOT, build_from_config, file_hash, read_config, write_json
 from src.data.snapshots import Snapshots
@@ -53,6 +56,17 @@ def main():
         data = ResearchData(config)
         if set(data.manifest["stock_codes"]) != set(codes):
             raise ValueError("Dataset silently excluded a requested stock")
+        if seed == 42:
+            coverage = []
+            for code in codes:
+                valid = np.isfinite(data.features.loc[:, pd.IndexSlice[code, :]].to_numpy()).all(axis=1)
+                dates = data.features.index[valid]
+                coverage.append(dict(code=code, valid_train_rows=int((dates <= "2026-03-31").sum()),
+                    valid_validation_rows=int(((dates > "2026-03-31") & (dates <= "2026-06-30")).sum()),
+                    first_valid=str(dates[0].date()) if len(dates) else None))
+            write_json(output / "coverage.json", coverage)
+            if any(not r["valid_train_rows"] or not r["valid_validation_rows"] for r in coverage):
+                raise ValueError("Some requested stocks lack train/validation features; inspect coverage.json")
         folder = output / "models" / f"seed_{seed}"
         folder.parent.mkdir(exist_ok=True)
         event_dir = output / f"events_{seed}"
