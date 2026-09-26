@@ -88,6 +88,8 @@ class PPOAgent:
 
     def transfer_to(self, env, config, new_contract):
         # Only the pool and data identity may change; scaling and execution stay fixed.
+        if self.contract.get("data_source") != new_contract.get("data_source"):
+            raise ValueError("Pool transfer cannot change the training data source")
         for key in ["feature_cols", "lookback", "price_basis", "broker", "initial_capital",
                     "mapping_version", "logit_bound", "hidden_sizes"]:
             if self.contract[key] != new_contract[key]:

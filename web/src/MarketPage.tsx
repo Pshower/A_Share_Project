@@ -103,6 +103,7 @@ export default function MarketPage(p: Props) {
   const [start, setStart] = useState('2017-01-01')
   const [end, setEnd] = useState('')
   const [basis, setBasis] = useState('both')
+  const [source, setSource] = useState('eastmoney')
   const [consent, setConsent] = useState(false)
   const [researchConsent, setResearchConsent] = useState(false)
   const [revisionConsent, setRevisionConsent] = useState(false)
@@ -491,6 +492,12 @@ export default function MarketPage(p: Props) {
                   />
                 </Field>
               </div>
+              <Field label="日线数据源">
+                <select aria-label="日线数据源" value={source} onChange={(e) => { setSource(e.target.value); setConsent(false) }}>
+                  <option value="eastmoney">东方财富</option>
+                  <option value="sina">新浪 · AKShare</option>
+                </select>
+              </Field>
               <Field label="价格口径">
                 <select
                   aria-label="下载价格口径"
@@ -508,7 +515,7 @@ export default function MarketPage(p: Props) {
                   checked={consent}
                   onChange={(e) => setConsent(e.target.checked)}
                 />
-                允许本次从东方财富联网采集
+                {source === 'sina' ? '允许本次从新浪联网采集' : '允许本次从东方财富联网采集'}
               </label>
               <p className="subtle-note">
                 {downloadCodes.length} 只股票 · {basis === 'both' ? '2' : '1'}{' '}
@@ -524,6 +531,7 @@ export default function MarketPage(p: Props) {
                       start_date: start,
                       end_date: end,
                       bases: basis === 'both' ? ['hfq', 'unadjusted'] : [basis],
+                      source,
                       allow_network: consent,
                     })
                   }
@@ -577,6 +585,7 @@ export default function MarketPage(p: Props) {
                                 job('/market/downloads', {
                                   ...h.request,
                                   provider: undefined,
+                                  source: h.request.provider,
                                   allow_network: true,
                                   resume_id: h.id,
                                 })

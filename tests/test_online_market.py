@@ -147,6 +147,18 @@ def test_revision_requires_explicit_research_acceptance(local_data, tmp_path):
     agent.model.get_env().close()
 
 
+def test_inference_rejects_different_training_source(local_data, tmp_path):
+    history = history_fixture(local_data, tmp_path)
+    local_data.contract["data_source"] = "sina"
+    env = local_data.vector_env()
+    try:
+        agent = PPOAgent(make_model(env, local_data.config), local_data.contract)
+        with pytest.raises(ValueError, match="Inference source"):
+            build_daily_plan(agent, local_data, history["id"], model_id="fixture", root=tmp_path)
+    finally:
+        env.close()
+
+
 def test_explicit_close_date_includes_same_day_and_blocks_intraday_capture(local_data, tmp_path):
     from src.data.preprocess import write_json
     history = history_fixture(local_data, tmp_path)

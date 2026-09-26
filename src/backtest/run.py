@@ -39,12 +39,13 @@ def run_strategy(market, name, settings):
 def run_policy(market, strategy, settings):
     """Shared execution and accounting audit for baselines and learned policies."""
     env = TradingEnv(market, initial_capital=settings["initial_capital"],
-                     broker_config=BrokerConfig(**settings["broker"]))
+                     broker_config=BrokerConfig(**settings["broker"]),
+                     initial_portfolio=settings.get("initial_portfolio", "cash"))
     obs, initial = env.reset(seed=settings["seed"])
     daily = [dict(date=initial["date"], equity=initial["equity"], cash=initial["cash"],
                   daily_return=0.0, fee=0.0, slippage_cost=0.0, turnover=0.0,
-                  holding_count=0, unfilled_orders=0)]
-    positions = [np.zeros(market.n_stocks)]
+                  holding_count=int((initial["positions"] > 0).sum()), unfilled_orders=0)]
+    positions = [initial["positions"].copy()]
     previous = initial
     step = 0
     while True:

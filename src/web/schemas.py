@@ -171,6 +171,7 @@ class Label(Request):
 
 
 class OnlineHistory(Request):
+    source: Literal["eastmoney", "sina"] = "eastmoney"
     codes: list[str] = Field(min_length=1, max_length=500)
     start_date: date
     end_date: date

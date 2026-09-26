@@ -31,6 +31,7 @@ class ValidationCallback(BaseCallback):
         self.previous_target = {}
         self.portfolio_totals = Counter()
         self.portfolio_counts = Counter()
+        self.initial_account_steps = Counter()
         self.portfolio_samples = 0
         self.last_recorded = None
         self.started = perf_counter()
@@ -106,6 +107,7 @@ class ValidationCallback(BaseCallback):
         if self.model.num_timesteps % 16 == 0:
             events.emit("progress", phase="training", timesteps=self.model.num_timesteps)
         for index, info in enumerate(self.locals.get("infos", [])):
+            self.initial_account_steps.update([info.get("initial_account", {}).get("mode", "cash")])
             diagnostics = info.get("action_diagnostics")
             if diagnostics:
                 self.logger.record_mean("portfolio/target_cash", diagnostics["cash_weight"])
@@ -251,7 +253,7 @@ def main(argv=None):
                          parameter_delta_l2=float(np.linalg.norm(list(deltas.values()))),
                          tensor_delta_l2=deltas, elapsed_seconds=elapsed,
                          all_parameters_finite=all(bool(torch.isfinite(p).all()) for p in model.policy.parameters()),
-                         test_evaluated=False)
+                         test_evaluated=False, initial_account_steps=dict(callback.initial_account_steps))
             if not audit["changed_tensors"] or not audit["optimizer_steps_min"] or not audit["all_parameters_finite"]:
                 raise AssertionError("Training did not perform finite parameter updates")
             write_json(output / "training_audit.json", audit)

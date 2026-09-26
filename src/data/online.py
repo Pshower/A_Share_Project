@@ -140,7 +140,7 @@ def history_time_budget(codes, bases):
     return min(3600, max(600, len(codes) * len(bases) * 6))
 
 
-def download_history(codes, start, end, bases, *, allow_network=False, root=ROOT, provider=None, resume_id=None):
+def download_history(codes, start, end, bases, *, allow_network=False, root=ROOT, provider=None, resume_id=None, source="eastmoney"):
     if not allow_network:
         raise ValueError("Explicit network consent required")
     valid_codes(codes)
@@ -148,13 +148,22 @@ def download_history(codes, start, end, bases, *, allow_network=False, root=ROOT
         raise ValueError("Explicit, unique price bases required")
     if pd.Timestamp(start) > pd.Timestamp(end) or pd.Timestamp(end).date() > datetime.now(CHINA).date():
         raise ValueError("Invalid or future download range")
+    if source not in {"eastmoney", "sina"}:
+        raise ValueError("Unknown daily data source")
+    if provider is None:
+        if source == "sina":
+            from src.data.sina import Sina
+            provider = Sina(root)
+        else:
+            provider = Eastmoney(root)
+    if getattr(provider, "name", source) != source:
+        raise ValueError("Provider differs from declared source")
     store = Snapshots(root)
-    request = dict(provider="eastmoney", codes=codes, start_date=start, end_date=end, bases=bases)
+    request = dict(provider=source, codes=codes, start_date=start, end_date=end, bases=bases)
     old, old_dir = (store.get("history", resume_id) if resume_id else ({}, None))
     if old and old["request"] != request:
         raise ValueError("Retry must use the original request, including stock order and price bases")
     identifier, directory = store.begin("history")
-    provider = provider or Eastmoney(root)
     previous = {(r["code"], r["basis"]): r for r in old.get("entries", [])}
     entries, errors = [], []
     failures = 0

@@ -292,7 +292,14 @@ def build_from_config(config):
     params = dict(config["dataset"])
     for key in ["raw_dir", "clean_dir", "stock_list_path"]:
         params[key] = resolve_path(params[key])
-    return DataPreprocessor(**params).process_all_stocks_and_save_scaler()
+    result = DataPreprocessor(**params).process_all_stocks_and_save_scaler()
+    if "online_source" in config:
+        path = params["clean_dir"] / "manifest.json"
+        manifest = read_config(path)
+        manifest["data_source"] = config["online_source"]["provider"]
+        manifest["online_source"] = config["online_source"]
+        write_json(path, manifest)
+    return result
 
 
 if __name__ == "__main__":

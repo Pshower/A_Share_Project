@@ -22,7 +22,7 @@ class TargetWeightSpace(spaces.Box):
 class TradingEnv(gym.Env):
     metadata = {"render_modes": []}
 
-    def __init__(self, market, initial_capital=1e6, broker_config=None, max_steps=None):
+    def __init__(self, market, initial_capital=1e6, broker_config=None, max_steps=None, initial_portfolio="cash", random_start=False):
         super().__init__()
         if max_steps is not None and (not isinstance(max_steps, int) or max_steps < 1):
             raise ValueError("max_steps must be a positive integer")
@@ -30,6 +30,15 @@ class TradingEnv(gym.Env):
         self.portfolio = Portfolio(initial_capital, market.stock_codes)
         self.broker = BrokerSimulator(broker_config)
         self.max_steps = max_steps
+        from .initial_account import MODES
+        if initial_portfolio not in (*MODES, "mixed"):
+            raise ValueError("Unknown initial portfolio mode")
+        self.initial_portfolio = initial_portfolio
+        self.random_start = random_start
+        if random_start and max_steps is None:
+            raise ValueError("Random start requires a bounded episode")
+        self._initial_modes = []
+        self.initial_account = {}
         n = market.n_stocks
         self.action_space = TargetWeightSpace(0.0, self.broker.config.max_weight, (n,), np.float32)
         self.observation_space = spaces.Dict({
@@ -64,7 +73,7 @@ class TradingEnv(gym.Env):
 
     def _info(self, orders=None):
         prices = self.market.prices.iloc[self.market.current_index].to_numpy()
-        return dict(date=self.market.current_date, equity=self.portfolio.value(prices),
+        return dict(date=self.market.current_date, equity=self.portfolio.value(prices), initial_account=self.initial_account,
                     cash=self.portfolio.cash, positions=self.portfolio.positions.copy(),
                     available_positions=self.portfolio.available_positions.copy(),
                     receivables=self.portfolio.receivable_value, event_cash=self.portfolio.event_cash,
@@ -75,8 +84,20 @@ class TradingEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         self.market.reset()
+        if self.random_start:
+            self.market.current_index = int(self.np_random.integers(0, max(1, self.market.n_dates - self.max_steps)))
         self.portfolio.reset()
         self.portfolio.start_day(self.market.current_date)
+        from .initial_account import MODES, initialize_account
+        if seed is not None:
+            self._initial_modes = []
+        mode = self.initial_portfolio
+        if mode == "mixed":
+            if not self._initial_modes:
+                self._initial_modes = list(self.np_random.permutation(MODES))
+            mode = self._initial_modes.pop()
+        self.initial_account = initialize_account(self.portfolio, self.market.prices.iloc[self.market.current_index].to_numpy(),
+            self.market.observation()[1], self.broker.config, mode, self.np_random)
         self.broker.reset()
         self._steps = 0
         self._done = False

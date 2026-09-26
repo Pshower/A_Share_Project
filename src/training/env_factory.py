@@ -17,6 +17,12 @@ from src.envs.trading import TradingEnv
 
 
 def validate_config(config):
+    from src.envs.initial_account import MODES
+    if config.get("initial_portfolio", "cash") not in (*MODES, "mixed"):
+        raise ValueError("Unknown initial portfolio mode")
+    episode = config.get("training_episode_steps")
+    if episode is not None and (type(episode) is not int or episode < 2):
+        raise ValueError("training_episode_steps must be at least two")
     if config.get("learning_rate_schedule", "constant") not in {"constant", "linear"}:
         raise ValueError("Unknown learning-rate schedule")
     factor = config.get("learning_rate_end_factor", 0.1)
@@ -128,6 +134,14 @@ class ResearchData:
         if self.training_coverage is not None:
             self.contract["training_date_policy"] = "intersection"
             self.contract["train_interval"] = {k: self.training_coverage[k] for k in ["train_start", "train_end"]}
+        if config.get("initial_portfolio", "cash") != "cash":
+            self.contract["initial_portfolio"] = config["initial_portfolio"]
+        if config.get("training_episode_steps") is not None:
+            self.contract["training_episode_steps"] = config["training_episode_steps"]
+        if "data_source" in self.manifest:
+            if self.research.get("online_source", {}).get("provider") != self.manifest["data_source"]:
+                raise ValueError("Dataset source differs from research configuration")
+            self.contract["data_source"] = self.manifest["data_source"]
 
     def market(self, split, *, allow_test=False):
         if split not in {"train", "val", "test"} or (split == "test" and not allow_test):
@@ -159,7 +173,11 @@ class ResearchData:
 
     def env(self, split):
         return LatentActionWrapper(TradingEnv(self.market(split), self.settings["initial_capital"],
-                                   BrokerConfig(**self.settings["broker"])), self.config["logit_bound"])
+                                   BrokerConfig(**self.settings["broker"]),
+                                   initial_portfolio=self.config.get("initial_portfolio", "cash") if split == "train" else "cash",
+                                   max_steps=self.config.get("training_episode_steps") if split == "train" else None,
+                                   random_start=split == "train" and self.config.get("training_episode_steps") is not None),
+                                   self.config["logit_bound"])
 
     def vector_env(self, split="train"):
         env = DummyVecEnv([lambda: Monitor(self.env(split))])

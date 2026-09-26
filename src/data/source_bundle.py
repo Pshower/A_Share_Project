@@ -13,6 +13,9 @@ def inspect_bundle(history_ids, codes, start, end, root=ROOT):
     valid_codes(codes)
     store = Snapshots(root)
     sources = [(identifier, *store.get("history", identifier)) for identifier in history_ids]
+    providers = {metadata["request"]["provider"] for _, metadata, _ in sources}
+    if len(providers) != 1:
+        raise ValueError("Source bundle cannot mix market data providers")
     bindings, missing, conflicts = {}, [], []
     for code in codes:
         candidates = []
@@ -39,7 +42,8 @@ def inspect_bundle(history_ids, codes, start, end, root=ROOT):
             conflicts.append(dict(code=code, history_ids=[c[0] for c in candidates]))
         else:
             bindings[code] = dict(history_id=candidates[0][0], entry=candidates[0][2])
-    return dict(ready=not missing and not conflicts, missing=missing, conflicts=conflicts, bindings=bindings)
+    return dict(ready=not missing and not conflicts, missing=missing, conflicts=conflicts, bindings=bindings,
+                provider=next(iter(providers)))
 
 
 def compose_bundle(history_ids, codes, start, end, root=ROOT):
@@ -57,6 +61,6 @@ def compose_bundle(history_ids, codes, start, end, root=ROOT):
             shutil.copyfile(original / "hfq" / f"{code}.{suffix}", directory / "hfq" / f"{code}.{suffix}")
         entries.append(dict(binding["entry"], reused_from=binding["history_id"]))
     return store.publish("history", identifier, directory,
-                         dict(request=dict(provider="local_composition", codes=codes, start_date=start, end_date=end, bases=["hfq"]),
+                         dict(request=dict(provider=report["provider"], codes=codes, start_date=start, end_date=end, bases=["hfq"]),
                               entries=entries, status="ready", errors=[], volume_unit="shares", source_history_ids=history_ids,
                               complete_bar_policy="Original per-file capture times preserved; no new market request"))

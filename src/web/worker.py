@@ -79,7 +79,7 @@ def execute(job, directory):
         if kind == "online_history":
             events.phase("downloading")
             result = download_history(payload["codes"], payload["start_date"], payload["end_date"], payload["bases"],
-                                      allow_network=True, resume_id=payload.get("resume_id"))
+                                      allow_network=True, resume_id=payload.get("resume_id"), source=payload.get("source", "eastmoney"))
         else:
             events.phase("quotes")
             def permission():

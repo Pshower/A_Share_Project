@@ -41,6 +41,8 @@ def build_daily_plan(agent, data, history_id, *, model_id, accept_revisions=Fals
             or sum(research_weights.values()) > 1):
         raise ValueError("Hypothetical weights must be finite, nonnegative and sum to at most one")
     history, directory = store.get("history", history_id)
+    if agent.contract.get("data_source") is not None and history["request"]["provider"] != agent.contract["data_source"]:
+        raise ValueError("Inference source differs from the training data source; rebuild and retrain instead of mixing providers")
     if history["status"] != "ready" or not set(data.codes) <= set(history["request"]["codes"]) or "hfq" not in history["request"]["bases"]:
         raise ValueError("Complete HFQ history for the entire model pool is required")
     origin, origin_audit = feature_history_origin(data.research)
