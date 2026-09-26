@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 import shutil
-import sqlite3
+import random
 import time
 from zoneinfo import ZoneInfo
 
@@ -17,6 +17,7 @@ import requests
 from src.data.preprocess import ROOT, RENAME, file_hash, write_json
 from src.data.snapshots import Snapshots, utc_now
 from src.runtime import events
+from src.data.rate_limit import AdaptivePacer, retry_delay, transient, wait
 
 CHINA = ZoneInfo("Asia/Shanghai")
 
@@ -31,31 +32,46 @@ class Eastmoney:
     name = "eastmoney"
 
     def __init__(self, root=ROOT):
-        from src.data.data_socket import DataFetcher
         self.root = Path(root)
-        self.fetcher = DataFetcher(self.root / "data/online/.cache")
+        self.limiter = AdaptivePacer(self.root)
+        self.deadline = None
 
     def pace(self):
-        events.check_cancel()
-        path = self.root / ".workbench/network.sqlite3"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(path, timeout=10) as conn:
-            conn.execute("CREATE TABLE IF NOT EXISTS clock (id INTEGER PRIMARY KEY, next REAL)")
-            conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT next FROM clock WHERE id=1").fetchone()
-            slot = max(time.time(), row[0] if row else 0)
-            conn.execute("INSERT OR REPLACE INTO clock VALUES(1,?)", (slot + 1,))
-        while time.time() < slot:
-            events.check_cancel()
-            time.sleep(max(0, min(0.2, slot - time.time())))
+        self.limiter.acquire(self.deadline)
 
     def history(self, code, start, end, basis):
+        if basis not in {"hfq", "unadjusted"}:
+            raise ValueError("Explicit history price basis required")
         self.pace()
-        return self.fetcher.get_stock_hist(code, start.replace("-", ""), end.replace("-", ""),
-                    adjust="hfq" if basis == "hfq" else "", use_cache=False, timeout=12, retries=1)
+        # The installed SDK parses JSON before checking HTTP status, losing 429 headers.
+        response = requests.get("https://push2his.eastmoney.com/api/qt/stock/kline/get", params={
+            "fields1": "f1,f2,f3,f4,f5,f6",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f116",
+            "ut": "7eea3edcaed734bea9cbfc24409ed989", "klt": "101",
+            "fqt": "2" if basis == "hfq" else "0",
+            "secid": ("1." if code.startswith("6") else "0.") + code,
+            "beg": start.replace("-", ""), "end": end.replace("-", ""),
+        }, timeout=(5, 12))
+        response.raise_for_status()
+        body = response.json()
+        data = body.get("data")
+        if body.get("rc") != 0 or not isinstance(data, dict) or str(data.get("code")) != code:
+            raise ValueError("Provider history identity/status mismatch")
+        lines = data.get("klines")
+        if not isinstance(lines, list) or not lines:
+            raise ValueError("Provider returned no history")
+        records = [line.split(",") for line in lines if isinstance(line, str)]
+        if len(records) != len(lines) or any(len(row) != 11 for row in records):
+            raise ValueError("Provider history schema changed")
+        frame = pd.DataFrame(records, columns=["date", "open", "close", "high", "low", "volume",
+                                               "amount", "amplitude", "change_pct", "change", "turnover"])
+        frame["code"] = code
+        return frame
 
-    def quote(self, code):
+    def quote(self, code, permission_check=None):
         self.pace()
+        if permission_check:
+            permission_check()
         response = requests.get("https://push2.eastmoney.com/api/qt/stock/get", params={
             "secid": ("1." if code.startswith("6") else "0.") + code, "fltt": "2", "invt": "2",
             "fields": "f43,f44,f45,f46,f47,f48,f51,f52,f57,f58,f60,f86"}, timeout=(5, 12))
@@ -92,17 +108,32 @@ def normalize_history(raw, code, start, end):
     return data.reset_index(drop=True)
 
 
-def retry(call, attempts=2):
+def retry(call, attempts=5, *, limiter=None, deadline=None, context=None):
     for attempt in range(attempts):
         events.check_cancel()
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError("Download retry/time budget exhausted")
         try:
-            return call()
+            result = call()
         except events.Cancelled:
             raise
-        except Exception:
+        except Exception as error:
+            if not transient(error):
+                raise
+            delay = max(min(60.0, 2.0 * 2 ** attempt) + random.uniform(0, 1), retry_delay(error))
+            interval = limiter.failure(delay) if limiter is not None else None
             if attempt + 1 == attempts:
                 raise
-            time.sleep(1)
+            events.emit("download_retry", attempt=attempt + 1, max_attempts=attempts,
+                        wait_seconds=max(delay, interval or 0), interval_seconds=interval,
+                        error=str(error)[:500], **(context or {}))
+            if limiter is None:
+                wait(delay, deadline)
+            # Provider.pace() enforces shared cooldown immediately before retry.
+        else:
+            if limiter is not None:
+                limiter.success()
+            return result
 
 
 def history_time_budget(codes, bases):
@@ -131,6 +162,9 @@ def download_history(codes, start, end, bases, *, allow_network=False, root=ROOT
     cancelled = False
     total = len(codes) * len(bases)
     budget = history_time_budget(codes, bases)
+    deadline = started + budget
+    if isinstance(provider, Eastmoney):
+        provider.deadline = deadline
     def progress(code=None, basis=None):
         events.emit("download_progress", code=code, basis=basis, completed=len(entries), total=total,
                     saved=sum(r["status"] == "ready" for r in entries), failed=len(errors),
@@ -159,7 +193,9 @@ def download_history(codes, start, end, bases, *, allow_network=False, root=ROOT
                 progress(code, basis)
                 continue
             try:
-                frame = normalize_history(retry(lambda: provider.history(code, start, end, basis)), code, start, end)
+                frame = normalize_history(retry(lambda: provider.history(code, start, end, basis),
+                    limiter=getattr(provider, "limiter", None), deadline=deadline,
+                    context=dict(code=code, basis=basis)), code, start, end)
                 frame.to_parquet(target / f"{code}.parquet", index=False)
                 frame.to_csv(target / f"{code}.csv", index=False, encoding="utf-8-sig")
                 item = dict(code=code, basis=basis, status="ready", rows=len(frame),
@@ -181,6 +217,8 @@ def download_history(codes, start, end, bases, *, allow_network=False, root=ROOT
     result = store.publish("history", identifier, directory, dict(request=request, entries=entries,
                          status="ready" if not errors else "partial", errors=errors, volume_unit="shares",
                          cancelled=cancelled, time_budget_seconds=budget,
+                         retry_policy=dict(max_attempts=5, initial_interval_seconds=1, max_interval_seconds=30,
+                                           exponential_backoff=True, respects_retry_after=True),
                          complete_bar_policy="Default plans exclude capture-day bars; explicit close-date mode requires post-16:00 capture; exchange calendar not verified"))
     events.emit("download_snapshot", snapshot_id=identifier, snapshot_kind="history", status=result["status"])
     if cancelled:
@@ -230,6 +268,8 @@ def capture_quotes(codes, *, allow_network=False, root=ROOT, provider=None, perm
     rows, errors, raw_results = [], [], {}
     failures = 0
     started = time.monotonic()
+    if isinstance(provider, Eastmoney):
+        provider.deadline = started + 90
     for code in codes:
         events.check_cancel()
         if failures >= 3 or time.monotonic() - started > 90:
@@ -239,8 +279,10 @@ def capture_quotes(codes, *, allow_network=False, root=ROOT, provider=None, perm
             def fetch():
                 if permission_check:
                     permission_check()
-                return provider.quote(code)
-            raw = retry(fetch)
+                return (provider.quote(code, permission_check=permission_check)
+                        if isinstance(provider, Eastmoney) else provider.quote(code))
+            raw = retry(fetch, limiter=getattr(provider, "limiter", None), deadline=started + 90,
+                        context=dict(code=code, basis="quote"))
             received = utc_now()
             raw_results[code] = dict(received_at=received, data=raw)
             rows.append(normalize_quote(raw, code, received))

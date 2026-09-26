@@ -2214,6 +2214,7 @@ function JobPage(p: Shared & { id: string }) {
   if (!job) return <Empty>读取任务…</Empty>
   const progress = [...events].reverse().find((e) => e.type === 'progress')
   const download = [...events].reverse().find((e) => e.type === 'download_progress')
+  const downloadRetry = [...events].reverse().find((e) => e.type === 'download_retry')
   const savedDownload = [...events].reverse().find((e) => e.type === 'download_snapshot')
   const supplement = [...events].reverse().find((e) => e.type === 'supplement_progress')
   const supplementSaved = [...events].reverse().find((e) => e.type === 'supplement_snapshot')
@@ -2295,6 +2296,16 @@ function JobPage(p: Shared & { id: string }) {
       )}
       {job.kind === 'online_history' && (
         <section className="section">
+          {downloadRetry && (
+            <p role="status">
+              最近自动退避：{downloadRetry.code} / {downloadRetry.basis} · 第{' '}
+              {downloadRetry.attempt} 次失败，最多 {downloadRetry.max_attempts} 次请求 ·
+              等待至少 {Math.ceil(downloadRetry.wait_seconds)} 秒
+              {downloadRetry.interval_seconds
+                ? ` · 请求间隔 ${downloadRetry.interval_seconds} 秒`
+                : ''}
+            </p>
+          )}
           <div className="section-heading">
             <h2>批量下载进度</h2>
             <span>
