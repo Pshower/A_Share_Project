@@ -38,8 +38,11 @@ import {
 } from 'lucide-react'
 import { api, post, percent, number, dateTime, statusName, kindName, phaseName } from './api'
 import FeatureEditor, { type FeatureDefinition } from './FeatureEditor'
+import PpoSettings, { advancedDefaults } from './PpoSettings'
+import TrainingDiagnostics from './TrainingDiagnostics'
 const AsyncChart = lazy(() => import('./Chart'))
 const MarketPage = lazy(() => import('./MarketPage'))
+const ExperimentsPage = lazy(() => import('./ExperimentsPage'))
 function Chart(props: ComponentProps<typeof AsyncChart>) {
   return (
     <Suspense
@@ -57,6 +60,7 @@ function Chart(props: ComponentProps<typeof AsyncChart>) {
 type Row = Record<string, any>
 type Route = { view: string; query: URLSearchParams }
 const views = [
+  { id: 'experiments', name: '实验流程', icon: FlaskConical },
   { id: 'training', name: '训练工作台', icon: Activity },
   { id: 'data', name: '数据管理', icon: Database },
   { id: 'market', name: '联网行情', icon: Radio },
@@ -356,7 +360,19 @@ export default function App() {
                 ) : (
                   <Dashboard {...shared} active={active} />
                 ))}
-              {route.view === 'data' && <DataPage {...shared} />}
+              {route.view === 'data' && (
+                <DataPage {...shared} initial={route.query.get('dataset') || ''} />
+              )}
+              {route.view === 'experiments' && (
+                <Suspense fallback={<Empty>读取实验流程…</Empty>}>
+                  <ExperimentsPage
+                    datasets={datasets}
+                    fail={fail}
+                    initialId={route.query.get('id') || ''}
+                    refreshResources={refresh}
+                  />
+                </Suspense>
+              )}
               {route.view === 'market' && (
                 <Suspense fallback={<Empty>读取联网工作区…</Empty>}>
                   <MarketPage
@@ -593,6 +609,7 @@ function Dashboard(p: Shared & { active: number }) {
 }
 
 function TrainingForm(p: Shared) {
+  const [advanced, setAdvanced] = useState({ ...advancedDefaults })
   const [device, setDevice] = useState('auto')
   const [dataset, setDataset] = useState(
     p.datasets.find((d) => d.name === 'research_v3')?.id || p.datasets[0]?.id || ''
@@ -660,10 +677,11 @@ function TrainingForm(p: Shared) {
       p.openJob(
         await post(check ? '/training/validate' : '/training/jobs', {
           ...form,
+          ...advanced,
           device,
           dataset_id: dataset,
           codes,
-          hidden_sizes: [128, 64],
+          hidden_sizes: advanced.hidden_sizes,
           training_date_policy: 'intersection',
         })
       )
@@ -884,9 +902,13 @@ function TrainingForm(p: Shared) {
               </Field>
             </div>
           </details>
+          <PpoSettings
+            value={advanced}
+            onChange={(patch) => setAdvanced((current) => ({ ...current, ...patch }))}
+          />
           <div className="definition-list">
             <span>网络</span>
-            <b>共享 MLP · 128 → 64</b>
+            <b>共享 MLP · {advanced.hidden_sizes.join(' → ')}</b>
             <span>运行环境</span>
             <b>
               {p.system.environment || 'Python'} ·{' '}
@@ -921,11 +943,11 @@ function TrainingForm(p: Shared) {
   )
 }
 
-function DataPage(p: Shared) {
+function DataPage(p: Shared & { initial?: string }) {
   const [extraFeatures, setExtraFeatures] = useState<FeatureDefinition[]>([])
   const [featuresValid, setFeaturesValid] = useState(true)
   const [id, setId] = useState(
-    p.datasets.find((d) => d.name === 'research_v3')?.id || p.datasets[0]?.id || ''
+    p.initial || p.datasets.find((d) => d.name === 'research_v3')?.id || p.datasets[0]?.id || ''
   )
   const [detail, setDetail] = useState<Row | null>(null)
   const [build, setBuild] = useState(false)
@@ -1552,6 +1574,9 @@ function ReportView({ id, fail }: { id: string; fail: (e: unknown) => void }) {
               <th>年化波动</th>
               <th>Sharpe</th>
               <th>最大回撤</th>
+              <th>Sortino</th>
+              <th>Calmar</th>
+              <th>最长水下记录</th>
               <th>费用</th>
               <th>现金比例</th>
             </tr>
@@ -1568,6 +1593,9 @@ function ReportView({ id, fail }: { id: string; fail: (e: unknown) => void }) {
                 <td>{percent(m.annual_volatility)}</td>
                 <td>{number(m.sharpe, 3)}</td>
                 <td>{percent(m.max_drawdown)}</td>
+                <td>{number(m.sortino, 3)}</td>
+                <td>{number(m.calmar, 3)}</td>
+                <td>{number(m.longest_underwater_steps)}</td>
                 <td>{number(m.total_fees, 2)}</td>
                 <td>{percent(m.mean_cash_ratio)}</td>
               </tr>
@@ -1575,6 +1603,40 @@ function ReportView({ id, fail }: { id: string; fail: (e: unknown) => void }) {
           </tbody>
         </table>
       </div>
+      {Object.keys(report.comparisons || {}).length > 0 && (
+        <section className="section">
+          <div className="section-heading">
+            <h2>PPO 与基线的配对比较</h2>
+            <span>相同区间与成交约束</span>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>基线</th>
+                  <th>累计收益差</th>
+                  <th>回撤幅度差</th>
+                  <th>手续费及滑点差</th>
+                  <th>日收益相关</th>
+                  <th>信息比率</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(report.comparisons).map(([name, m]: [string, any]) => (
+                  <tr key={name}>
+                    <td>{strategyNames[name] || name}</td>
+                    <td>{percent(m.return_gap)}</td>
+                    <td>{percent(m.drawdown_magnitude_gap)}</td>
+                    <td>{number(m.cost_gap, 2)}</td>
+                    <td>{number(m.daily_return_correlation, 3)}</td>
+                    <td>{number(m.information_ratio, 3)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
       <div className="section-heading secondary-heading">
         <h2>{detailTab === 'orders' ? '订单明细' : '持仓明细'}</h2>
         <span>
@@ -2200,6 +2262,11 @@ function JobPage(p: Shared & { id: string }) {
           {job.error}
         </div>
       )}
+      {job.payload.experiment_id && (
+        <a className="text-button" href={'#experiments?id=' + job.payload.experiment_id}>
+          返回关联实验
+        </a>
+      )}
       <div className="stats-band">
         <Stat
           label="当前阶段"
@@ -2299,36 +2366,7 @@ function JobPage(p: Shared & { id: string }) {
         </div>
         {tab === 'metrics' &&
           (metrics.length ? (
-            <div className="two-charts">
-              <div>
-                <h3>价值损失</h3>
-                <Chart
-                  x={metrics.map((m) => m.timesteps)}
-                  series={[
-                    {
-                      name: 'Value loss',
-                      values: metrics.map((m) => m.metrics['train/value_loss'] ?? null),
-                    },
-                  ]}
-                />
-              </div>
-              <div>
-                <h3>策略更新</h3>
-                <Chart
-                  x={metrics.map((m) => m.timesteps)}
-                  series={[
-                    {
-                      name: 'KL',
-                      values: metrics.map((m) => m.metrics['train/approx_kl'] ?? null),
-                    },
-                    {
-                      name: 'Clip fraction',
-                      values: metrics.map((m) => m.metrics['train/clip_fraction'] ?? null),
-                    },
-                  ]}
-                />
-              </div>
-            </div>
+            <TrainingDiagnostics metrics={metrics} />
           ) : (
             <Empty>{job.kind === 'training' ? '等待首轮参数更新' : '此任务不更新模型参数'}</Empty>
           ))}
@@ -2343,6 +2381,7 @@ function JobPage(p: Shared & { id: string }) {
                     <th>Sharpe</th>
                     <th>回撤</th>
                     <th>当前选择</th>
+                    <th>本次候选准入</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2353,6 +2392,13 @@ function JobPage(p: Shared & { id: string }) {
                       <td>{number(v.metrics.sharpe, 3)}</td>
                       <td>{percent(v.metrics.max_drawdown)}</td>
                       <td>{v.best_path || '未选出'}</td>
+                      <td>
+                        {v.assessment
+                          ? v.assessment.eligible
+                            ? '通过'
+                            : v.assessment.reasons.join('、')
+                          : '历史规则'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

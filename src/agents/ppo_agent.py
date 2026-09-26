@@ -18,9 +18,13 @@ from .ppo_policy import SharedStockPolicy
 
 def make_model(env, config):
     torch.set_num_threads(config["torch_threads"])
+    options = deepcopy(config["ppo"])
+    if config.get("learning_rate_schedule", "constant") == "linear":
+        initial, factor = options["learning_rate"], config.get("learning_rate_end_factor", 0.1)
+        options["learning_rate"] = lambda remaining: initial * (factor + (1 - factor) * min(1.0, max(0.0, remaining)))
     return PPO(SharedStockPolicy, env, seed=config["seed"], device=resolve_device(config["device"]),
                policy_kwargs=dict(hidden_sizes=tuple(config["hidden_sizes"])),
-               verbose=0, **config["ppo"])
+               verbose=0, **options)
 
 
 class PPOAgent:

@@ -16,7 +16,7 @@ from src.agents.ppo_agent import PPOAgent, make_model
 from src.data.preprocess import ROOT, read_config, resolve_path, write_json
 from src.runtime import events
 from .env_factory import ResearchData
-from .evaluate import evaluate_agent, selection_score
+from .evaluate import evaluate_agent, selection_score, selection_assessment
 
 
 class ValidationCallback(BaseCallback):
@@ -27,13 +27,27 @@ class ValidationCallback(BaseCallback):
         self.best = None
         self.best_path = None
         self.last_evaluated = None
-        self.previous_equity = data.settings["initial_capital"]
+        self.previous_equity = {}
+        self.previous_target = {}
+        self.portfolio_totals = Counter()
+        self.portfolio_counts = Counter()
+        self.portfolio_samples = 0
+        self.last_recorded = None
+        self.started = perf_counter()
+        self.rollout_started = None
+        self.rollout_ended = None
+        self.rollout_seconds = 0.0
+        self.validation_seconds = 0.0
         self.reason_counts = Counter()
         self.update_records = []
 
     def record_update(self):
         if not self.model.num_timesteps or not self.model._n_updates:
             return
+        marker = (self.model.num_timesteps, self.model._n_updates)
+        if marker == self.last_recorded:
+            return
+        self.last_recorded = marker
         values = self.model.logger.name_to_value
         row = dict(timesteps=self.model.num_timesteps, updates=self.model._n_updates)
         for key, value in values.items():
@@ -43,24 +57,49 @@ class ValidationCallback(BaseCallback):
                     raise FloatingPointError(f"Nonfinite PPO diagnostic: {key}")
         if any(not torch.isfinite(p).all() for p in self.model.policy.parameters()):
             raise FloatingPointError("Nonfinite PPO parameters")
+        steps = [int(s["step"].item()) for s in self.model.policy.optimizer.state.values() if "step" in s]
+        row["optimizer/steps_min"] = min(steps, default=0)
+        row["optimizer/steps_max"] = max(steps, default=0)
+        norms = [p.grad.detach().float().norm().item() ** 2 for p in self.model.policy.parameters() if p.grad is not None]
+        row["optimizer/last_post_clip_grad_norm"] = float(np.sqrt(sum(norms))) if norms else None
+        if norms and not np.isfinite(row["optimizer/last_post_clip_grad_norm"]):
+            raise FloatingPointError("Nonfinite gradients")
+        row["time/elapsed_seconds"] = perf_counter() - self.started
+        row["time/rollout_seconds"] = self.rollout_seconds
+        row["time/update_wall_seconds"] = perf_counter() - self.rollout_ended if self.rollout_ended else None
+        row["time/validation_seconds_total"] = self.validation_seconds
+        if self.portfolio_samples:
+            row.update({"portfolio/" + k: v / self.portfolio_counts[k] for k, v in self.portfolio_totals.items()})
+        row.update({"orders_total/" + k: v for k, v in self.reason_counts.items()})
+        if "train/entropy_loss" in row and row["train/entropy_loss"] is not None:
+            row["train/entropy_per_dimension"] = -row["train/entropy_loss"] / (len(self.data.codes) + 1)
+        row["resource/cuda_allocated_mb"] = torch.cuda.memory_allocated(self.model.device) / 2 ** 20 if self.model.device.type == "cuda" else None
+        self.portfolio_totals.clear()
+        self.portfolio_counts.clear()
+        self.portfolio_samples = 0
         self.update_records.append(row)
         pd.DataFrame(self.update_records).to_csv(self.output / "training_updates.csv", index=False)
         events.emit("metrics", timesteps=self.model.num_timesteps, metrics=row)
 
     def evaluate(self):
         events.phase("validation")
+        started = perf_counter()
         step = self.model.num_timesteps
         agent = PPOAgent(self.model, self.data.contract)
         metrics = evaluate_agent(agent, self.data, self.output / f"validation_{step}")
         self.last_evaluated = step
-        score = selection_score(metrics)
+        self.validation_seconds += perf_counter() - started
+        policy = self.data.config.get("selection_policy")
+        assessment = selection_assessment(metrics, policy)
+        score = selection_score(metrics, policy)
         if score is not None and (self.best is None or score > self.best):
             self.best = score
             self.best_path = f"best_{step}"
             agent.save(self.output / self.best_path, self.data.config, dict(validation=metrics))
         write_json(self.output / "selection.json", dict(best_path=self.best_path,
-                   score=self.best, last_evaluated=step, split="val", test_evaluated=False))
-        events.emit("validation", timesteps=step, metrics=metrics, best_path=self.best_path)
+                   score=self.best, last_evaluated=step, assessment=assessment, split="val", test_evaluated=False))
+        events.emit("validation", timesteps=step, metrics=metrics, assessment=assessment,
+                    duration_seconds=perf_counter() - started, best_path=self.best_path)
 
     def _on_step(self):
         events.check_cancel()
@@ -77,13 +116,31 @@ class ValidationCallback(BaseCallback):
                 self.logger.record_mean("portfolio/fees", sum(o["fee"] for o in orders))
                 self.logger.record_mean("portfolio/unfilled_orders", sum(o["status"] != "filled" for o in orders))
                 gross = sum(abs(o["filled_shares"]) * o["price"] for o in orders if o["filled_shares"])
-                self.logger.record_mean("portfolio/gross_turnover", gross / self.previous_equity)
+                previous = self.previous_equity.get(index, self.data.settings["initial_capital"])
+                self.logger.record_mean("portfolio/gross_turnover", gross / previous)
+                weights = diagnostics.get("weights")
+                sample = dict(target_cash=diagnostics["cash_weight"], actual_cash=info["cash"] / info["equity"] if info["equity"] else 0,
+                              raw_return=info["reward"], fees=sum(o["fee"] for o in orders), gross_turnover=gross / previous,
+                              unfilled_orders=sum(o["status"] != "filled" for o in orders),
+                              action_saturation=diagnostics["saturation_fraction"])
+                if weights is not None:
+                    probabilities = np.append(weights, diagnostics["cash_weight"])
+                    positive = probabilities[probabilities > 0]
+                    sample.update(target_weight_entropy=float(-(positive * np.log(positive)).sum()),
+                                  target_change_l1=float(np.abs(weights - self.previous_target.get(index, np.zeros_like(weights))).sum()),
+                                  cap_fraction=float(np.mean(weights >= self.data.settings["broker"]["max_weight"] - 1e-7)))
+                if diagnostics.get("eligible") is not None:
+                    sample["eligible_stocks"] = int(diagnostics["eligible"].sum())
+                self.portfolio_totals.update(sample)
+                self.portfolio_counts.update(sample.keys())
+                self.portfolio_samples += 1
                 for order in orders:
                     self.reason_counts.update(order["reasons"])
                 for reason, count in self.reason_counts.items():
                     self.logger.record("orders_total/" + reason, count)
-                self.previous_equity = (self.data.settings["initial_capital"]
-                                        if self.locals["dones"][index] else info["equity"])
+                self.previous_equity[index] = self.data.settings["initial_capital"] if self.locals["dones"][index] else info["equity"]
+                if weights is not None:
+                    self.previous_target[index] = np.zeros_like(weights) if self.locals["dones"][index] else weights.copy()
         return True
 
     def _on_rollout_start(self):
@@ -92,6 +149,11 @@ class ValidationCallback(BaseCallback):
         if self.model.num_timesteps and self.model.num_timesteps % self.frequency == 0:
             self.evaluate()
         events.phase("training")
+        self.rollout_started = perf_counter()
+
+    def _on_rollout_end(self):
+        self.rollout_ended = perf_counter()
+        self.rollout_seconds = self.rollout_ended - self.rollout_started if self.rollout_started else 0.0
 
     def _on_training_end(self):
         self.record_update()

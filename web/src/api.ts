@@ -55,6 +55,7 @@ export const statusName: Record<string, string> = {
   interrupted: '已中断',
 }
 export const kindName: Record<string, string> = {
+  experiment_prepare: '实验数据准备',
   online_supplement: '扩展数据下载',
   online_history: '联网历史下载',
   online_quotes: '报价快照',

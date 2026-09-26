@@ -26,8 +26,20 @@ def training_config(catalog, job, directory):
                device=resolve_device(payload.get("device", "cpu")), torch_threads=1,
                training_date_policy=payload.get("training_date_policy", "legacy_masked"),
                output_root=str(ROOT / "reports/runs/workbench"))
-    for key in ["n_steps", "batch_size", "n_epochs", "learning_rate"]:
-        cfg["ppo"][key] = payload[key]
+    for key in ["n_steps", "batch_size", "n_epochs", "learning_rate", "gamma", "gae_lambda", "clip_range",
+                "target_kl", "ent_coef", "vf_coef", "max_grad_norm"]:
+        if key in payload:
+            cfg["ppo"][key] = payload[key]
+    cfg["learning_rate_schedule"] = payload.get("learning_rate_schedule", "constant")
+    cfg["learning_rate_end_factor"] = payload.get("learning_rate_end_factor", 0.1)
+    if payload.get("experiment_id"):
+        from src.web.experiments import digest
+        cfg["experiment_id"] = payload["experiment_id"]
+        cfg["experiment_recipe_sha256"] = digest(Store(ROOT / ".workbench").experiment(payload["experiment_id"])["recipe"])
+    if "min_validation_steps" in payload:
+        cfg["selection_policy"] = dict(min_steps=payload["min_validation_steps"],
+                                       max_drawdown=payload.get("max_validation_drawdown"),
+                                       max_turnover=payload.get("max_validation_turnover"))
     write_json(directory / "config.json", cfg)
     return cfg
 
@@ -37,6 +49,23 @@ def execute(job, directory):
     payload, kind = job["payload"], job["kind"]
     output = ROOT / "reports/runs/workbench" / job["id"]
     events.phase("validating")
+    if kind == "experiment_prepare":
+        from src.web.experiments import preflight
+        from src.data.source_bundle import compose_bundle
+        state = preflight(Store(ROOT / ".workbench"), payload["experiment_id"])
+        if state["preparation_fingerprint"] != payload["experiment_fingerprint"] or not state["can_prepare"]:
+            raise ValueError("Experiment sources changed or are not ready; recheck the recipe")
+        build = dict(state["recipe"]["build"])
+        build_kind = "build"
+        if state["recipe"]["source_mode"] == "history":
+            bundle = compose_bundle(state["history_ids"], build["codes"], build["start_date"], build["end_date"])
+            build["history_id"] = bundle["id"]
+            build_kind = "online_build"
+        return execute(dict(id=job["id"], kind=build_kind, payload=build), directory)
+    if payload.get("experiment_id") and kind in {"training", "check"}:
+        from src.web.experiments import training_fingerprint
+        if training_fingerprint(payload) != payload["experiment_fingerprint"]:
+            raise ValueError("Experiment training input changed since approval")
     if kind == "online_supplement":
         from src.data.supplement import capture_supplement
         events.phase("downloading")

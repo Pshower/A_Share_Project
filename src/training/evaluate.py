@@ -50,6 +50,22 @@ def evaluate_agent(agent, data, output, compare_baselines=False, *, split="val",
             daily, holdings, orders, _ = run_strategy(data.market(split, allow_test=split == "test"), name, settings)
             record(name if interval is None else name + "_daily", daily, holdings, orders)
     write_json(output / "metrics.json", metrics)
+    comparisons = {}
+    for name, baseline in metrics.items():
+        if name == "ppo":
+            continue
+        paired = pd.concat([results["ppo"].set_index("date").equity.pct_change().rename("ppo"),
+                            results[name].set_index("date").equity.pct_change().rename("baseline")], axis=1).dropna()
+        active = paired.ppo - paired.baseline
+        tracking = float(active.std(ddof=1)) if len(active) > 1 else 0.0
+        correlation = float(paired.ppo.corr(paired.baseline)) if len(paired) > 1 and paired.ppo.std() > 1e-15 and paired.baseline.std() > 1e-15 else None
+        comparisons[name] = dict(return_gap=metrics["ppo"]["cumulative_return"] - baseline["cumulative_return"],
+                                 drawdown_magnitude_gap=abs(metrics["ppo"]["max_drawdown"]) - abs(baseline["max_drawdown"]),
+                                 cost_gap=(metrics["ppo"]["total_fees"] + metrics["ppo"]["total_slippage_cost"] - baseline["total_fees"] - baseline["total_slippage_cost"]),
+                                 daily_return_correlation=correlation, matched_steps=len(paired),
+                                 tracking_error=tracking * np.sqrt(252),
+                                 information_ratio=float(active.mean() / tracking * np.sqrt(252)) if tracking > 1e-15 else None)
+    write_json(output / "comparisons.json", comparisons)
     pd.DataFrame(metrics).T.to_csv(output / "metrics.csv")
     write_json(output / "experiment.json", dict(contract=data.contract, config=data.config,
                research_config=data.research, split=split, num_timesteps=agent.model.num_timesteps,
@@ -77,7 +93,28 @@ def evaluate_agent(agent, data, output, compare_baselines=False, *, split="val",
     return metrics["ppo"]
 
 
-def selection_score(metrics):
+def selection_assessment(metrics, policy=None):
+    reasons = []
+    policy = policy or {}
+    if metrics.get("sharpe") is None or not np.isfinite(metrics["sharpe"]):
+        reasons.append("undefined_sharpe")
+    if not np.isfinite(metrics.get("cumulative_return", float("nan"))):
+        reasons.append("invalid_return")
+    if metrics.get("trading_steps", 0) < policy.get("min_steps", 0):
+        reasons.append("insufficient_validation_steps")
+    for field, bound, magnitude in [("max_drawdown", "max_drawdown", True), ("mean_daily_turnover", "max_turnover", False)]:
+        limit = policy.get(bound)
+        if limit is not None:
+            value = metrics.get(field)
+            if value is None or not np.isfinite(value) or (abs(value) if magnitude else value) > limit:
+                reasons.append(bound + "_limit")
+    return dict(eligible=not reasons, reasons=reasons, policy=policy,
+                ranking="validation_sharpe_then_return; earlier checkpoint wins exact ties")
+
+
+def selection_score(metrics, policy=None):
+    if not selection_assessment(metrics, policy)["eligible"]:
+        return None
     sharpe = metrics["sharpe"]
     if sharpe is None or not np.isfinite(sharpe):
         return None

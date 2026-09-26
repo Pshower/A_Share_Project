@@ -23,6 +23,18 @@ class Training(Request):
     batch_size: int = Field(default=64, ge=2, le=4096)
     n_epochs: int = Field(default=10, ge=1, le=30)
     learning_rate: float = Field(default=0.0003, gt=0, le=0.01)
+    learning_rate_schedule: Literal["constant", "linear"] = "constant"
+    learning_rate_end_factor: float = Field(default=0.1, ge=0, le=1)
+    gamma: float = Field(default=0.99, ge=0, le=1)
+    gae_lambda: float = Field(default=0.95, ge=0, le=1)
+    clip_range: float = Field(default=0.2, gt=0, le=0.5)
+    target_kl: float = Field(default=0.03, gt=0, le=0.2)
+    ent_coef: float = Field(default=0, ge=0, le=0.1)
+    vf_coef: float = Field(default=0.5, ge=0, le=2)
+    max_grad_norm: float = Field(default=0.5, gt=0, le=10)
+    max_validation_drawdown: float | None = Field(default=None, gt=0, le=1)
+    max_validation_turnover: float | None = Field(default=None, gt=0, le=10)
+    min_validation_steps: int = Field(default=20, ge=2, le=2000)
     validation_rollouts: int = Field(default=10, ge=1, le=100)
     name: str = Field(default="PPO experiment", max_length=80)
 
@@ -74,6 +86,39 @@ class Build(Request):
         if len(set(self.codes)) != len(self.codes):
             raise ValueError("Duplicate stock codes")
         return self
+
+
+class ExperimentRecipe(Request):
+    name: str = Field(min_length=1, max_length=80)
+    training: Training
+    build: Build | None = None
+    history_ids: list[str] = Field(default_factory=list, max_length=20)
+    source_mode: Literal["dataset", "history"] = "dataset"
+    seeds: list[int] = Field(default=[42], min_length=1, max_length=5)
+    parent_id: str | None = None
+
+    @model_validator(mode="after")
+    def coherent(self):
+        if len(set(self.seeds)) != len(self.seeds) or any(s < 0 or s > 2147483647 for s in self.seeds):
+            raise ValueError("Choose up to five unique nonnegative seeds")
+        if len(set(self.history_ids)) != len(self.history_ids):
+            raise ValueError("Repeated source snapshots")
+        if self.history_ids and self.build is None:
+            raise ValueError("Raw captures require a new dataset build")
+        if self.source_mode == "history" and self.build is None:
+            raise ValueError("History mode requires a dataset build")
+        if self.source_mode == "dataset" and self.history_ids:
+            raise ValueError("Choose history mode for snapshot sources")
+        if self.build and (self.build.dataset_id != self.training.dataset_id or self.build.codes != self.training.codes):
+            raise ValueError("Build and training must use the same template and ordered stock pool")
+        from src.data.online import valid_codes
+        valid_codes(self.training.codes)
+        return self
+
+
+class ExperimentApproval(Request):
+    allow_network: bool = False
+    allow_training: bool = False
 
 
 class ModelRequest(Request):

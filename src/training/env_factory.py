@@ -17,6 +17,19 @@ from src.envs.trading import TradingEnv
 
 
 def validate_config(config):
+    if config.get("learning_rate_schedule", "constant") not in {"constant", "linear"}:
+        raise ValueError("Unknown learning-rate schedule")
+    factor = config.get("learning_rate_end_factor", 0.1)
+    if not np.isfinite(factor) or not 0 <= factor <= 1:
+        raise ValueError("learning_rate_end_factor must be in [0, 1]")
+    selection = config.get("selection_policy", {})
+    if selection:
+        if type(selection.get("min_steps")) is not int or selection["min_steps"] < 2:
+            raise ValueError("Selection min_steps must be at least two")
+        for field, maximum in [("max_drawdown", 1), ("max_turnover", 10)]:
+            value = selection.get(field)
+            if value is not None and (not np.isfinite(value) or not 0 < value <= maximum):
+                raise ValueError("Invalid selection constraint: " + field)
     for field in ["lookback", "torch_threads", "validation_rollouts"]:
         if type(config[field]) is not int or config[field] < 1:
             raise ValueError(f"{field} must be a positive integer")

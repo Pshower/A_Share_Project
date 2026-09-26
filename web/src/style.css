@@ -1244,3 +1244,6 @@ footer {
 .feature-editor .form-actions { flex-wrap: wrap; }
 .feature-editor .form-actions button { white-space: nowrap; flex-shrink: 0; }
 .supplement-table th, .supplement-table td { min-width: 120px; max-width: 350px; overflow-wrap: anywhere; }
+.experiment-sources { max-height: 240px; overflow: auto; }
+.ppo-settings .field-grid { margin-top: 12px; }
+.stat strong.experiment-artifact-id { font-size: 14px; overflow-wrap: anywhere; }

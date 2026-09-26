@@ -18,7 +18,7 @@ from src.data.preprocess import ROOT, read_config
 from .catalog import Catalog, inside
 from .jobs import JobManager, TERMINAL, read_events
 from .store import Store
-from .schemas import Training, Build, Evaluation, ModelRequest, Prediction, Transfer, Label, Coverage, FeaturePreview
+from .schemas import Training, Build, Evaluation, ModelRequest, Prediction, Transfer, Label, Coverage, FeaturePreview, ExperimentRecipe, ExperimentApproval
 from .schemas import OnlineHistory, OnlineQuotes, DailyPlan, OnlineBuild, MonitorRequest, StockList, Supplement
 from src.data.snapshots import Snapshots
 
@@ -99,6 +99,39 @@ def create_app(root=ROOT, start_workers=True):
     def defaults():
         return dict(ppo=read_config(root / "configs/ppo.json"),
                     light_codes=read_config(root / "configs/ppo_lightweight.json")["stock_codes"])
+
+    @app.get("/api/experiments")
+    def experiments():
+        return store.experiments()
+
+    @app.post("/api/experiments")
+    def create_experiment(body: ExperimentRecipe):
+        from src.data.preprocess import file_hash
+        record, directory = catalog.dataset(body.training.dataset_id)
+        if body.source_mode == "dataset":
+            validate_pool(body.training.dataset_id, body.training.codes)
+        source_hashes = {identifier: file_hash(snapshots.get("history", identifier)[1] / "manifest.json") for identifier in body.history_ids}
+        recipe = body.model_dump(mode="json")
+        if recipe["build"] and recipe["build"]["extra_features"] is None:
+            recipe["build"]["extra_features"] = record["manifest"].get("extra_features", [])
+        recipe["template_manifest_sha256"] = file_hash(directory / "manifest.json")
+        recipe["source_manifest_hashes"] = source_hashes
+        return store.create_experiment(recipe)
+
+    @app.get("/api/experiments/{experiment_id}")
+    def experiment_detail(experiment_id: str):
+        from .experiments import preflight, summaries
+        state = preflight(store, experiment_id, root)
+        state["summaries"] = summaries(state, root)
+        return state
+
+    @app.post("/api/experiments/{experiment_id}/{stage}")
+    def experiment_stage(experiment_id: str, stage: str, body: ExperimentApproval):
+        from .experiments import stage_jobs
+        if stage == "stop":
+            return [manager.request_stop(j["id"]) for j in store.experiment_jobs(experiment_id)
+                    if j["status"] in {"queued", "running", "stop_requested"}]
+        return stage_jobs(store, experiment_id, stage, body, root)
 
     @app.get("/api/market/status")
     def market_status():
@@ -468,7 +501,8 @@ def create_app(root=ROOT, start_workers=True):
             if path.exists():
                 frame = pd.read_csv(path)
                 series[name] = json.loads(frame.to_json(orient="records"))
-        return dict(**record, series=series)
+        comparison_path = directory / "comparisons.json"
+        return dict(**record, series=series, comparisons=read_config(comparison_path) if comparison_path.exists() else {})
 
     @app.get("/api/reports/{report_id}/orders")
     def orders(report_id: str, strategy: str = "ppo", page: int = 0, date: str | None = None):

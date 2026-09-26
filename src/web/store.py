@@ -30,6 +30,8 @@ class Store:
                     created TEXT NOT NULL, updated TEXT NOT NULL, payload TEXT NOT NULL,
                     result TEXT, error TEXT, idempotency TEXT UNIQUE);
                 CREATE TABLE IF NOT EXISTS labels (id TEXT PRIMARY KEY, label TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS experiments (id TEXT PRIMARY KEY, created TEXT, recipe TEXT);
+                CREATE TABLE IF NOT EXISTS experiment_jobs (experiment_id TEXT, stage TEXT, job_id TEXT UNIQUE, fingerprint TEXT);
                 CREATE TABLE IF NOT EXISTS exposures (id INTEGER PRIMARY KEY, created TEXT,
                     kind TEXT, dataset TEXT, start TEXT, end TEXT, source TEXT,
                     UNIQUE(kind, dataset, start, end, source));
@@ -99,6 +101,48 @@ class Store:
     def labels(self):
         with self.connect() as conn:
             return dict(conn.execute("SELECT id,label FROM labels"))
+
+    def create_experiment(self, recipe):
+        if recipe.get("parent_id"):
+            self.experiment(recipe["parent_id"])
+        identifier = "e_" + uuid.uuid4().hex[:16]
+        with self.connect() as conn:
+            conn.execute("INSERT INTO experiments VALUES(?,?,?)", (identifier, now(), json.dumps(recipe)))
+        return self.experiment(identifier)
+
+    def experiment(self, identifier):
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM experiments WHERE id=?", (identifier,)).fetchone()
+        if row is None:
+            raise ValueError("Unknown experiment")
+        return dict(id=row["id"], created=row["created"], recipe=json.loads(row["recipe"]))
+
+    def experiments(self):
+        with self.connect() as conn:
+            ids = [r[0] for r in conn.execute("SELECT id FROM experiments ORDER BY created DESC")]
+        return [self.experiment(identifier) for identifier in ids]
+
+    def experiment_jobs(self, identifier):
+        self.experiment(identifier)
+        with self.connect() as conn:
+            return [self.decode(r) for r in conn.execute("SELECT jobs.*, stage, fingerprint FROM jobs JOIN experiment_jobs ON job_id=jobs.id WHERE experiment_id=? ORDER BY jobs.created DESC", (identifier,))]
+
+    def enqueue_experiment(self, identifier, stage, kind, payload, fingerprint):
+        self.experiment(identifier)
+        payload = dict(payload, experiment_id=identifier, experiment_fingerprint=fingerprint)
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            prior = conn.execute("SELECT jobs.*, fingerprint FROM jobs JOIN experiment_jobs ON job_id=jobs.id WHERE experiment_id=? AND stage=? ORDER BY jobs.created DESC LIMIT 1", (identifier, stage)).fetchone()
+            reusable = prior and prior["status"] == "succeeded" and prior["fingerprint"] == fingerprint
+            if reusable and stage == "download":
+                reusable = json.loads(prior["result"] or "{}").get("capture_status") == "ready"
+            if prior and (prior["status"] in {"queued", "running", "stop_requested"} or reusable):
+                return self.decode(prior)
+            job_id, stamp = "j_" + uuid.uuid4().hex[:16], now()
+            conn.execute("INSERT INTO jobs(id,kind,status,created,updated,payload) VALUES(?,?,?,?,?,?)",
+                         (job_id, kind, "queued", stamp, stamp, json.dumps(payload)))
+            conn.execute("INSERT INTO experiment_jobs VALUES(?,?,?,?)", (identifier, stage, job_id, fingerprint))
+        return self.get(job_id)
 
     def label(self, identifier, label):
         with self.connect() as conn:

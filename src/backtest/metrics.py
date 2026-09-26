@@ -12,8 +12,17 @@ def performance(daily, periods_per_year=252):
     cumulative = equity[-1] / equity[0] - 1
     volatility = float(returns.std(ddof=1)) if len(returns) > 1 else 0.0
     drawdown = equity / np.maximum.accumulate(equity) - 1
+    annual_return = float((1 + cumulative) ** (periods_per_year / len(returns)) - 1)
+    downside = float(np.sqrt(np.mean(np.minimum(returns, 0) ** 2)))
+    longest = current = 0
+    for underwater in drawdown[1:] < 0:
+        current = current + 1 if underwater else 0
+        longest = max(longest, current)
     return dict(cumulative_return=float(cumulative),
-                annual_return=float((1 + cumulative) ** (periods_per_year / len(returns)) - 1),
+                annual_return=annual_return,
+                sortino=float(returns.mean() / downside * np.sqrt(periods_per_year)) if downside > 1e-15 else None,
+                calmar=annual_return / abs(float(drawdown.min())) if drawdown.min() < -1e-15 else None,
+                longest_underwater_steps=longest,
                 annual_volatility=volatility * np.sqrt(periods_per_year),
                 sharpe=float(returns.mean() / volatility * np.sqrt(periods_per_year)) if volatility > 1e-15 else None,
                 max_drawdown=float(drawdown.min()),
