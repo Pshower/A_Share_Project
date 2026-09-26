@@ -104,7 +104,7 @@ class Label(Request):
 
 
 class OnlineHistory(Request):
-    codes: list[str] = Field(min_length=1, max_length=100)
+    codes: list[str] = Field(min_length=1, max_length=500)
     start_date: date
     end_date: date
     bases: list[Literal["hfq", "unadjusted"]] = Field(default=["hfq", "unadjusted"], min_length=1, max_length=2)
@@ -119,6 +119,11 @@ class OnlineHistory(Request):
         if self.start_date > self.end_date or self.end_date > datetime.now(CHINA).date() or len(set(self.bases)) != len(self.bases):
             raise ValueError("Invalid download dates or repeated price basis")
         return self
+
+
+class StockList(Request):
+    text: str = Field(min_length=1, max_length=200000)
+    format: Literal["txt", "csv"] = "txt"
 
 
 class OnlineQuotes(Request):

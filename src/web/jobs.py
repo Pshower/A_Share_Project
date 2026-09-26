@@ -77,7 +77,9 @@ class JobManager:
         if self.active_id == job["id"] and self.process is not None:
             alive = self.process.poll() is None
             elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(job["updated"])).total_seconds()
-            limit = 660 if self.lane == "history" else 150
+            from src.data.online import history_time_budget
+            limit = (history_time_budget(job["payload"]["codes"], job["payload"]["bases"]) + 60
+                     if self.lane == "history" else 150)
             timed_out = self.lane != "research" and elapsed > limit
             stopped_late = self.lane != "research" and job["status"] == "stop_requested" and elapsed > 20
             if alive and (timed_out or stopped_late):

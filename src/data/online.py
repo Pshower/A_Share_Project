@@ -105,6 +105,10 @@ def retry(call, attempts=2):
             time.sleep(1)
 
 
+def history_time_budget(codes, bases):
+    return min(3600, max(600, len(codes) * len(bases) * 6))
+
+
 def download_history(codes, start, end, bases, *, allow_network=False, root=ROOT, provider=None, resume_id=None):
     if not allow_network:
         raise ValueError("Explicit network consent required")
@@ -124,10 +128,21 @@ def download_history(codes, start, end, bases, *, allow_network=False, root=ROOT
     entries, errors = [], []
     failures = 0
     started = time.monotonic()
+    cancelled = False
+    total = len(codes) * len(bases)
+    budget = history_time_budget(codes, bases)
+    def progress(code=None, basis=None):
+        events.emit("download_progress", code=code, basis=basis, completed=len(entries), total=total,
+                    saved=sum(r["status"] == "ready" for r in entries), failed=len(errors),
+                    reused=sum(bool(r.get("reused_from")) for r in entries))
+    progress()
     for code in codes:
         for basis in bases:
-            events.check_cancel()
-            events.emit("download_progress", code=code, basis=basis, completed=len(entries), total=len(codes) * len(bases))
+            if not cancelled:
+                try:
+                    events.check_cancel()
+                except events.Cancelled:
+                    cancelled = True
             target = directory / basis
             target.mkdir(exist_ok=True)
             prior = previous.get((code, basis))
@@ -135,10 +150,13 @@ def download_history(codes, start, end, bases, *, allow_network=False, root=ROOT
                 for suffix in ["parquet", "csv"]:
                     shutil.copyfile(old_dir / basis / f"{code}.{suffix}", target / f"{code}.{suffix}")
                 entries.append(dict(prior, reused_from=resume_id))
+                progress(code, basis)
                 continue
-            if failures >= 3 or time.monotonic() - started > 600:
-                item = dict(code=code, basis=basis, status="failed", error="Batch circuit/time limit reached")
+            if cancelled or failures >= 3 or time.monotonic() - started > budget:
+                reason = "Cancelled before capture" if cancelled else "Batch circuit/time limit reached"
+                item = dict(code=code, basis=basis, status="failed", error=reason)
                 entries.append(item); errors.append(item)
+                progress(code, basis)
                 continue
             try:
                 frame = normalize_history(retry(lambda: provider.history(code, start, end, basis)), code, start, end)
@@ -149,17 +167,25 @@ def download_history(codes, start, end, bases, *, allow_network=False, root=ROOT
                             received_at=utc_now())
                 failures = 0
             except events.Cancelled:
-                raise
+                cancelled = True
+                item = dict(code=code, basis=basis, status="failed", error="Cancelled during capture")
+                errors.append(item)
             except Exception as error:
                 failures += 1
                 item = dict(code=code, basis=basis, status="failed", error=str(error)[:500])
                 errors.append(item)
             entries.append(item)
+            progress(code, basis)
             with (directory / "requests.jsonl").open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps(item, ensure_ascii=False) + "\n")
-    return store.publish("history", identifier, directory, dict(request=request, entries=entries,
+    result = store.publish("history", identifier, directory, dict(request=request, entries=entries,
                          status="ready" if not errors else "partial", errors=errors, volume_unit="shares",
+                         cancelled=cancelled, time_budget_seconds=budget,
                          complete_bar_policy="Only dates strictly before capture day may be used for plans; exchange calendar not verified"))
+    events.emit("download_snapshot", snapshot_id=identifier, snapshot_kind="history", status=result["status"])
+    if cancelled:
+        raise events.Cancelled("Download stopped; completed files are saved in snapshot " + identifier)
+    return result
 
 
 def normalize_quote(raw, code, received_at):

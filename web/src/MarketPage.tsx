@@ -45,7 +45,7 @@ const intent: Record<string, string> = {
 }
 function codesFrom(text: string) {
   return text
-    .split(/[\s,，]+/)
+    .split(/[\s,，;；]+/)
     .map((v) => v.trim())
     .filter(Boolean)
 }
@@ -91,6 +91,8 @@ export default function MarketPage(p: Props) {
   )
   const [requirements, setRequirements] = useState<Row | null>(null)
   const [codes, setCodes] = useState('000001')
+  const [importMode, setImportMode] = useState('append')
+  const [importInfo, setImportInfo] = useState('')
   const [start, setStart] = useState('2017-01-01')
   const [end, setEnd] = useState('')
   const [basis, setBasis] = useState('both')
@@ -206,6 +208,10 @@ export default function MarketPage(p: Props) {
   }, [monitorId, monitoring, p.fail])
 
   const selectedHistory = histories.find((h) => h.id === historyId)
+  const downloadCodes = [...new Set(codesFrom(codes))]
+  const invalidCodes = downloadCodes.filter((c) => !/^[0-9]{6}$/.test(c))
+  const validDownload =
+    downloadCodes.length > 0 && downloadCodes.length <= 500 && !invalidCodes.length
   const selectedPlan = plans.find((v) => v.id === planId)
   const pool = selectedPlan ? selectedPlan.stock_codes : codesFrom(codes)
   const covered =
@@ -217,6 +223,44 @@ export default function MarketPage(p: Props) {
     setBusy(true)
     try {
       p.openJob(await post(path, body))
+    } catch (e) {
+      p.fail(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+  function applyCodes(incoming: string[]) {
+    setCodes((previous) =>
+      [...new Set(importMode === 'append' ? [...codesFrom(previous), ...incoming] : incoming)].join(
+        '\n'
+      )
+    )
+  }
+  async function importDataset() {
+    setBusy(true)
+    try {
+      const data = await api('/datasets/' + template)
+      applyCodes(data.manifest.stock_codes)
+      setImportInfo(`数据集股票 ${data.manifest.stock_codes.length} 只`)
+    } catch (e) {
+      p.fail(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function importFile(file: File) {
+    setBusy(true)
+    try {
+      if (file.size > 200000) throw new Error('代码文件不能超过 200 KB')
+      if (!/\.(csv|txt)$/i.test(file.name)) throw new Error('请选择 UTF-8 TXT 或 CSV 代码文件')
+      const parsed = await post('/market/parse-codes', {
+        text: await file.text(),
+        format: /\.csv$/i.test(file.name) ? 'csv' : 'txt',
+      })
+      applyCodes(parsed.codes)
+      setImportInfo(
+        `导入 ${parsed.codes.length} 只；文件重复 ${parsed.duplicates} 项；补齐代码 ${parsed.normalized} 项`
+      )
     } catch (e) {
       p.fail(e)
     } finally {
@@ -305,6 +349,67 @@ export default function MarketPage(p: Props) {
                   onChange={(e) => setCodes(e.target.value)}
                 />
               </Field>
+              <div className="field-grid">
+                <Field label="代码导入方式">
+                  <select
+                    aria-label="代码导入方式"
+                    value={importMode}
+                    onChange={(e) => setImportMode(e.target.value)}
+                  >
+                    <option value="append">追加并去重</option>
+                    <option value="replace">替换当前列表</option>
+                  </select>
+                </Field>
+                <Field label="代码文件（UTF-8 TXT / CSV）">
+                  <input
+                    aria-label="导入股票代码文件"
+                    type="file"
+                    accept=".txt,.csv"
+                    disabled={busy}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) void importFile(file)
+                      e.target.value = ''
+                    }}
+                  />
+                </Field>
+              </div>
+              <Field label="从现有数据集选取股票池">
+                <div className="input-action">
+                  <select
+                    aria-label="批量下载数据集"
+                    value={template}
+                    onChange={(e) => setTemplate(e.target.value)}
+                  >
+                    {p.datasets.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name} · {d.stocks} 股
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="icon-button"
+                    title="导入数据集股票池"
+                    disabled={busy || !template}
+                    onClick={importDataset}
+                  >
+                    <Layers size={16} />
+                  </button>
+                </div>
+              </Field>
+              {importInfo && (
+                <p className="subtle-note" role="status">
+                  {importInfo}
+                </p>
+              )}
+              <p className="subtle-note" data-testid="batch-code-summary">
+                待下载 {downloadCodes.length} / 500 只 · 重复{' '}
+                {codesFrom(codes).length - downloadCodes.length} 项
+              </p>
+              {invalidCodes.length > 0 && (
+                <p role="alert">无效代码：{invalidCodes.slice(0, 10).join('、')}</p>
+              )}
+              {downloadCodes.length > 500 && <p role="alert">每批最多 500 只股票</p>}
               <Field label="从模型提取完整股票池">
                 <div className="input-action">
                   <select
@@ -372,16 +477,16 @@ export default function MarketPage(p: Props) {
                 允许本次从东方财富联网采集
               </label>
               <p className="subtle-note">
-                {codesFrom(codes).length} 只股票 · {basis === 'both' ? '2' : '1'}{' '}
+                {downloadCodes.length} 只股票 · {basis === 'both' ? '2' : '1'}{' '}
                 种口径；有限重试、全局限速，不切换 IP 或绕过限流。
               </p>
               <div className="form-actions">
                 <button
                   className="primary"
-                  disabled={busy || !consent || !codesFrom(codes).length}
+                  disabled={busy || !consent || !validDownload}
                   onClick={() =>
                     job('/market/downloads', {
-                      codes: codesFrom(codes),
+                      codes: downloadCodes,
                       start_date: start,
                       end_date: end,
                       bases: basis === 'both' ? ['hfq', 'unadjusted'] : [basis],
@@ -499,7 +604,9 @@ export default function MarketPage(p: Props) {
               )}
             </section>
           </div>
-          {selectedHistory && <MarketChart key={selectedHistory.id} batch={selectedHistory as any} />}
+          {selectedHistory && (
+            <MarketChart key={selectedHistory.id} batch={selectedHistory as any} />
+          )}
           {build && selectedHistory && (
             <section className="section form-section">
               <div className="section-heading">

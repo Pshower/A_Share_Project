@@ -2008,6 +2008,8 @@ function JobPage(p: Shared & { id: string }) {
   }, [p.id, reload])
   if (!job) return <Empty>读取任务…</Empty>
   const progress = [...events].reverse().find((e) => e.type === 'progress')
+  const download = [...events].reverse().find((e) => e.type === 'download_progress')
+  const savedDownload = [...events].reverse().find((e) => e.type === 'download_snapshot')
   const phase = [...events].reverse().find((e) => e.phase)?.phase
   const metrics = events.filter((e) => e.type === 'metrics')
   const validations = events.filter((e) => e.type === 'validation')
@@ -2078,6 +2080,39 @@ function JobPage(p: Shared & { id: string }) {
         <div className="progress-track" aria-label="训练进度">
           <div style={{ width: `${Math.min(100, (steps / budget) * 100)}%` }} />
         </div>
+      )}
+      {job.kind === 'online_history' && (
+        <section className="section">
+          <div className="section-heading">
+            <h2>批量下载进度</h2>
+            <span>
+              {download?.completed || 0} /{' '}
+              {download?.total || job.payload.codes.length * job.payload.bases.length} 项
+            </span>
+          </div>
+          <div className="stats-band">
+            <Stat label="已保存" value={download?.saved || 0} />
+            <Stat label="失败或未采集" value={download?.failed || 0} />
+            <Stat label="复用成功项" value={download?.reused || 0} />
+            <Stat label="最近处理" value={download?.code || '—'} detail={download?.basis || ''} />
+          </div>
+          <div className="progress-track" aria-label="批量下载进度">
+            <div
+              style={{
+                width: `${download?.total ? (100 * download.completed) / download.total : 0}%`,
+              }}
+            />
+          </div>
+          {savedDownload && (
+            <button
+              className="text-button"
+              onClick={() => navigate('market', { kind: 'history', id: savedDownload.snapshot_id })}
+            >
+              <ArrowUpRight size={15} />
+              查看已保存批次
+            </button>
+          )}
+        </section>
       )}
       <section className="section">
         <div className="tabs">

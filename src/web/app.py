@@ -19,7 +19,7 @@ from .catalog import Catalog, inside
 from .jobs import JobManager, TERMINAL, read_events
 from .store import Store
 from .schemas import Training, Build, Evaluation, ModelRequest, Prediction, Transfer, Label
-from .schemas import OnlineHistory, OnlineQuotes, DailyPlan, OnlineBuild, MonitorRequest
+from .schemas import OnlineHistory, OnlineQuotes, DailyPlan, OnlineBuild, MonitorRequest, StockList
 from src.data.snapshots import Snapshots
 
 
@@ -153,6 +153,11 @@ def create_app(root=ROOT, start_workers=True):
         return dict(snapshot_id=snapshot_id, code=code, basis=basis, volume_unit="shares",
                     received_at=entry.get("received_at"),
                     rows=json.loads(frame[columns].to_json(orient="records")))
+
+    @app.post("/api/market/parse-codes")
+    def parse_codes(body: StockList):
+        from src.data.stock_codes import parse_stock_codes
+        return parse_stock_codes(body.text, body.format)
 
     @app.post("/api/market/downloads")
     def online_download(body: OnlineHistory, idempotency_key: str | None = Header(default=None)):
