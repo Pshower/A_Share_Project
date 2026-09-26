@@ -26,6 +26,7 @@
 | [training_data_linkage.md](training_data_linkage.md) | 多股训练日期交集、观察窗口、原始行情与下载批次关联 | 理解为何某些股票不能进入旧训练区间，以及怎样关联新数据版本 |
 | [feature_builder_plan.md](feature_builder_plan.md) | 数据管理追加特征、预览、新版本构建及模型兼容 | 首版已实现；含规划、使用步骤及真实构建验收 |
 | [akshare_download_expansion.md](akshare_download_expansion.md) | AKShare 可选数据、五类扩展下载、独立归档和后续候选 | 用户手动采集资料 / 资金流 / 分钟 / 指数 / 分红，不自动进入训练 |
+| [data_feature_ppo_integration_plan.md](data_feature_ppo_integration_plan.md) | 数据需求、特征方案、版本发布与 PPO 的统一实验流程 | 下一步集成设计；含准入、任务编排、恢复与落地顺序，尚未实施 |
 | [market_information_indicator_plan.md](market_information_indicator_plan.md) | 行情信息扩展、手动导入、技术指标计算契约及页面设计 | 待实施设计；区分本地可计算指标与需额外下载的数据 |
 | [联网验收记录](reports/online_market_acceptance_20260926.md) | 模拟测试、真实连接失败及未完成项 | 区分代码通过与实时数据实际可用 |
 
