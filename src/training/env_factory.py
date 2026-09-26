@@ -91,6 +91,11 @@ class ResearchData:
             raise ValueError("Feature and price dates differ")
         self.settings = deepcopy(self.research["backtest"])
         self.settings.update(seed=config["seed"], lookback=config["lookback"])
+        self.training_coverage = None
+        if config.get("training_date_policy") == "intersection":
+            from src.data.coverage import training_coverage
+            self.training_coverage = training_coverage(self.features, self.prices, self.codes,
+                                                       config["lookback"], manifest["train_end"])
         self.contract = dict(schema_version=1, dataset_version=manifest["version"],
                              manifest_sha256=file_hash(directory / "manifest.json"), artifacts=hashes,
                              feature_cols=manifest["feature_cols"], stock_codes=list(codes),
@@ -99,6 +104,9 @@ class ResearchData:
                              initial_capital=self.settings["initial_capital"],
                              mapping_version=MAPPING_VERSION, logit_bound=config["logit_bound"],
                              hidden_sizes=config["hidden_sizes"])
+        if self.training_coverage is not None:
+            self.contract["training_date_policy"] = "intersection"
+            self.contract["train_interval"] = {k: self.training_coverage[k] for k in ["train_start", "train_end"]}
 
     def market(self, split, *, allow_test=False):
         if split not in {"train", "val", "test"} or (split == "test" and not allow_test):
@@ -111,6 +119,11 @@ class ResearchData:
         if split in {"val", "test"}:
             boundary = "train_end" if split == "val" else "val_end"
             start = features.index[features.index <= pd.Timestamp(self.manifest[boundary])][-1]
+        elif self.training_coverage is not None:
+            if not self.training_coverage["eligible"]:
+                raise ValueError(self.training_coverage["reason"])
+            start = pd.Timestamp(self.training_coverage["train_start"])
+            end = pd.Timestamp(self.training_coverage["train_end"])
         else:
             n = len(self.codes)
             complete = np.isfinite(features.to_numpy().reshape(len(features), n, -1)).all(axis=2)

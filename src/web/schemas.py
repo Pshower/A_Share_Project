@@ -11,6 +11,7 @@ class Request(BaseModel):
 
 
 class Training(Request):
+    training_date_policy: Literal["intersection", "legacy_masked"] = "intersection"
     device: Literal["auto", "cpu", "cuda"] = "auto"
     dataset_id: str
     codes: list[str] = Field(min_length=1, max_length=500)
@@ -34,6 +35,11 @@ class Training(Request):
         if self.n_steps * len(self.codes) * self.lookback * 20 * 4 * 3 > 512 * 1024 * 1024:
             raise ValueError("Estimated rollout allocation exceeds the local 512 MB limit")
         return self
+
+
+class Coverage(Request):
+    codes: list[str] = Field(min_length=1, max_length=500)
+    lookback: int = Field(default=1, ge=1, le=60)
 
 
 class Build(Request):

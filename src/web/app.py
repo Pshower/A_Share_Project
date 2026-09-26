@@ -18,7 +18,7 @@ from src.data.preprocess import ROOT, read_config
 from .catalog import Catalog, inside
 from .jobs import JobManager, TERMINAL, read_events
 from .store import Store
-from .schemas import Training, Build, Evaluation, ModelRequest, Prediction, Transfer, Label
+from .schemas import Training, Build, Evaluation, ModelRequest, Prediction, Transfer, Label, Coverage
 from .schemas import OnlineHistory, OnlineQuotes, DailyPlan, OnlineBuild, MonitorRequest, StockList
 from src.data.snapshots import Snapshots
 
@@ -238,6 +238,14 @@ def create_app(root=ROOT, start_workers=True):
         record, path = catalog.dataset(dataset_id)
         return dict(**record, quality=catalog.stocks(dataset_id))
 
+    @app.post("/api/datasets/{dataset_id}/coverage")
+    def dataset_coverage(dataset_id: str, body: Coverage):
+        return catalog.coverage(dataset_id, body.codes, body.lookback)
+
+    @app.get("/api/market/datasets/{dataset_id}/bars")
+    def dataset_source_bars(dataset_id: str, code: str):
+        return catalog.source_bars(dataset_id, code)
+
     def validate_pool(dataset_id, codes):
         record, _ = catalog.dataset(dataset_id)
         if len(set(codes)) != len(codes) or not set(codes) <= set(record["manifest"]["stock_codes"]):
@@ -250,11 +258,19 @@ def create_app(root=ROOT, start_workers=True):
     @app.post("/api/training/jobs")
     def train(body: Training, idempotency_key: str | None = Header(default=None)):
         validate_pool(body.dataset_id, body.codes)
+        if body.training_date_policy == "intersection":
+            coverage = catalog.coverage(body.dataset_id, body.codes, body.lookback)
+            if not coverage["eligible"]:
+                raise ValueError(coverage["reason"])
         return submit("training", body.model_dump(mode="json"), idempotency_key)
 
     @app.post("/api/training/validate")
     def check(body: Training, idempotency_key: str | None = Header(default=None)):
         validate_pool(body.dataset_id, body.codes)
+        if body.training_date_policy == "intersection":
+            coverage = catalog.coverage(body.dataset_id, body.codes, body.lookback)
+            if not coverage["eligible"]:
+                raise ValueError(coverage["reason"])
         return submit("check", body.model_dump(mode="json"), idempotency_key)
 
     @app.post("/api/datasets/build")

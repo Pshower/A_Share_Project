@@ -23,16 +23,16 @@ echarts.use([
 ])
 type Bar = {
   date: string
-  open: number
-  close: number
-  low: number
-  high: number
+  open: number | null
+  close: number | null
+  low: number | null
+  high: number | null
   volume: number
   amount: number
 }
 type Batch = { id: string; entries: { code: string; basis: string; status: string }[] }
 
-export default function MarketChart({ batch }: { batch: Batch }) {
+export default function MarketChart({ batch, datasetId }: { batch: Batch; datasetId?: string }) {
   const available = batch.entries.filter((e) => e.status === 'ready')
   const codes = [...new Set(available.map((e) => e.code))]
   const [code, setCode] = useState(codes[0] || '')
@@ -43,7 +43,7 @@ export default function MarketChart({ batch }: { batch: Batch }) {
   const [range, setRange] = useState(120)
   const [result, setResult] = useState<{ key: string; rows: Bar[] } | null>(null)
   const [error, setError] = useState('')
-  const key = `${batch.id}/${code}/${basis}`
+  const key = `${datasetId || 'history'}/${batch.id}/${code}/${basis}`
   const rows = result?.key === key ? result.rows : []
   const element = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -51,7 +51,11 @@ export default function MarketChart({ batch }: { batch: Batch }) {
     setError('')
     setResult(null)
     if (code && basis)
-      api(`/market/history/${batch.id}/bars?code=${code}&basis=${basis}`)
+      api(
+        datasetId
+          ? `/market/datasets/${datasetId}/bars?code=${code}`
+          : `/market/history/${batch.id}/bars?code=${code}&basis=${basis}`
+      )
         .then((r) => {
           if (active) setResult({ key, rows: r.rows })
         })
@@ -69,7 +73,9 @@ export default function MarketChart({ batch }: { batch: Batch }) {
       rows.map((_, i) =>
         i < days - 1
           ? null
-          : rows.slice(i - days + 1, i + 1).reduce((s, r) => s + r.close, 0) / days
+          : rows.slice(i - days + 1, i + 1).some((r) => r.close === null)
+            ? null
+            : rows.slice(i - days + 1, i + 1).reduce((s, r) => s + r.close!, 0) / days
       )
     const axis = (gridIndex: number) => ({
       type: 'category',
@@ -116,7 +122,11 @@ export default function MarketChart({ batch }: { batch: Batch }) {
           ? {
               name: '日K',
               type: 'candlestick',
-              data: rows.map((r) => [r.open, r.close, r.low, r.high]),
+              data: rows.map((r) =>
+                [r.open, r.close, r.low, r.high].some((v) => v === null)
+                  ? '-'
+                  : [r.open, r.close, r.low, r.high]
+              ),
               itemStyle: {
                 color: '#ce424c',
                 color0: '#16856b',
@@ -146,7 +156,14 @@ export default function MarketChart({ batch }: { batch: Batch }) {
           yAxisIndex: 1,
           data: rows.map((r) => ({
             value: r.volume,
-            itemStyle: { color: r.close >= r.open ? '#ce424c' : '#16856b' },
+            itemStyle: {
+              color:
+                r.close === null || r.open === null
+                  ? '#899399'
+                  : r.close >= r.open
+                    ? '#ce424c'
+                    : '#16856b',
+            },
           })),
         },
       ],
@@ -160,12 +177,17 @@ export default function MarketChart({ batch }: { batch: Batch }) {
   }, [rows, mode, range])
   const last = rows.at(-1)
   const previous = rows.at(-2)
-  const change = last && previous ? (last.close / previous.close - 1) * 100 : null
+  const change =
+    last?.close != null && previous?.close != null && previous.close > 0
+      ? (last.close / previous.close - 1) * 100
+      : null
   return (
     <section className="section market-chart-section">
       <div className="section-heading">
         <h2>历史行情</h2>
-        <span>本地快照 · {batch.id}</span>
+        <span>
+          {datasetId ? '数据版本原始来源' : '本地快照'} · {batch.id}
+        </span>
       </div>
       {!codes.length ? (
         <div className="empty">该批次没有已保存的日线</div>

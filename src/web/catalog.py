@@ -3,6 +3,7 @@
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -46,7 +47,11 @@ class Catalog:
                 m = read_config(path)
                 if m.get("schema_version") != 2:
                     continue
+                config_path = path.parent / "research_config.json"
+                source_history_id = (read_config(config_path).get("online_source", {}).get("history_id")
+                                     if config_path.exists() else None)
                 records.append(dict(id=identifier(path.parent, self.root), name=path.parent.name,
+                                    source_history_id=source_history_id,
                                     version=m["version"], stocks=len(m["stock_codes"]), n_dates=m["n_dates"],
                                     features=len(m["feature_cols"]), price_basis=m["price_basis"],
                                     start_date=m["start_date"], end_date=m["end_date"],
@@ -81,6 +86,57 @@ class Catalog:
         quality_path = directory / "quality.csv"
         quality = pd.read_csv(quality_path, dtype={"code": str}).set_index("code").to_dict("index") if quality_path.exists() else {}
         return [dict(code=c, **quality.get(c, {})) for c in sorted(record["manifest"]["stock_codes"])]
+
+    def coverage(self, dataset_id, codes, lookback):
+        from src.data.coverage import training_coverage
+        from src.data.snapshots import Snapshots
+        record, directory = self.dataset(dataset_id)
+        if not codes or len(set(codes)) != len(codes) or not set(codes) <= set(record["manifest"]["stock_codes"]):
+            raise ValueError("Selected stocks must belong to the dataset")
+        for name in ["panel_data.parquet", "prices.parquet"]:
+            if self.hash(directory / name) != record["manifest"]["artifacts"][name]:
+                raise ValueError("Dataset artifact hash mismatch")
+        features = pd.read_parquet(directory / "panel_data.parquet")
+        prices = pd.read_parquet(directory / "prices.parquet")
+        result = training_coverage(features, prices, codes, lookback, record["train_end"])
+        cfg = self.research_config(dataset_id)
+        result["source_history_id"] = cfg.get("online_source", {}).get("history_id")
+        result["dataset_id"] = dataset_id
+        result["history_matches"] = [dict(id=h["id"], status=h["status"],
+                                         matched_codes=sorted(set(codes) & set(h["request"]["codes"])))
+                                     for h in Snapshots(self.root).list("history")
+                                     if set(codes) & set(h["request"]["codes"])]
+        audit_path = directory / "source_audit.csv"
+        if audit_path.exists():
+            audit = pd.read_csv(audit_path, dtype={"code": str}).set_index("code")
+            for row in result["stocks"]:
+                if row["code"] in audit.index:
+                    source = audit.loc[row["code"]]
+                    row.update(download_start=str(source["source_start"]), download_end=str(source["source_end"]))
+        return result
+
+    def source_bars(self, dataset_id, code):
+        from src.data.preprocess import DataPreprocessor
+        record, _ = self.dataset(dataset_id)
+        if code not in record["manifest"]["stock_codes"]:
+            raise ValueError("Stock is not part of the dataset")
+        cfg = self.research_config(dataset_id)
+        processor = DataPreprocessor(**cfg["dataset"])
+        candidates = list(processor.raw_dir.glob(processor.raw_pattern.format(code=code)))
+        if len(candidates) != 1:
+            raise ValueError("Expected one original source file")
+        path = inside(candidates[0], self.root)
+        expected = {s["file"]: s["sha256"] for s in record["manifest"]["sources"]}
+        if expected.get(path.name) != self.hash(path):
+            raise ValueError("Original source hash mismatch; rebuild a new version")
+        raw = pd.read_csv(path, dtype={"股票代码": str, "code": str})
+        frame = processor.clean_single_stock(raw)
+        if not frame.code.eq(code).all():
+            raise ValueError("Original source stock mismatch")
+        frame.loc[~frame.valid_price, ["open", "close", "high", "low"]] = float("nan")
+        frame["date"] = frame.date.dt.strftime("%Y-%m-%d")
+        return dict(code=code, basis="hfq", dataset_id=dataset_id, source_file=path.name,
+                    volume_unit="shares", rows=json.loads(frame.drop(columns="valid_price").to_json(orient="records")))
 
     def models(self):
         records = []

@@ -1233,3 +1233,4 @@ footer {
 .market-down { color: #16856b; }
 .market-canvas { height: 460px; width: 100%; min-width: 0; }
 @media (max-width: 600px) { .market-canvas { height: 400px; } .market-chart-summary { gap: 8px 14px; } }
+.training-coverage-table table { min-width: 700px; }

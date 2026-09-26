@@ -610,23 +610,47 @@ function TrainingForm(p: Shared) {
     validation_rollouts: 10,
   })
   const [busy, setBusy] = useState(false)
+  const [coverageResult, setCoverageResult] = useState<{ key: string; data: Row } | null>(null)
+  const coverageKey = JSON.stringify([dataset, codes, form.lookback])
+  const coverage = coverageResult?.key === coverageKey ? coverageResult.data : null
+  const defaultCodesKey = JSON.stringify(p.defaults.light_codes)
   useEffect(() => {
     let live = true
+    setDetail(null)
+    setCodes([])
     if (dataset)
       api('/datasets/' + dataset)
         .then((d) => {
           if (live) {
             setDetail(d)
-            setCodes(
-              p.defaults.light_codes.filter((c: string) => d.quality.some((s: Row) => s.code === c))
+            const selected = p.defaults.light_codes.filter((c: string) =>
+              d.quality.some((s: Row) => s.code === c)
             )
+            setCodes(selected.length ? selected : d.manifest.stock_codes)
           }
         })
         .catch(p.fail)
     return () => {
       live = false
     }
-  }, [dataset, p.defaults, p.fail])
+  }, [dataset, defaultCodesKey, p.fail])
+  useEffect(() => {
+    let live = true
+    if (!codes.length || detail?.id !== dataset) return
+    const timer = window.setTimeout(() => {
+      post('/datasets/' + dataset + '/coverage', { codes, lookback: form.lookback })
+        .then((data) => {
+          if (live) setCoverageResult({ key: coverageKey, data })
+        })
+        .catch((e) => {
+          if (live) p.fail(e)
+        })
+    }, 200)
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
+  }, [coverageKey, detail?.id, p.fail])
   const field = (key: keyof typeof form, value: string) =>
     setForm((prev) => ({ ...prev, [key]: key === 'name' ? value : Number(value) }))
   async function submit(check: boolean) {
@@ -639,6 +663,7 @@ function TrainingForm(p: Shared) {
           dataset_id: dataset,
           codes,
           hidden_sizes: [128, 64],
+          training_date_policy: 'intersection',
         })
       )
     } catch (e) {
@@ -672,16 +697,16 @@ function TrainingForm(p: Shared) {
             <>
               <div className="date-strip">
                 <div>
-                  <span>训练截止</span>
-                  <b>{detail.train_end}</b>
+                  <span>共同训练起始</span>
+                  <b data-testid="training-common-start">{coverage?.train_start || '—'}</b>
                 </div>
                 <div>
-                  <span>验证截止</span>
-                  <b>{detail.val_end}</b>
+                  <span>共同训练截止</span>
+                  <b data-testid="training-common-end">{coverage?.train_end || '—'}</b>
                 </div>
                 <div>
-                  <span>数据截止</span>
-                  <b>{detail.end_date}</b>
+                  <span>连续记录</span>
+                  <b>{coverage ? number(coverage.train_rows) : '—'}</b>
                 </div>
               </div>
               <StockPicker
@@ -694,6 +719,68 @@ function TrainingForm(p: Shared) {
                 scaler 拟合池：{detail.manifest.build_config.train_codes.length} 只 · 训练池：
                 {codes.length} 只
               </p>
+              <p className="subtle-note">
+                训练分界 {detail.train_end} · 验证截止 {detail.val_end} · 版本末日 {detail.end_date}
+              </p>
+              {!coverage && codes.length > 0 && <p role="status">正在核对所选股票的共同日期…</p>}
+              {coverage && !coverage.eligible && <p role="alert">{coverage.reason}</p>}
+              {coverage && (
+                <details>
+                  <summary>已下载数据与日期交集</summary>
+                  <p className="subtle-note">共同特征覆盖：{coverage.common_start || '—'} 至 {coverage.common_end || '—'} · {coverage.common_rows} 条</p>
+                  <div className="table-wrap training-coverage-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>股票</th>
+                          <th>原始下载覆盖</th>
+                          <th>版本内价格覆盖</th>
+                          <th>特征及窗口有效起始</th>
+                          <th>训练截止日</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {coverage.stocks.map((s: Row) => (
+                          <tr key={s.code}>
+                            <td>{s.code}</td>
+                            <td>
+                              {s.download_start || s.raw_start} 至 {s.download_end || s.raw_end}
+                            </td>
+                            <td>
+                              {s.raw_start} 至 {s.raw_end}
+                            </td>
+                            <td>{s.feature_start || '—'}</td>
+                            <td>{s.ready_at_train_end ? '有效' : '不可用'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="subtle-note">
+                    共同连续区间按实际记录及观察窗口计算，不拼接缺失日期；修改分界需构建新的数据版本。
+                  </p>
+                  <button
+                    className="text-button"
+                    onClick={() => navigate('market', { kind: 'dataset', id: dataset })}
+                  >
+                    <ArrowUpRight size={14} />
+                    查看本版本原始行情
+                  </button>
+                  {coverage.source_history_id && <p>来源下载批次：{coverage.source_history_id}</p>}
+                  {coverage.history_matches.map((h: Row) => (
+                    <button
+                      key={h.id}
+                      className="text-button"
+                      onClick={() => navigate('market', { kind: 'history', id: h.id })}
+                    >
+                      <ArrowUpRight size={14} />
+                      {h.id} · 匹配 {h.matched_codes.length} 股 ·{' '}
+                      {h.status === 'ready' ? '已下载' : '部分失败'}
+                      {h.id === coverage.source_history_id ? ' · 本版本来源' : ' · 独立批次'}
+                    </button>
+                  ))}
+                </details>
+              )}
             </>
           )}
         </section>
@@ -811,13 +898,13 @@ function TrainingForm(p: Shared) {
             沿用研究版本的资金与费用配置；只训练所选股票，不重新拟合 scaler。
           </p>
           <div className="form-actions">
-            <button disabled={busy || !codes.length} onClick={() => submit(true)}>
+            <button disabled={busy || !coverage?.eligible} onClick={() => submit(true)}>
               <Check size={16} />
               检查配置
             </button>
             <button
               className="primary"
-              disabled={busy || !codes.length}
+              disabled={busy || !coverage?.eligible}
               onClick={() => submit(false)}
             >
               <Play size={15} />

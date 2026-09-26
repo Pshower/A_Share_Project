@@ -23,6 +23,7 @@
 | [online_data_live_decision_plan.md](online_data_live_decision_plan.md) | 联网快照、新日线推理及价格/时效边界 | 设计基线；部分能力已接入，真实连通与账户适配仍受限 |
 | [online_market_runbook.md](online_market_runbook.md) | 显式下载、日线研究计划、报价监控和停止 | 使用联网工作区，识别失败和陈旧数据 |
 | [bulk_download_runbook.md](bulk_download_runbook.md) | 500 股批量选取、代码文件导入、进度、取消保留与数据集扩充 | 用完整下载批次构建新数据版本 |
+| [training_data_linkage.md](training_data_linkage.md) | 多股训练日期交集、观察窗口、原始行情与下载批次关联 | 理解为何某些股票不能进入旧训练区间，以及怎样关联新数据版本 |
 | [market_information_indicator_plan.md](market_information_indicator_plan.md) | 行情信息扩展、手动导入、技术指标计算契约及页面设计 | 待实施设计；区分本地可计算指标与需额外下载的数据 |
 | [联网验收记录](reports/online_market_acceptance_20260926.md) | 模拟测试、真实连接失败及未完成项 | 区分代码通过与实时数据实际可用 |
 

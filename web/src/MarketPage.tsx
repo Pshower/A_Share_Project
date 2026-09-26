@@ -101,6 +101,10 @@ export default function MarketPage(p: Props) {
   const [revisionConsent, setRevisionConsent] = useState(false)
   const [weights, setWeights] = useState('')
   const [historyId, setHistoryId] = useState(p.initialKind === 'history' ? p.initialId : '')
+  const [chartDatasetId, setChartDatasetId] = useState(
+    p.initialKind === 'dataset' ? p.initialId : ''
+  )
+  const [chartDataset, setChartDataset] = useState<Row | null>(null)
   const [planId, setPlanId] = useState(p.initialKind === 'plans' ? p.initialId : '')
   const [quoteId, setQuoteId] = useState(p.initialKind === 'quotes' ? p.initialId : '')
   const [judgment, setJudgment] = useState<Row | null>(null)
@@ -139,6 +143,19 @@ export default function MarketPage(p: Props) {
   useEffect(() => {
     load().catch(p.fail)
   }, [load, p.fail])
+  useEffect(() => {
+    let live = true
+    setChartDataset(null)
+    if (chartDatasetId)
+      api('/datasets/' + chartDatasetId)
+        .then((d) => {
+          if (live) setChartDataset(d)
+        })
+        .catch(p.fail)
+    return () => {
+      live = false
+    }
+  }, [chartDatasetId, p.fail])
   useEffect(() => {
     let live = true
     setRequirements(null)
@@ -518,7 +535,13 @@ export default function MarketPage(p: Props) {
                     {histories.map((h) => (
                       <tr key={h.id} className={h.id === historyId ? 'selected' : ''}>
                         <td>
-                          <button className="row-link" onClick={() => setHistoryId(h.id)}>
+                          <button
+                            className="row-link"
+                            onClick={() => {
+                              setHistoryId(h.id)
+                              setChartDatasetId('')
+                            }}
+                          >
                             {h.id}
                           </button>
                           <small className="subtext">
@@ -600,11 +623,60 @@ export default function MarketPage(p: Props) {
                     <Database size={14} />
                     从所选批次构建训练版本
                   </button>
+                  <p className="subtle-note">
+                    关联训练版本：
+                    {p.datasets
+                      .filter((d) => d.source_history_id === selectedHistory.id)
+                      .map((d) => d.name)
+                      .join('、') || '尚未构建；下载完成不会自动更新已有训练版本'}
+                  </p>
                 </>
               )}
             </section>
           </div>
-          {selectedHistory && (
+          <div className="toolbar">
+            <Field label="历史行情来源">
+              <select
+                aria-label="历史行情来源"
+                value={chartDatasetId ? 'dataset:' + chartDatasetId : 'history:' + historyId}
+                onChange={(e) => {
+                  const [kind, id] = e.target.value.split(':')
+                  setChartDatasetId(kind === 'dataset' ? id : '')
+                  if (kind === 'history') setHistoryId(id)
+                }}
+              >
+                <optgroup label="已下载快照">
+                  {histories.map((h) => (
+                    <option key={h.id} value={'history:' + h.id}>
+                      {h.id} · {h.status}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="本地数据版本原始行情">
+                  {p.datasets.map((d) => (
+                    <option key={d.id} value={'dataset:' + d.id}>
+                      {d.name} · {d.stocks} 股
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            </Field>
+          </div>
+          {chartDatasetId && chartDataset?.id === chartDatasetId && (
+            <MarketChart
+              key={'dataset:' + chartDatasetId}
+              datasetId={chartDatasetId}
+              batch={{
+                id: chartDataset.name,
+                entries: chartDataset.manifest.stock_codes.map((code: string) => ({
+                  code,
+                  basis: 'hfq',
+                  status: 'ready',
+                })),
+              }}
+            />
+          )}
+          {!chartDatasetId && selectedHistory && (
             <MarketChart key={selectedHistory.id} batch={selectedHistory as any} />
           )}
           {build && selectedHistory && (

@@ -24,6 +24,7 @@ def training_config(catalog, job, directory):
                lookback=payload["lookback"], hidden_sizes=payload["hidden_sizes"],
                validation_rollouts=payload["validation_rollouts"],
                device=resolve_device(payload.get("device", "cpu")), torch_threads=1,
+               training_date_policy=payload.get("training_date_policy", "legacy_masked"),
                output_root=str(ROOT / "reports/runs/workbench"))
     for key in ["n_steps", "batch_size", "n_epochs", "learning_rate"]:
         cfg["ppo"][key] = payload[key]
