@@ -24,7 +24,8 @@ def feature_history_origin(research):
     return pd.to_datetime(included.source_start).min(), file_hash(audit_path)
 
 
-def build_daily_plan(agent, data, history_id, *, model_id, accept_revisions=False, research_weights=None, root=ROOT, now=None):
+def build_daily_plan(agent, data, history_id, *, model_id, accept_revisions=False, research_weights=None, root=ROOT, now=None,
+                     close_as_of=None):
     if agent.contract != data.contract or data.contract["price_basis"] != "hfq_research":
         raise ValueError("This binding only supports the existing HFQ research contract")
     from src.data.feature_definitions import validate_definitions
@@ -59,7 +60,12 @@ def build_daily_plan(agent, data, history_id, *, model_id, accept_revisions=Fals
         frame.index = pd.to_datetime(frame.index)
         if code not in original_sources.index or frame.index.min() > pd.Timestamp(original_sources.loc[code, "source_start"]):
             raise ValueError(f"Downloaded history is truncated before the original first bar for {code}")
-        frame = frame[(frame.index >= origin) & (frame.index.date < cutoff)]
+        if close_as_of is not None:
+            from .eod import require_close_capture, require_close_bar
+            requested = require_close_capture(close_as_of, capture_entries[code]["received_at"], now)
+            frame = require_close_bar(frame[frame.index >= origin], requested, code)
+        else:
+            frame = frame[(frame.index >= origin) & (frame.index.date < cutoff)]
         if frame.empty:
             raise ValueError(f"No prior-day bars for {code}")
         frames[code] = frame
@@ -121,7 +127,11 @@ def build_daily_plan(agent, data, history_id, *, model_id, accept_revisions=Fals
                    stock_codes=list(data.codes), revision=revision, revisions_accepted=bool(changed and accept_revisions),
                    compatibility_status="research_only", account_basis="hypothetical_research_weights", research_weights=research_weights,
                    real_account_compatible=False, exchange_calendar_verified=False,
-                   complete_bar_policy="Exclude bars captured on or after the capture day; latest exchange session is not certified")
+                   requested_close_date=str(pd.Timestamp(close_as_of).date()) if close_as_of is not None else None,
+                   actionable=False,
+                   complete_bar_policy=("Explicit date required for every stock; capture after 16:00 Asia/Shanghai; vendor finality and calendar not certified"
+                                        if close_as_of is not None else
+                                        "Exclude bars captured on or after the capture day; latest exchange session is not certified"))
     pd.concat(normalized, axis=1).to_parquet(target / "features.parquet")
     write_json(target / "binding.json", binding)
     return store.publish("plans", identifier, target, dict(status="ready", **binding, rows=rows,

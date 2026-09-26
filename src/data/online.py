@@ -181,7 +181,7 @@ def download_history(codes, start, end, bases, *, allow_network=False, root=ROOT
     result = store.publish("history", identifier, directory, dict(request=request, entries=entries,
                          status="ready" if not errors else "partial", errors=errors, volume_unit="shares",
                          cancelled=cancelled, time_budget_seconds=budget,
-                         complete_bar_policy="Only dates strictly before capture day may be used for plans; exchange calendar not verified"))
+                         complete_bar_policy="Default plans exclude capture-day bars; explicit close-date mode requires post-16:00 capture; exchange calendar not verified"))
     events.emit("download_snapshot", snapshot_id=identifier, snapshot_kind="history", status=result["status"])
     if cancelled:
         raise events.Cancelled("Download stopped; completed files are saved in snapshot " + identifier)

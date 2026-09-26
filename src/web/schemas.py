@@ -224,6 +224,7 @@ class OnlineQuotes(Request):
 
 class DailyPlan(ModelRequest):
     history_id: str
+    close_as_of: date | None = None
     accept_revisions: bool = False
     acknowledge_research: Literal[True]
     research_weights: dict[str, float] = Field(default={})

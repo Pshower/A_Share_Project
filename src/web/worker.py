@@ -142,7 +142,8 @@ def execute(job, directory):
         from src.inference.live import build_daily_plan
         events.phase("binding")
         plan = build_daily_plan(agent, data, payload["history_id"], model_id=payload["model_id"],
-                                accept_revisions=payload["accept_revisions"], research_weights=payload["research_weights"])
+                                accept_revisions=payload["accept_revisions"], research_weights=payload["research_weights"],
+                                close_as_of=payload.get("close_as_of"))
         return dict(snapshot_id=plan["id"], snapshot_kind="plans", capture_status="ready")
     if kind == "evaluation":
         frozen = None

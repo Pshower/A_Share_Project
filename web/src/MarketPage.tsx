@@ -107,6 +107,7 @@ export default function MarketPage(p: Props) {
   const [researchConsent, setResearchConsent] = useState(false)
   const [revisionConsent, setRevisionConsent] = useState(false)
   const [weights, setWeights] = useState('')
+  const [closeAsOf, setCloseAsOf] = useState('')
   const [historyId, setHistoryId] = useState(p.initialKind === 'history' ? p.initialId : '')
   const [chartDatasetId, setChartDatasetId] = useState(
     p.initialKind === 'dataset' ? p.initialId : ''
@@ -327,6 +328,7 @@ export default function MarketPage(p: Props) {
         accept_revisions: revisionConsent,
         acknowledge_research: researchConsent,
         research_weights: weightsFrom(weights),
+        close_as_of: closeAsOf || null,
       })
     } catch (e) {
       p.fail(e)
@@ -792,6 +794,15 @@ export default function MarketPage(p: Props) {
               完整股票池 {requirements?.codes.length || '—'} 只；历史锚点{' '}
               {requirements?.history_origin || '—'}。{!covered && '当前批次尚未完整覆盖模型池。'}
             </p>
+            <Field label="指定收盘日期（可选，须全池齐备）">
+              <input
+                type="date"
+                aria-label="指定收盘日期"
+                max={status.today || undefined}
+                value={closeAsOf}
+                onChange={(e) => setCloseAsOf(e.target.value)}
+              />
+            </Field>
             <Field label="假设研究仓位（比例，非真实股数）">
               <textarea
                 aria-label="假设研究仓位"

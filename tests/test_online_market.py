@@ -147,6 +147,49 @@ def test_revision_requires_explicit_research_acceptance(local_data, tmp_path):
     agent.model.get_env().close()
 
 
+def test_explicit_close_date_includes_same_day_and_blocks_intraday_capture(local_data, tmp_path):
+    from src.data.preprocess import write_json
+    history = history_fixture(local_data, tmp_path)
+    metadata, path = Snapshots(tmp_path).get("history", history["id"])
+    final = local_data.features.index[-1]
+    captured = final.tz_localize("Asia/Shanghai") + pd.Timedelta(hours=16)
+    for entry in metadata["entries"]:
+        entry["received_at"] = captured.isoformat()
+    write_json(path / "manifest.json", metadata)
+    env = local_data.vector_env()
+    try:
+        agent = PPOAgent(make_model(env, local_data.config), local_data.contract)
+        kwargs = dict(model_id="fixture", root=tmp_path, now=captured.to_pydatetime(), close_as_of=str(final.date()))
+        plan = build_daily_plan(agent, local_data, history["id"], **kwargs)
+        assert plan["feature_as_of"] == str(final.date()) == plan["requested_close_date"]
+        assert not plan["actionable"] and not plan["real_account_compatible"]
+        assert plan["scaler_sha256"] == local_data.contract["artifacts"]["scaler_params.json"]
+        for entry in metadata["entries"]:
+            entry["received_at"] = (captured - pd.Timedelta(hours=1)).isoformat()
+        write_json(path / "manifest.json", metadata)
+        with pytest.raises(ValueError, match="16:00"):
+            build_daily_plan(agent, local_data, history["id"], **kwargs)
+    finally:
+        env.close()
+
+
+def test_explicit_close_date_missing_one_stock_cannot_fall_back(local_data, tmp_path):
+    provider = FakeProvider(local_data)
+    original = provider.history
+    provider.history = lambda code, *args: original(code, *args).iloc[:-1] if code == local_data.codes[-1] else original(code, *args)
+    config = local_data.research["dataset"]
+    history = download_history(local_data.codes, config["start_date"], config["end_date"], ["hfq"],
+                               allow_network=True, root=tmp_path, provider=provider)
+    env = local_data.vector_env()
+    try:
+        agent = PPOAgent(make_model(env, local_data.config), local_data.contract)
+        with pytest.raises(ValueError, match="requested close-date"):
+            build_daily_plan(agent, local_data, history["id"], model_id="fixture", root=tmp_path,
+                             close_as_of=str(local_data.features.index[-1].date()), accept_revisions=True)
+    finally:
+        env.close()
+
+
 def test_feature_anchor_precedes_study_start_when_raw_history_is_longer(local_data, tmp_path):
     from src.data.preprocess import DataPreprocessor, write_json
     from src.training.env_factory import ResearchData
