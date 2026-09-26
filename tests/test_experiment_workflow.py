@@ -103,6 +103,48 @@ def test_added_risk_metrics_keep_undefined_values_explicit():
     assert flat['sharpe'] is None and flat['calmar'] is None and flat['sortino'] is None
 
 
+def test_protocol_monitor_retries_only_idempotent_reads(monkeypatch):
+    import requests
+    from types import SimpleNamespace
+    from src.web.run_protocol import Client
+    client = Client.__new__(Client)
+    client.url, client.token = 'http://127.0.0.1:8766', 'fixture'
+    calls = []
+    def flaky(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise requests.ConnectionError('fixture keepalive race')
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {'ok': True})
+    client.session = SimpleNamespace(get=flaky, post=flaky)
+    monkeypatch.setattr('src.web.run_protocol.time.sleep', lambda _: None)
+    assert client.get('/jobs') == {'ok': True} and len(calls) == 2
+    calls.clear()
+    with pytest.raises(requests.ConnectionError):
+        client.post('/experiments/example/train', {})
+    assert len(calls) == 1
+
+
+def test_monitor_only_never_submits_a_stage(tmp_path, monkeypatch):
+    from src.web import run_protocol
+    from src.data.preprocess import write_json, read_config
+    config = {'name': 'readonly fixture'}
+    config_path = tmp_path / 'protocol.json'
+    write_json(config_path, config)
+    directory = tmp_path / '.workbench/protocols'
+    directory.mkdir(parents=True)
+    state_path = directory / (run_protocol.digest(config)[:20] + '.json')
+    write_json(state_path, dict(config_digest=run_protocol.digest(config), training_jobs=['j_fixture'], experiments={'B0': 'e_fixture'}))
+    class Client:
+        def __init__(self, url): pass
+        def wait(self, jobs): assert jobs == [{'id': 'j_fixture'}]
+        def get(self, path): return {'summaries': [{'seed': 42}]}
+        def post(self, *args): raise AssertionError('Monitoring must not submit work')
+    monkeypatch.setattr(run_protocol, 'ROOT', tmp_path)
+    monkeypatch.setattr(run_protocol, 'Client', Client)
+    run_protocol.main(['--config', str(config_path), '--monitor-only'])
+    assert read_config(state_path)['results'] == {'B0': [{'seed': 42}]}
+
+
 @pytest.mark.local_ipc
 def test_experiment_api_is_immutable_and_does_not_implicitly_train(web_root):
     with TestClient(create_app(web_root, start_workers=False)) as client:

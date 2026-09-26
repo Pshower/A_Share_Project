@@ -59,4 +59,6 @@ lookback=5、更多特征、奖励改变和时序网络不加入本轮正式矩�
 
 可复现入口为 `configs/multiseed_20260926.json` 与 `python -B -m src.web.run_protocol --config configs/multiseed_20260926.json`，默认仅准备和检查；正式训练必须显式加 `--train`。该入口不下载数据、不运行最终测试。状态保存在 `.workbench/protocols/e777b4f97e70ab982046.json`。
 
-正式训练尚未启动，结果另写详细报告和摘要。
+正式训练已完成：9/9 次成功，共 73,728 步、9,225 次优化器更新，未运行最终测试。所有正式模型记录提交 `492f305`、dirty=false。结果见 [详细报告](reports/ppo_multiseed_20260926.md) 和 [摘要](reports/ppo_multiseed_20260926_summary.md)。
+
+训练中出现过一次本地只读 HTTP 监控中断，任务本身未中断、未重发。训练完成后补充有限 GET 重连和 `--monitor-only` 恢复入口；此选项只读取已登记任务，不重新检查、下载或训练。已有任务恢复应优先用它，不重新执行 `--train`。

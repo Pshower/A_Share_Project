@@ -31,6 +31,12 @@ async function waitForJob(page: Page) {
   return id
 }
 
+async function eligibleTrainingPool(page: Page) {
+  await page.getByLabel('301165', { exact: true }).uncheck()
+  await page.getByLabel('603296', { exact: true }).uncheck()
+  await page.getByLabel('计算设备', { exact: true }).selectOption('cpu')
+}
+
 test('desktop dashboard, real chart and local data browser', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
@@ -56,6 +62,7 @@ test('real 128-step training through UI, reload and stored checkpoint selection'
 }) => {
   await ready(page)
   await page.getByRole('button', { name: '新建训练' }).click()
+  await eligibleTrainingPool(page)
   await page.getByLabel('实验名称', { exact: true }).fill('Web 验收 · 128 steps')
   await page.getByLabel('总训练步数', { exact: true }).fill('128')
   await page.getByLabel('Rollout 步数', { exact: true }).fill('64')
@@ -116,8 +123,8 @@ test('as-of prediction, manual portfolio and one-stock display does not shrink p
   await page.getByRole('button', { name: '预测动作', exact: true }).click()
   predictionJob = await waitForJob(page)
   const job = await (await page.request.get('/api/jobs/' + predictionJob)).json()
-  expect(job.prediction.pool_size).toBe(32)
-  expect(job.prediction.rows).toHaveLength(32)
+  expect(job.prediction.pool_size).toBe(30)
+  expect(job.prediction.rows).toHaveLength(30)
   expect(job.prediction.display_codes).toEqual(['000001'])
   expect(job.prediction.rows.find((r: any) => r.code === '000001').available_shares).toBe(0)
   await page.getByRole('button', { name: '查看预测结果' }).click()
@@ -136,6 +143,7 @@ test('queued cancellation and active stop are real task states', async ({ page }
   await page.getByRole('button', { name: '新建训练' }).click()
   await page.getByLabel('总训练步数', { exact: true }).fill('100000')
   await page.getByLabel('实验名称', { exact: true }).fill('Web 停止验收')
+  await eligibleTrainingPool(page)
   await page.getByRole('button', { name: '开始训练', exact: true }).click()
   await expect(page).toHaveURL(/#jobs\?job=j_/)
   const id = new URLSearchParams(page.url().split('?')[1]).get('job')!
@@ -152,6 +160,7 @@ test('queued cancellation and active stop are real task states', async ({ page }
     )
     .toBeTruthy()
   await page.goto('/#training?new=1')
+  await eligibleTrainingPool(page)
   await page.getByRole('button', { name: '检查配置', exact: true }).click()
   await expect(page).toHaveURL(/#jobs\?job=j_/)
   const queued = new URLSearchParams(page.url().split('?')[1]).get('job')!
@@ -254,6 +263,7 @@ test('configuration check retries an expired local token without duplicating the
     return route.continue()
   })
   await page.goto('/#training?new=1')
+  await eligibleTrainingPool(page)
   await page.getByRole('button', { name: '检查配置', exact: true }).click()
   const id = await waitForJob(page)
   const job = await (await page.request.get('/api/jobs/' + id)).json()

@@ -4,6 +4,8 @@
 
 建议先读 [项目 Pipeline](../pipeline.md)，再看 [实施进度与验收记录](implementation_plan.md)。阶段四已完成框架及 32 只股票的轻量训练和冻结测试，但尚未证明策略优势。最新结果见 [报告摘要](reports/ppo_lightweight_20260925_summary.md) 和 [详细报告](reports/ppo_lightweight_20260925.md)。
 
+最新增量研究为 19 股、3 配置 × 3 种子的开发验证，见 [多种子摘要](reports/ppo_multiseed_20260926_summary.md) 和 [详细报告](reports/ppo_multiseed_20260926.md)。它与原 32 股实验条件不同，不直接作升级收益比较，也没有重新运行最终测试。
+
 ## 文档分工
 
 | 文档 | 负责内容 | 何时阅读 |
@@ -27,7 +29,7 @@
 | [feature_builder_plan.md](feature_builder_plan.md) | 数据管理追加特征、预览、新版本构建及模型兼容 | 首版已实现；含规划、使用步骤及真实构建验收 |
 | [akshare_download_expansion.md](akshare_download_expansion.md) | AKShare 可选数据、五类扩展下载、独立归档和后续候选 | 用户手动采集资料 / 资金流 / 分钟 / 指数 / 分红，不自动进入训练 |
 | [data_feature_ppo_integration_plan.md](data_feature_ppo_integration_plan.md) | 数据需求、特征方案、版本发布与 PPO 的统一实验流程 | 下一步集成设计；含准入、任务编排、恢复与落地顺序，尚未实施 |
-| [ppo_training_improvement_plan.md](ppo_training_improvement_plan.md) | 超参数、训练监控、模型评价、选模与训练方法改进 | 待实施建议及小预算研究协议，不代表已有新训练结果 |
+| [ppo_training_improvement_plan.md](ppo_training_improvement_plan.md) | 超参数、训练监控、模型评价、选模与训练方法改进 | 核心工程已接入；算法候选和实现边界另行标记 |
 | [experiment_workbench_runbook.md](experiment_workbench_runbook.md) | 数据与 PPO 实验流程、参数、监控、评价及实现边界 | 已实现核心工程；明确区别于待研究的算法和扩展数据适配 |
 | [ppo_multiseed_protocol_20260926.md](ppo_multiseed_protocol_20260926.md) | 19 股、三个配置和三个种子的正式运行协议 | 训练前登记，验证期研究，不重跑最终测试 |
 | [market_information_indicator_plan.md](market_information_indicator_plan.md) | 行情信息扩展、手动导入、技术指标计算契约及页面设计 | 待实施设计；区分本地可计算指标与需额外下载的数据 |

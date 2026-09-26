@@ -19,12 +19,20 @@ class Client:
             raise ValueError("Use a loopback workbench URL")
         self.url, self.session = url.rstrip("/"), requests.Session()
         self.session.trust_env = False
+        self.session.headers["Connection"] = "close"
         self.token = self.get("/session")["token"]
         if Path(self.get("/system")["workspace"]).resolve() != ROOT:
             raise ValueError("Workbench belongs to another workspace")
 
     def get(self, path):
-        response = self.session.get(self.url + "/api" + path, timeout=60)
+        for attempt in range(3):
+            try:
+                response = self.session.get(self.url + "/api" + path, timeout=60)
+                break
+            except (requests.ConnectionError, requests.Timeout):
+                if attempt == 2:
+                    raise
+                time.sleep(0.25 * (attempt + 1))
         response.raise_for_status()
         return response.json()
 
@@ -57,9 +65,10 @@ def main(argv=None):
     parser.add_argument("--url", default="http://127.0.0.1:8766")
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--train", action="store_true")
+    parser.add_argument("--monitor-only", action="store_true")
     args = parser.parse_args(argv)
-    if args.prepare_only and args.train:
-        parser.error("Choose preparation or explicitly approved training")
+    if sum([args.prepare_only, args.train, args.monitor_only]) > 1:
+        parser.error("Choose preparation, explicitly approved training or read-only monitoring")
     config = read_config(args.config)
     client = Client(args.url)
     directory = ROOT / ".workbench/protocols"
@@ -68,6 +77,13 @@ def main(argv=None):
     state = read_config(state_path) if state_path.exists() else dict(config_digest=digest(config), experiments={})
     if state["config_digest"] != digest(config):
         raise ValueError("Protocol state mismatch")
+    if args.monitor_only:
+        if not state.get("training_jobs"):
+            raise ValueError("No persisted training jobs to monitor")
+        client.wait([dict(id=identifier) for identifier in state["training_jobs"]])
+        state["results"] = {name: client.get("/experiments/" + identifier)["summaries"] for name, identifier in state["experiments"].items()}
+        write_json(state_path, state)
+        return state_path
     template = next(d for d in client.get("/datasets") if d["name"] == config["template"])
 
     def create(variant, dataset_id, build=None, parent=None):
