@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import secrets
 import sys
+from typing import Literal
 
 from fastapi import FastAPI, Request, Header
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
@@ -133,6 +134,23 @@ def create_app(root=ROOT, start_workers=True):
             plan = snapshots.get("plans", plan_id)[0] if plan_id else None
             return dict(snapshot=record, judgment=judge_quotes(record, plan))
         return record
+
+    @app.get("/api/market/history/{snapshot_id}/bars")
+    def history_bars(snapshot_id: str, code: str, basis: Literal["hfq", "unadjusted"] = "unadjusted"):
+        record, directory = snapshots.get("history", snapshot_id)
+        entry = next((e for e in record["entries"] if e["code"] == code and e["basis"] == basis), None)
+        if not entry or entry["status"] != "ready":
+            raise ValueError("No saved bars for this stock and price basis")
+        name = f"{basis}/{code}.parquet"
+        if name not in record["files"]:
+            raise ValueError("Bars are not registered in the snapshot")
+        frame = pd.read_parquet(inside(directory / name, directory))
+        frame = frame.sort_values("date")
+        frame["date"] = pd.to_datetime(frame["date"]).dt.strftime("%Y-%m-%d")
+        columns = ["date", "open", "close", "low", "high", "volume", "amount"]
+        return dict(snapshot_id=snapshot_id, code=code, basis=basis, volume_unit="shares",
+                    received_at=entry.get("received_at"),
+                    rows=json.loads(frame[columns].to_json(orient="records")))
 
     @app.post("/api/market/downloads")
     def online_download(body: OnlineHistory, idempotency_key: str | None = Header(default=None)):

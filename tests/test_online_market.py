@@ -233,6 +233,27 @@ def test_lane_isolation_monitor_lease_and_no_duplicate_poll(tmp_path, monkeypatc
 
 
 @pytest.mark.local_ipc
+def test_history_chart_reads_saved_bases_and_rejects_tampering(local_data, tmp_path):
+    batch = history_fixture(local_data, tmp_path)
+    with TestClient(create_app(tmp_path, start_workers=False)) as client:
+        url = f"/api/market/history/{batch['id']}/bars"
+        raw = client.get(url, params=dict(code="000001", basis="unadjusted"))
+        adjusted = client.get(url, params=dict(code="000001", basis="hfq"))
+        assert raw.status_code == adjusted.status_code == 200
+        rows = raw.json()["rows"]
+        assert rows and rows[0]["date"] < rows[-1]["date"]
+        assert adjusted.json()["rows"][0]["close"] == rows[0]["close"] * 2
+        assert raw.json()["volume_unit"] == "shares"
+        assert client.get(url, params=dict(code="999999")).status_code == 409
+        assert client.get(url, params=dict(code="000001", basis="qfq")).status_code == 422
+        assert client.get("/api/jobs").json() == []
+        _, directory = Snapshots(tmp_path).get("history", batch["id"])
+        with (directory / "hfq/000001.parquet").open("ab") as stream:
+            stream.write(b"tampered")
+        assert client.get(url, params=dict(code="000001", basis="hfq")).status_code == 409
+
+
+@pytest.mark.local_ipc
 def test_online_api_requires_explicit_consent_and_never_fetches_on_get(web_root):
     app = create_app(web_root, start_workers=False)
     with TestClient(app) as client:

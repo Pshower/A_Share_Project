@@ -1222,3 +1222,14 @@ footer {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
   }
 }
+.market-chart-section { min-width: 0; }
+.market-chart-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; }
+.market-chart-controls label { display: grid; gap: 6px; font-size: 12px; color: #5d656b; }
+.market-chart-controls select { min-width: 120px; }
+.market-chart-controls .tabs { margin: 0; }
+.market-chart-summary { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin: 20px 0 12px; font-size: 12px; color: #5d656b; }
+.market-chart-summary strong { color: #242c30; font-size: 20px; }
+.market-up { color: #ce424c; }
+.market-down { color: #16856b; }
+.market-canvas { height: 460px; width: 100%; min-width: 0; }
+@media (max-width: 600px) { .market-canvas { height: 400px; } .market-chart-summary { gap: 8px 14px; } }

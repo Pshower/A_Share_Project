@@ -10,6 +10,7 @@ import {
   Layers,
 } from 'lucide-react'
 import { api, post, percent, number, dateTime } from './api'
+import MarketChart from './MarketChart'
 
 type Row = Record<string, any>
 type Props = {
@@ -498,6 +499,7 @@ export default function MarketPage(p: Props) {
               )}
             </section>
           </div>
+          {selectedHistory && <MarketChart key={selectedHistory.id} batch={selectedHistory as any} />}
           {build && selectedHistory && (
             <section className="section form-section">
               <div className="section-heading">
