@@ -8,6 +8,7 @@ import uuid
 import time
 
 NETWORK_KINDS = {"online_history", "online_quotes", "online_supplement"}
+TERMINAL = {"succeeded", "failed", "cancelled", "interrupted"}
 
 
 def lane_for(kind):
@@ -94,9 +95,25 @@ class Store:
             return [self.decode(row) for row in conn.execute("SELECT * FROM jobs ORDER BY created DESC")]
 
     def update(self, identifier, status, result=None, error=None):
+        if status not in TERMINAL | {"queued", "running", "stop_requested"}:
+            raise ValueError("Unknown job status")
         with self.connect() as conn:
-            conn.execute("UPDATE jobs SET status=?,updated=?,result=?,error=? WHERE id=?",
+            conn.execute("UPDATE jobs SET status=?,updated=?,result=?,error=? WHERE id=? AND status NOT IN ('succeeded','failed','cancelled','interrupted')",
                          (status, now(), json.dumps(result) if result is not None else None, error, identifier))
+
+    def request_stop(self, identifier):
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM jobs WHERE id=?", (identifier,)).fetchone()
+            if row is None:
+                raise ValueError("Unknown job")
+            if row["status"] not in TERMINAL | {"stop_requested"}:
+                directory = self.directory / "jobs" / row["id"]
+                directory.mkdir(parents=True, exist_ok=True)
+                (directory / "stop").touch()
+                conn.execute("UPDATE jobs SET status=?,updated=? WHERE id=?",
+                             ("cancelled" if row["status"] == "queued" else "stop_requested", now(), identifier))
+        return self.get(identifier)
 
     def labels(self):
         with self.connect() as conn:

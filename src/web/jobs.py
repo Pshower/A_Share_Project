@@ -10,9 +10,7 @@ import time
 from datetime import datetime, timezone
 
 from src.data.preprocess import ROOT, write_json
-from .store import lane_for
-
-TERMINAL = {"succeeded", "failed", "cancelled", "interrupted"}
+from .store import lane_for, TERMINAL
 
 
 def read_events(directory, after=0):
@@ -49,14 +47,7 @@ class JobManager:
         self.thread.start()
 
     def request_stop(self, identifier):
-        job = self.store.get(identifier)
-        if job["status"] in TERMINAL:
-            return job
-        directory = self.directory(identifier)
-        directory.mkdir(parents=True, exist_ok=True)
-        (directory / "stop").touch()
-        self.store.update(identifier, "cancelled" if job["status"] == "queued" else "stop_requested")
-        return self.store.get(identifier)
+        return self.store.request_stop(identifier)
 
     def reconcile(self, job):
         directory = self.directory(job["id"])
@@ -103,6 +94,8 @@ class JobManager:
         if self.log_stream:
             self.log_stream.close()
             self.log_stream = None
+        self.active_id = None
+        self.process = None
         job = self.store.claim_next(self.lane)
         if job is None:
             return
