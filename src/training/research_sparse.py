@@ -2,7 +2,10 @@
 
 import argparse
 from copy import deepcopy
+import gc
 from pathlib import Path
+import subprocess
+import sys
 
 from src.agents.ppo_agent import PPOAgent
 from src.data.preprocess import ROOT, FEATURES, read_config, write_json, build_from_config, file_hash
@@ -29,6 +32,23 @@ def run_trial(base, root, phase, arm, seed, steps):
     config.update(options, seed=seed, recent_episode_every=4, validation_rollouts=10000,
                   output_root=str(root / "runs"))
     path = root / (run_id + ".json")
+    folder = root / "runs" / run_id
+    if (folder / "research_result.json").exists():
+        if read_config(path) != config:
+            raise ValueError("Cannot resume a trial with changed configuration")
+        audit = read_config(folder / "training_audit.json")
+        metadata = read_config(folder / "final_model/metadata.json")
+        if (audit["actual_timesteps"] != steps or not audit["all_parameters_finite"]
+                or not audit["save_load_deterministic_equal"]
+                or file_hash(folder / "final_model/model.zip") != metadata["model_sha256"]):
+            raise ValueError("Completed trial audit or model hash mismatch")
+        result = read_config(folder / "research_result.json")
+        if (result["phase"], result["arm"], result["seed"], result["steps"]) != (phase, arm, seed, steps):
+            raise ValueError("Completed trial identity mismatch")
+        print("REUSE " + run_id, flush=True)
+        return result
+    if folder.exists() or (root / ("events_" + run_id)).exists():
+        raise ValueError("Incomplete trial requires review; refusing to overwrite " + run_id)
     write_json(path, config)
     event_dir = root / ("events_" + run_id)
     event_dir.mkdir()
@@ -63,19 +83,25 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--train", action="store_true", required=True)
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     root = args.output.resolve()
-    root.mkdir(parents=True, exist_ok=False)
+    root.mkdir(parents=True, exist_ok=args.resume)
     base = read_config(ROOT / "reports/runs/sina_hs300_study_20260927/ppo_42.json")
     protocol = dict(arms=ARMS, screening_steps=4096, confirmation_steps=8192,
                     maximum_steps=73728, source="sina", test_evaluated=False,
                     source_manifest=file_hash(Path(read_config(base["research_config"])["dataset"]["clean_dir"]) / "manifest.json"))
-    write_json(root / "protocol.json", protocol)
+    if args.resume:
+        if read_config(root / "protocol.json") != protocol:
+            raise ValueError("Research protocol changed; use a new experiment")
+    else:
+        write_json(root / "protocol.json", protocol)
     results = []
     def record(phase, arm, seed, steps, config=base):
         result = run_trial(config, root, phase, arm, seed, steps)
         results.append(result)
         write_json(root / "summary.json", results)
+        gc.collect()
         return result
     screens = [record("screen", arm, 42, 4096) for arm in ARMS]
     eligible = [r for r in screens if r["eligible"]]
@@ -91,7 +117,15 @@ def main():
                                train_end="2025-06-30", val_end="2025-12-31")
     research_path = root / "research_walk.json"
     write_json(research_path, research)
-    build_from_config(research)
+    clean = Path(research["dataset"]["clean_dir"])
+    if not (clean / "manifest.json").exists():
+        if clean.exists():
+            raise ValueError("Incomplete dataset must be archived before resuming")
+        gc.collect()
+        with (root / "walk_build.stdout.log").open("w", encoding="utf-8") as stdout, \
+                (root / "walk_build.stderr.log").open("w", encoding="utf-8") as stderr:
+            subprocess.run([sys.executable, "-m", "src.data.preprocess", "--config", str(research_path)],
+                           cwd=ROOT, stdout=stdout, stderr=stderr, check=True)
     write_json(Path(research["dataset"]["clean_dir"]) / "research_config.json", research)
     walk = dict(deepcopy(base), research_config=str(research_path))
     for arm in dict.fromkeys(["D0", selected]):
