@@ -1,5 +1,7 @@
 # 项目文档索引
 
+首版已实现：[联网行情与多模型预测整合](market_model_prediction_plan.md)，新浪默认日线、图表信号、多模型研究意图与已存验证表现；连续回放和真实账户建议仍待完成。见 [验收记录](reports/market_model_integration_20260927.md)。
+
 最新研究：[稀疏与先验残差Agent摘要](reports/agent_improvement_20260927_summary.md)、[详细报告](reports/agent_improvement_20260927.md)。找到相对旧PPO收益更高的研究候选，但主要增益来自先验，未证明PPO学习优势，未实盘发布。
 
 新增目标：[每日收盘股票池配置计划](eod_allocation_plan.md)；最新研究：[大网络 CPU/GPU 对照](reports/ppo_capacity_20260927.md)。

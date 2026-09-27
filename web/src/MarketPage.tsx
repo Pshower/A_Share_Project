@@ -11,6 +11,8 @@ import {
 } from 'lucide-react'
 import { api, post, percent, number, dateTime } from './api'
 import MarketChart from './MarketChart'
+import MarketResearch from './MarketResearch'
+import { weightsFrom } from './researchWeights'
 import SupplementDownloads from './SupplementDownloads'
 
 type Row = Record<string, any>
@@ -51,25 +53,6 @@ function codesFrom(text: string) {
     .map((v) => v.trim())
     .filter(Boolean)
 }
-function weightsFrom(text: string) {
-  const weights: Record<string, number> = {}
-  for (const row of text.split(/[\n,，]+/).filter((v) => v.trim())) {
-    const [code, value, extra] = row.trim().split(/\s*[:=]\s*/)
-    if (
-      !/^\d{6}$/.test(code) ||
-      !value ||
-      extra ||
-      !Number.isFinite(Number(value)) ||
-      Number(value) < 0 ||
-      code in weights
-    )
-      throw new Error('研究仓位格式：000001=0.10；代码不得重复')
-    weights[code] = Number(value)
-  }
-  if (Object.values(weights).reduce((a, b) => a + b, 0) > 1)
-    throw new Error('研究仓位合计不能超过 1')
-  return weights
-}
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="field">
@@ -87,7 +70,9 @@ export default function MarketPage(p: Props) {
         ? 'quotes'
         : p.initialKind === 'plans'
           ? 'plan'
-          : 'history'
+          : p.initialKind === 'history'
+            ? 'history'
+            : 'research'
   )
   const [status, setStatus] = useState<Row>({ today: '', min_poll_seconds: 60 })
   const [histories, setHistories] = useState<Row[]>([])
@@ -104,8 +89,9 @@ export default function MarketPage(p: Props) {
   const [start, setStart] = useState('2017-01-01')
   const [end, setEnd] = useState('')
   const [basis, setBasis] = useState('both')
-  const [source, setSource] = useState('eastmoney')
+  const [source, setSource] = useState('sina')
   const [consent, setConsent] = useState(false)
+  const [quoteConsent, setQuoteConsent] = useState(false)
   const [researchConsent, setResearchConsent] = useState(false)
   const [revisionConsent, setRevisionConsent] = useState(false)
   const [weights, setWeights] = useState('')
@@ -147,7 +133,13 @@ export default function MarketPage(p: Props) {
     setPlans(plans)
     setSessions(monitors)
     setEnd((e) => e || s.today)
-    setHistoryId((v) => v || h[0]?.id || '')
+    setHistoryId(
+      (v) =>
+        v ||
+        h.find((r: Row) => r.status === 'ready' && r.request.provider === 'sina')?.id ||
+        h[0]?.id ||
+        ''
+    )
     setQuoteId((v) => v || q[0]?.id || '')
   }, [])
   useEffect(() => {
@@ -244,6 +236,7 @@ export default function MarketPage(p: Props) {
   const covered =
     requirements &&
     selectedHistory?.status === 'ready' &&
+    selectedHistory.request.provider === requirements.source &&
     selectedHistory.request.bases.includes('hfq') &&
     requirements.codes.every((c: string) => selectedHistory.request.codes.includes(c))
   async function job(path: string, body: Row) {
@@ -300,7 +293,7 @@ export default function MarketPage(p: Props) {
       setMonitor(
         await post('/market/monitors', {
           codes: pool,
-          allow_network: consent,
+          allow_network: quoteConsent,
           plan_id: planId || null,
           interval_seconds: interval,
           duration_seconds: duration,
@@ -345,6 +338,7 @@ export default function MarketPage(p: Props) {
       </div>
       <div className="tabs">
         {[
+          ['research', '行情与模型'],
           ['history', '联网历史'],
           ['plan', '最新日线计划'],
           ['quotes', '报价与监控'],
@@ -362,6 +356,69 @@ export default function MarketPage(p: Props) {
           <RefreshCw size={15} />
         </button>
       </div>
+      {tab === 'research' && (
+        <>
+          <div className="toolbar">
+            <Field label="历史行情来源">
+              <select
+                aria-label="模型行情来源"
+                value={chartDatasetId ? 'dataset:' + chartDatasetId : 'history:' + historyId}
+                onChange={(e) => {
+                  const [kind, id] = e.target.value.split(':')
+                  setChartDatasetId(kind === 'dataset' ? id : '')
+                  if (kind === 'history') setHistoryId(id)
+                }}
+              >
+                <option value="history:">选择本地行情</option>
+                <optgroup label="已下载快照">
+                  {histories.map((h) => (
+                    <option key={h.id} value={'history:' + h.id}>
+                      {h.request.provider === 'sina' ? '新浪' : '东方财富'} · {h.id} ·{' '}
+                      {h.request.codes.length}股 · {h.status}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="数据版本">
+                  {p.datasets.map((d) => (
+                    <option key={d.id} value={'dataset:' + d.id}>
+                      {d.name} · {d.stocks}股
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            </Field>
+          </div>
+          {!chartDatasetId && selectedHistory && (
+            <MarketResearch
+              key={selectedHistory.id}
+              batch={selectedHistory}
+              models={p.models}
+              initialModel={p.initialModel}
+              apiReady={status.market_ui_version === 'model-comparison-v1'}
+              fail={p.fail}
+            />
+          )}
+          {chartDatasetId && chartDataset?.id === chartDatasetId && (
+            <MarketResearch
+              key={'dataset:' + chartDatasetId}
+              datasetId={chartDatasetId}
+              batch={{
+                ...chartDataset,
+                entries: chartDataset.manifest.stock_codes.map((code: string) => ({
+                  code,
+                  basis: 'hfq',
+                  status: 'ready',
+                })),
+              }}
+              models={p.models}
+              initialModel={p.initialModel}
+              apiReady={status.market_ui_version === 'model-comparison-v1'}
+              fail={p.fail}
+            />
+          )}
+          {!chartDatasetId && !selectedHistory && <div className="empty">尚无本地日线快照</div>}
+        </>
+      )}
       {tab === 'supplements' && (
         <SupplementDownloads
           initialId={p.initialKind === 'supplements' ? p.initialId : ''}
@@ -464,10 +521,12 @@ export default function MarketPage(p: Props) {
                   <button
                     className="icon-button"
                     title="采用模型股票池和历史锚点"
-                    disabled={!requirements}
+                    disabled={!requirements || !['sina', 'eastmoney'].includes(requirements.source)}
                     onClick={() => {
                       setCodes(requirements!.codes.join(' '))
                       setStart(requirements!.history_origin)
+                      setSource(requirements!.source)
+                      setConsent(false)
                     }}
                   >
                     <Layers size={16} />
@@ -494,7 +553,14 @@ export default function MarketPage(p: Props) {
                 </Field>
               </div>
               <Field label="日线数据源">
-                <select aria-label="日线数据源" value={source} onChange={(e) => { setSource(e.target.value); setConsent(false) }}>
+                <select
+                  aria-label="日线数据源"
+                  value={source}
+                  onChange={(e) => {
+                    setSource(e.target.value)
+                    setConsent(false)
+                  }}
+                >
                   <option value="eastmoney">东方财富</option>
                   <option value="sina">新浪 · AKShare</option>
                 </select>
@@ -581,7 +647,7 @@ export default function MarketPage(p: Props) {
                             <button
                               className="icon-button"
                               title="按原请求重试失败项"
-                              disabled={!consent || busy}
+                              disabled={!consent || busy || source !== h.request.provider}
                               onClick={() =>
                                 job('/market/downloads', {
                                   ...h.request,
@@ -952,19 +1018,19 @@ export default function MarketPage(p: Props) {
             <label className="check-label">
               <input
                 type="checkbox"
-                checked={consent}
+                checked={quoteConsent}
                 disabled={!!monitoring}
-                onChange={(e) => setConsent(e.target.checked)}
+                onChange={(e) => setQuoteConsent(e.target.checked)}
               />
               允许从东方财富获取这组股票的报价
             </label>
             <div className="form-actions">
               <button
-                disabled={busy || !consent || monitoring || !pool.length || pool.length > 50}
+                disabled={busy || !quoteConsent || monitoring || !pool.length || pool.length > 50}
                 onClick={() =>
                   job('/market/quotes', {
                     codes: pool,
-                    allow_network: consent,
+                    allow_network: quoteConsent,
                     plan_id: planId || null,
                   })
                 }
@@ -980,7 +1046,7 @@ export default function MarketPage(p: Props) {
               ) : (
                 <button
                   className="primary"
-                  disabled={busy || !consent || !pool.length || pool.length > 50}
+                  disabled={busy || !quoteConsent || !pool.length || pool.length > 50}
                   onClick={beginMonitor}
                 >
                   <Radio size={15} />
@@ -989,8 +1055,8 @@ export default function MarketPage(p: Props) {
               )}
             </div>
             <p className="subtle-note">
-              报价最多 50 股。离开页面会请求停止；断连超过 45
-              秒租约失效。刷新价格不会重新训练或更换日线计划。
+              新浪实时报价适配尚未启用；东方财富需独立授权，不能用于新浪模型的报价判断。报价最多 50
+              股。离开页面会请求停止；断连超过 45 秒租约失效。刷新价格不会重新训练或更换日线计划。
             </p>
             {sessions
               .filter((s) => s.status === 'active' && s.id !== monitorId)

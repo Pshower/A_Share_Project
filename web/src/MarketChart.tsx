@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import * as echarts from 'echarts/core'
-import { CandlestickChart, LineChart, BarChart } from 'echarts/charts'
+import { CandlestickChart, LineChart, BarChart, ScatterChart } from 'echarts/charts'
 import {
   GridComponent,
   TooltipComponent,
   LegendComponent,
   DataZoomComponent,
+  MarkLineComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { ChartCandlestick, ChartLine } from 'lucide-react'
@@ -15,6 +16,8 @@ echarts.use([
   CandlestickChart,
   LineChart,
   BarChart,
+  ScatterChart,
+  MarkLineComponent,
   GridComponent,
   TooltipComponent,
   LegendComponent,
@@ -30,9 +33,39 @@ type Bar = {
   volume: number
   amount: number
 }
-type Batch = { id: string; entries: { code: string; basis: string; status: string }[] }
+type Batch = {
+  id: string
+  entries: { code: string; basis: string; status: string }[]
+  request?: { provider?: string }
+  manifest?: { data_source?: string }
+}
+export type ChartContext = { code: string; basis: string; lastDate: string }
+export type ModelSignal = {
+  modelId: string
+  label: string
+  date: string
+  targetWeight: number
+  intent: string
+  direction: string
+}
+const emptyRows: Bar[] = []
+const emptySignals: ModelSignal[] = []
 
-export default function MarketChart({ batch, datasetId }: { batch: Batch; datasetId?: string }) {
+export default function MarketChart({
+  batch,
+  datasetId,
+  onContext,
+  signals = emptySignals,
+  selectedDate,
+  onDateChange,
+}: {
+  batch: Batch
+  datasetId?: string
+  onContext?: (value: ChartContext | null) => void
+  signals?: ModelSignal[]
+  selectedDate?: string
+  onDateChange?: (date: string) => void
+}) {
   const available = batch.entries.filter((e) => e.status === 'ready')
   const codes = [...new Set(available.map((e) => e.code))]
   const [code, setCode] = useState(codes[0] || '')
@@ -44,8 +77,13 @@ export default function MarketChart({ batch, datasetId }: { batch: Batch; datase
   const [result, setResult] = useState<{ key: string; rows: Bar[] } | null>(null)
   const [error, setError] = useState('')
   const key = `${datasetId || 'history'}/${batch.id}/${code}/${basis}`
-  const rows = result?.key === key ? result.rows : []
+  const rows = result?.key === key ? result.rows : emptyRows
   const element = useRef<HTMLDivElement>(null)
+  const dateHandler = useRef(onDateChange)
+  dateHandler.current = onDateChange
+  useEffect(() => {
+    onContext?.(rows.length ? { code, basis, lastDate: rows.at(-1)!.date } : null)
+  }, [rows, code, basis, onContext])
   useEffect(() => {
     let active = true
     setError('')
@@ -118,6 +156,42 @@ export default function MarketChart({ batch, datasetId }: { batch: Batch; datase
         { type: 'slider', xAxisIndex: [0, 1], bottom: 0, height: 22 },
       ],
       series: [
+        ...signals.flatMap((signal, i) => {
+          const bar = rows.find((r) => r.date === signal.date)
+          if (bar?.close == null) return []
+          return [
+            {
+              name: signal.label,
+              type: 'scatter',
+              z: 10,
+              symbol: ['buy', 'sell', 'exit'].includes(signal.direction) ? 'triangle' : 'circle',
+              symbolRotate: ['sell', 'exit'].includes(signal.direction) ? 180 : 0,
+              symbolSize: 13,
+              symbolOffset: [0, -18 - i * 25],
+              itemStyle: { color: ['#16796f', '#b34b73', '#436bbb'][i % 3] },
+              label: {
+                show: true,
+                position: rows.indexOf(bar) > rows.length - 15 ? 'left' : 'right',
+                formatter: `${signal.label} ${(signal.targetWeight * 100).toFixed(1)}%`,
+              },
+              tooltip: {
+                trigger: 'item',
+                formatter: `${signal.date}<br/>${signal.label} · ${signal.intent}<br/>目标 ${(signal.targetWeight * 100).toFixed(1)}%<br/>图示收盘参考 ${bar.close}，非成交价格`,
+              },
+              data: [[signal.date, bar.close]],
+            },
+          ]
+        }),
+        {
+          type: 'line',
+          data: [],
+          silent: true,
+          markLine: {
+            symbol: 'none',
+            label: { formatter: '决策日 {b}', position: 'insideEndTop', align: 'right', rotate: 0 },
+            data: selectedDate ? [{ name: selectedDate, xAxis: selectedDate }] : [],
+          },
+        },
         mode === 'candlestick'
           ? {
               name: '日K',
@@ -168,13 +242,22 @@ export default function MarketChart({ batch, datasetId }: { batch: Batch; datase
         },
       ],
     })
+    chart.on('click', (event: any) => {
+      const date =
+        typeof event.name === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(event.name)
+          ? event.name
+          : Array.isArray(event.value)
+            ? event.value[0]
+            : null
+      if (typeof date === 'string' && rows.some((r) => r.date === date)) dateHandler.current?.(date)
+    })
     const observer = new ResizeObserver(() => chart.resize())
     observer.observe(element.current)
     return () => {
       observer.disconnect()
       chart.dispose()
     }
-  }, [rows, mode, range])
+  }, [rows, mode, range, signals, selectedDate])
   const last = rows.at(-1)
   const previous = rows.at(-2)
   const change =
@@ -187,6 +270,10 @@ export default function MarketChart({ batch, datasetId }: { batch: Batch; datase
         <h2>历史行情</h2>
         <span>
           {datasetId ? '数据版本原始来源' : '本地快照'} · {batch.id}
+          {' · '}
+          {({ sina: '新浪', eastmoney: '东方财富' } as Record<string, string>)[
+            batch.request?.provider || batch.manifest?.data_source || ''
+          ] || '来源未认证'}
         </span>
       </div>
       {!codes.length ? (

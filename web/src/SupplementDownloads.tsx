@@ -14,7 +14,7 @@ export default function SupplementDownloads({
 }) {
   const [types, setTypes] = useState<Row[]>([])
   const [batches, setBatches] = useState<Row[]>([])
-  const [kind, setKind] = useState('profile')
+  const [kind, setKind] = useState('dividend')
   const [codes, setCodes] = useState('000001')
   const [market, setMarket] = useState('sz')
   const [start, setStart] = useState('')

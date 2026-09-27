@@ -1247,3 +1247,65 @@ footer {
 .experiment-sources { max-height: 240px; overflow: auto; }
 .ppo-settings .field-grid { margin-top: 12px; }
 .stat strong.experiment-artifact-id { font-size: 14px; overflow-wrap: anywhere; }
+.model-selectors,
+.market-research-inputs,
+.model-research-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 14px;
+}
+.model-selector {
+  display: flex;
+  align-items: end;
+  gap: 6px;
+  flex: 1 1 250px;
+  min-width: 0;
+}
+.model-selector label,
+.market-research-inputs label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.model-selector select,
+.model-performance select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.market-research-inputs label {
+  flex: 0 1 220px;
+}
+.market-research-inputs .research-weights {
+  flex: 1 1 240px;
+}
+.model-research-actions .check-label {
+  flex: 1 1 260px;
+}
+.prediction-errors {
+  max-width: 420px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: #a63041;
+}
+.model-allocation,
+.model-performance {
+  padding: 14px 0;
+  border-top: 1px solid #e2e7e9;
+}
+.model-allocation .table-wrap {
+  max-height: 420px;
+  overflow: auto;
+}
+.model-performance img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.model-performance label {
+  display: block;
+  margin: 12px 0;
+}
