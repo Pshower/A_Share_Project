@@ -140,7 +140,7 @@ def history_time_budget(codes, bases):
     return min(3600, max(600, len(codes) * len(bases) * 6))
 
 
-def download_history(codes, start, end, bases, *, allow_network=False, root=ROOT, provider=None, resume_id=None, source="eastmoney"):
+def download_history(codes, start, end, bases, *, allow_network=False, root=ROOT, provider=None, resume_id=None, source="sina"):
     if not allow_network:
         raise ValueError("Explicit network consent required")
     valid_codes(codes)
@@ -319,7 +319,10 @@ if __name__ == "__main__":
     parser.add_argument("--start", default="2017-01-01")
     parser.add_argument("--end", default=str(datetime.now(CHINA).date()))
     parser.add_argument("--allow-network", action="store_true", required=True)
+    parser.add_argument("--source", choices=["sina", "eastmoney"], default="sina")
     args = parser.parse_args()
-    result = (download_history(args.codes, args.start, args.end, ["hfq", "unadjusted"], allow_network=args.allow_network)
+    if args.kind == "quotes" and args.source != "eastmoney":
+        parser.error("Quotes currently require explicit --source eastmoney; no automatic fallback")
+    result = (download_history(args.codes, args.start, args.end, ["hfq", "unadjusted"], allow_network=args.allow_network, source=args.source)
               if args.kind == "history" else capture_quotes(args.codes, allow_network=args.allow_network))
     print(json.dumps(result, ensure_ascii=True, indent=2))

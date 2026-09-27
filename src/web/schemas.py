@@ -171,7 +171,7 @@ class Label(Request):
 
 
 class OnlineHistory(Request):
-    source: Literal["eastmoney", "sina"] = "eastmoney"
+    source: Literal["eastmoney", "sina"] = "sina"
     codes: list[str] = Field(min_length=1, max_length=500)
     start_date: date
     end_date: date
@@ -239,6 +239,32 @@ class DailyPlan(ModelRequest):
 
 class OnlineBuild(Build):
     history_id: str
+
+
+class ModelComparison(Request):
+    model_ids: list[str] = Field(min_length=1, max_length=3)
+    history_id: str
+    close_as_of: date
+    display_code: str = Field(pattern=r"^\d{6}$")
+    account_mode: Literal["cash", "weights"]
+    research_weights: dict[str, float] = Field(default={})
+    accept_revisions: bool = False
+    acknowledge_research: Literal[True]
+
+    @model_validator(mode="after")
+    def validate_comparison(self):
+        from src.data.online import valid_codes
+        if len(set(self.model_ids)) != len(self.model_ids):
+            raise ValueError("Select unique models")
+        if self.research_weights:
+            valid_codes(list(self.research_weights))
+        if any(v < 0 for v in self.research_weights.values()) or sum(self.research_weights.values()) > 1:
+            raise ValueError("Research weights must be nonnegative and sum to at most one")
+        if self.account_mode == "cash" and self.research_weights:
+            raise ValueError("Cash scenario cannot include positions")
+        if self.account_mode == "weights" and not self.research_weights:
+            raise ValueError("Weights scenario requires explicit positions")
+        return self
 
 
 class MonitorRequest(OnlineQuotes):

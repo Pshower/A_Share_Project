@@ -19,7 +19,7 @@ from .catalog import Catalog, inside
 from .jobs import JobManager, TERMINAL, read_events
 from .store import Store
 from .schemas import Training, Build, Evaluation, ModelRequest, Prediction, Transfer, Label, Coverage, FeaturePreview, ExperimentRecipe, ExperimentApproval
-from .schemas import OnlineHistory, OnlineQuotes, DailyPlan, OnlineBuild, MonitorRequest, StockList, Supplement
+from .schemas import OnlineHistory, OnlineQuotes, DailyPlan, OnlineBuild, MonitorRequest, StockList, Supplement, ModelComparison
 from src.data.snapshots import Snapshots
 
 
@@ -137,7 +137,8 @@ def create_app(root=ROOT, start_workers=True):
     def market_status():
         from datetime import datetime
         from src.data.online import CHINA
-        return dict(provider="eastmoney", history_basis=["hfq", "unadjusted"], quote_basis="unadjusted",
+        from .market_research import capabilities
+        return dict(provider="sina", **capabilities(), history_basis=["hfq", "unadjusted"], quote_basis="unadjusted",
                     today=str(datetime.now(CHINA).date()), min_poll_seconds=60, max_quote_stocks=50,
                     real_account_compatible=False, supports_orders=False,
                     timestamp_semantics="unverified f86 Unix-seconds field; not exchange-certified trade time")
@@ -179,14 +180,38 @@ def create_app(root=ROOT, start_workers=True):
 
     @app.get("/api/market/model-requirements/{model_id}")
     def model_requirements(model_id: str):
-        cfg, record, _ = catalog.model_config(model_id)
-        research_path = Path(cfg["research_config"])
-        research = read_config(research_path if research_path.is_absolute() else root / research_path)
-        from src.inference.live import feature_history_origin
-        origin, _ = feature_history_origin(research)
-        return dict(codes=record["metadata"]["contract"]["stock_codes"],
-                    history_origin=str(origin.date()),
-                    price_basis=record["price_basis"], trained=record["trained"])
+        from .market_research import model_requirements as requirements
+        return requirements(catalog, model_id)
+
+    @app.post("/api/market/model-comparison/preflight")
+    def model_preflight(body: ModelComparison):
+        from .market_research import comparison_preflight
+        return comparison_preflight(catalog, body)
+
+    @app.post("/api/market/model-comparison")
+    def model_comparison(body: ModelComparison, idempotency_key: str | None = Header(default=None)):
+        from .market_research import comparison_preflight
+        preflight = comparison_preflight(catalog, body)
+        results = []
+        for model in preflight["models"]:
+            if not model["ready"]:
+                results.append(dict(model_id=model["model_id"], status="blocked", errors=model["errors"]))
+                continue
+            payload = dict(model_id=model["model_id"], history_id=body.history_id, close_as_of=str(body.close_as_of),
+                research_weights=body.research_weights, accept_revisions=body.accept_revisions,
+                acknowledge_research=True, account_mode=body.account_mode, strict_source=True,
+                expected_model_sha256=model["model_sha256"], expected_history_sha256=preflight["history_manifest_sha256"])
+            job = store.enqueue("daily_plan", payload, (idempotency_key + ":" + model["model_id"]) if idempotency_key else None)
+            results.append(dict(model_id=model["model_id"], status=job["status"], job_id=job["id"],
+                                historical_label=model["historical_label"]))
+        return JSONResponse(dict(**preflight, results=results), status_code=202)
+
+    @app.get("/api/market/model-performance/{model_id}")
+    def model_performance(model_id: str):
+        record, _ = catalog.model(model_id)
+        digest = record["metadata"]["model_sha256"]
+        return [r for r in catalog.reports() if r["split"] == "val"
+                and r["experiment"].get("provenance", {}).get("loaded_model_sha256") == digest]
 
     @app.get("/api/market/snapshots/{kind}")
     def online_snapshots(kind: str):
@@ -219,6 +244,7 @@ def create_app(root=ROOT, start_workers=True):
         frame["date"] = pd.to_datetime(frame["date"]).dt.strftime("%Y-%m-%d")
         columns = ["date", "open", "close", "low", "high", "volume", "amount"]
         return dict(snapshot_id=snapshot_id, code=code, basis=basis, volume_unit="shares",
+                    source=record["request"]["provider"],
                     received_at=entry.get("received_at"),
                     rows=json.loads(frame[columns].to_json(orient="records")))
 
@@ -229,16 +255,21 @@ def create_app(root=ROOT, start_workers=True):
 
     @app.post("/api/market/downloads")
     def online_download(body: OnlineHistory, idempotency_key: str | None = Header(default=None)):
+        payload = body.model_dump(mode="json")
         if body.resume_id:
             old, _ = snapshots.get("history", body.resume_id)
-            expected = dict(provider="eastmoney", codes=body.codes, start_date=str(body.start_date), end_date=str(body.end_date), bases=body.bases)
+            source = body.source if "source" in body.model_fields_set else old["request"]["provider"]
+            expected = dict(provider=source, codes=body.codes, start_date=str(body.start_date), end_date=str(body.end_date), bases=body.bases)
             if old["request"] != expected:
                 raise ValueError("Retry request differs from original capture")
-        return submit("online_history", body.model_dump(mode="json"), idempotency_key)
+            payload["source"] = source
+        return submit("online_history", payload, idempotency_key)
 
     def quote_pool(body):
         if body.plan_id:
             plan, _ = snapshots.get("plans", body.plan_id)
+            if plan.get("training_contract", {}).get("data_source") not in {None, "eastmoney"}:
+                raise ValueError("This model source has no compatible realtime quote adapter; no automatic Eastmoney fallback")
             if body.codes != plan["stock_codes"]:
                 raise ValueError("Quote the entire ordered plan pool, not just displayed stocks")
 

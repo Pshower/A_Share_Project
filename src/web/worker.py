@@ -79,7 +79,7 @@ def execute(job, directory):
         if kind == "online_history":
             events.phase("downloading")
             result = download_history(payload["codes"], payload["start_date"], payload["end_date"], payload["bases"],
-                                      allow_network=True, resume_id=payload.get("resume_id"), source=payload.get("source", "eastmoney"))
+                                      allow_network=True, resume_id=payload.get("resume_id"), source=payload.get("source", "sina"))
         else:
             events.phase("quotes")
             def permission():
@@ -133,6 +133,8 @@ def execute(job, directory):
     from src.inference.predict import predict_action
 
     cfg, record, model_path = catalog.model_config(payload["model_id"])
+    if payload.get("expected_model_sha256") and record["metadata"]["model_sha256"] != payload["expected_model_sha256"]:
+        raise ValueError("Model changed after comparison preflight")
     torch.set_num_threads(cfg.get("torch_threads", 1))
     data = ResearchData(cfg)
     if kind != "prediction" and not record["trained"]:
@@ -140,10 +142,19 @@ def execute(job, directory):
     agent = PPOAgent.load(model_path, data.contract, cfg["device"])
     if kind == "daily_plan":
         from src.inference.live import build_daily_plan
+        if payload.get("strict_source"):
+            from src.data.snapshots import Snapshots
+            from src.data.preprocess import file_hash
+            history, history_dir = Snapshots().get("history", payload["history_id"])
+            if (data.contract.get("data_source") != history["request"]["provider"]
+                    or file_hash(history_dir / "manifest.json") != payload["expected_history_sha256"]):
+                raise ValueError("History source or snapshot changed after comparison preflight")
         events.phase("binding")
         plan = build_daily_plan(agent, data, payload["history_id"], model_id=payload["model_id"],
                                 accept_revisions=payload["accept_revisions"], research_weights=payload["research_weights"],
                                 close_as_of=payload.get("close_as_of"))
+        if plan["feature_as_of"] > data.manifest["val_end"]:
+            Store(ROOT / ".workbench").expose("test_observation", data.manifest["version"], plan["feature_as_of"], plan["feature_as_of"], job["id"])
         return dict(snapshot_id=plan["id"], snapshot_kind="plans", capture_status="ready")
     if kind == "evaluation":
         frozen = None

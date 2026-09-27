@@ -48,7 +48,7 @@ class FakeProvider:
 def history_fixture(data, root):
     request = data.research["dataset"]
     return download_history(data.codes, request["start_date"], request["end_date"], ["hfq", "unadjusted"],
-                            allow_network=True, root=root, provider=FakeProvider(data))
+                            allow_network=True, root=root, provider=FakeProvider(data), source="eastmoney")
 
 
 def test_explicit_network_consent_and_separate_immutable_bases(local_data, tmp_path):

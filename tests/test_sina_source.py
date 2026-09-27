@@ -35,6 +35,6 @@ def test_source_declared_and_resume_cannot_switch_provider(tmp_path):
         download_history(["000001"], "2020-01-01", "2020-01-03", ["hfq"],
                          allow_network=True, root=tmp_path, provider=Provider(), source="eastmoney", resume_id=original["id"])
     second = download_history(["000001"], "2020-01-01", "2020-01-03", ["hfq"],
-                              allow_network=True, root=tmp_path, provider=Provider())
+                              allow_network=True, root=tmp_path, provider=Provider(), source="eastmoney")
     with pytest.raises(ValueError, match="mix"):
         inspect_bundle([original["id"], second["id"]], ["000001"], "2020-01-01", "2020-01-03", tmp_path)

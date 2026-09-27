@@ -104,7 +104,9 @@ def build_daily_plan(agent, data, history_id, *, model_id, accept_revisions=Fals
     window = np.stack([normalized[c].iloc[-lookback:].to_numpy(dtype=np.float32) for c in data.codes])
     valid = np.isfinite(window).all(axis=(1, 2))
     if not valid.all():
-        raise ValueError("Latest model window is incomplete; no automatic cash/exit action")
+        missing = [f"{code} ({', '.join(columns[j] for j in np.flatnonzero(~np.isfinite(window[i]).all(axis=0)))})"
+                   for i, code in enumerate(data.codes) if not valid[i]]
+        raise ValueError("Latest model window is incomplete; no automatic cash/exit action: " + "; ".join(missing))
     obs = dict(stock_features=window, valid_mask=valid.astype(np.int8), buy_mask=valid.astype(np.int8),
                sell_mask=np.ones(len(data.codes), dtype=np.int8),
                portfolio=np.array([research_weights.get(c, 0.) for c in data.codes] + [1 - sum(research_weights.values())], dtype=np.float32),
