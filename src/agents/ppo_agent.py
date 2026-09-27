@@ -12,7 +12,7 @@ from stable_baselines3 import PPO
 from src.backtest.run import git_metadata
 from src.data.preprocess import ROOT, file_hash, write_json
 from src.runtime.device import resolve_device
-from .action_mapping import map_action, MAPPING_VERSION
+from .action_mapping import map_action, MAPPING_VERSION, mapping_version
 from .ppo_policy import SharedStockPolicy
 
 
@@ -23,7 +23,10 @@ def make_model(env, config):
         initial, factor = options["learning_rate"], config.get("learning_rate_end_factor", 0.1)
         options["learning_rate"] = lambda remaining: initial * (factor + (1 - factor) * min(1.0, max(0.0, remaining)))
     return PPO(SharedStockPolicy, env, seed=config["seed"], device=resolve_device(config["device"]),
-               policy_kwargs=dict(hidden_sizes=tuple(config["hidden_sizes"])),
+               policy_kwargs=dict(hidden_sizes=tuple(config["hidden_sizes"]),
+                   initial_log_std=config.get("initial_log_std", 0.0),
+                   prior_feature_index=config.get("prior_feature_index"),
+                   prior_strength=config.get("prior_strength", 4.0), residual_scale=config.get("residual_scale", 0.25)),
                verbose=0, **options)
 
 
@@ -33,12 +36,18 @@ class PPOAgent:
         self.contract = deepcopy(contract)
         self.provenance = deepcopy(provenance or {})
         n = len(contract["stock_codes"])
-        if (contract["mapping_version"] != MAPPING_VERSION
+        if (contract["mapping_version"] != mapping_version(contract.get("action_top_k"))
                 or model.action_space.shape != (n + 1,)
                 or model.observation_space["stock_features"].shape != (n, contract["lookback"], len(contract["feature_cols"]))
                 or not np.all(model.action_space.high == contract["logit_bound"])
                 or not np.all(model.action_space.low == -contract["logit_bound"])):
             raise ValueError("Model spaces do not match the artifact contract")
+        network = model.policy.network
+        expected_prior = contract.get("prior")
+        actual_prior = (dict(feature_index=network.prior_feature_index, strength=network.prior_strength,
+                             residual_scale=network.residual_scale) if network.prior_feature_index is not None else None)
+        if actual_prior != expected_prior:
+            raise ValueError("Policy prior differs from model contract")
 
     def reset(self):
         pass
@@ -55,7 +64,8 @@ class PPOAgent:
         tensor, _ = self.model.policy.obs_to_tensor(observation)
         with torch.no_grad():
             latent = self.model.policy.get_distribution(tensor).get_actions(deterministic).cpu().numpy()[0]
-        return map_action(latent, observation, self.contract["broker"]["max_weight"], self.contract["logit_bound"])
+        return map_action(latent, observation, self.contract["broker"]["max_weight"], self.contract["logit_bound"],
+                          self.contract.get("action_top_k"))
 
     def act(self, observation, step=None, deterministic=True):
         return self.inspect_action(observation, deterministic)["weights"]
@@ -90,6 +100,9 @@ class PPOAgent:
         # Only the pool and data identity may change; scaling and execution stay fixed.
         if self.contract.get("data_source") != new_contract.get("data_source"):
             raise ValueError("Pool transfer cannot change the training data source")
+        for key in ["action_top_k", "prior"]:
+            if self.contract.get(key) != new_contract.get(key):
+                raise ValueError(f"Incompatible transfer contract: {key}")
         for key in ["feature_cols", "lookback", "price_basis", "broker", "initial_capital",
                     "mapping_version", "logit_bound", "hidden_sizes"]:
             if self.contract[key] != new_contract[key]:

@@ -22,7 +22,8 @@ class TargetWeightSpace(spaces.Box):
 class TradingEnv(gym.Env):
     metadata = {"render_modes": []}
 
-    def __init__(self, market, initial_capital=1e6, broker_config=None, max_steps=None, initial_portfolio="cash", random_start=False):
+    def __init__(self, market, initial_capital=1e6, broker_config=None, max_steps=None, initial_portfolio="cash", random_start=False,
+                 recent_episode_every=0):
         super().__init__()
         if max_steps is not None and (not isinstance(max_steps, int) or max_steps < 1):
             raise ValueError("max_steps must be a positive integer")
@@ -35,6 +36,10 @@ class TradingEnv(gym.Env):
             raise ValueError("Unknown initial portfolio mode")
         self.initial_portfolio = initial_portfolio
         self.random_start = random_start
+        if type(recent_episode_every) is not int or recent_episode_every < 0 or (recent_episode_every and not random_start):
+            raise ValueError("Recent episode sampling requires random_start")
+        self.recent_episode_every = recent_episode_every
+        self._episode_count = 0
         if random_start and max_steps is None:
             raise ValueError("Random start requires a bounded episode")
         self._initial_modes = []
@@ -84,8 +89,13 @@ class TradingEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         self.market.reset()
+        if seed is not None:
+            self._episode_count = 0
         if self.random_start:
-            self.market.current_index = int(self.np_random.integers(0, max(1, self.market.n_dates - self.max_steps)))
+            high = max(1, self.market.n_dates - self.max_steps)
+            self.market.current_index = (high - 1 if self.recent_episode_every and self._episode_count % self.recent_episode_every == 0
+                                         else int(self.np_random.integers(0, high)))
+        self._episode_count += 1
         self.portfolio.reset()
         self.portfolio.start_day(self.market.current_date)
         from .initial_account import MODES, initialize_account

@@ -32,6 +32,7 @@ class ValidationCallback(BaseCallback):
         self.portfolio_totals = Counter()
         self.portfolio_counts = Counter()
         self.initial_account_steps = Counter()
+        self.valid_observation_steps = np.zeros(len(data.codes), dtype=np.int64)
         self.portfolio_samples = 0
         self.last_recorded = None
         self.started = perf_counter()
@@ -104,6 +105,8 @@ class ValidationCallback(BaseCallback):
 
     def _on_step(self):
         events.check_cancel()
+        if self.model._last_obs is not None:
+            self.valid_observation_steps += self.model._last_obs["valid_mask"].sum(axis=0).astype(np.int64)
         if self.model.num_timesteps % 16 == 0:
             events.emit("progress", phase="training", timesteps=self.model.num_timesteps)
         for index, info in enumerate(self.locals.get("infos", [])):
@@ -253,7 +256,8 @@ def main(argv=None):
                          parameter_delta_l2=float(np.linalg.norm(list(deltas.values()))),
                          tensor_delta_l2=deltas, elapsed_seconds=elapsed,
                          all_parameters_finite=all(bool(torch.isfinite(p).all()) for p in model.policy.parameters()),
-                         test_evaluated=False, initial_account_steps=dict(callback.initial_account_steps))
+                         test_evaluated=False, initial_account_steps=dict(callback.initial_account_steps),
+                         valid_observation_steps={c: int(v) for c, v in zip(data.codes, callback.valid_observation_steps)})
             if not audit["changed_tensors"] or not audit["optimizer_steps_min"] or not audit["all_parameters_finite"]:
                 raise AssertionError("Training did not perform finite parameter updates")
             write_json(output / "training_audit.json", audit)

@@ -6,7 +6,11 @@ import numpy as np
 MAPPING_VERSION = "masked_softmax_cap_cash_v1"
 
 
-def map_action(latent, observation, max_weight, bound=8.0):
+def mapping_version(top_k=None):
+    return MAPPING_VERSION if top_k is None else "masked_topk_softmax_cap_cash_v2"
+
+
+def map_action(latent, observation, max_weight, bound=8.0, top_k=None):
     n = len(observation["valid_mask"])
     raw = np.asarray(latent, dtype=np.float64)
     if raw.shape != (n + 1,) or not np.isfinite(raw).all():
@@ -17,6 +21,11 @@ def map_action(latent, observation, max_weight, bound=8.0):
     scores = np.clip(raw, -bound, bound)
     masked = scores.copy()
     masked[:-1][~eligible] = -np.inf
+    if top_k is not None:
+        if type(top_k) is not int or top_k < 1:
+            raise ValueError("top_k must be a positive integer")
+        ranked = np.argsort(-masked[:-1], kind="stable")
+        masked[ranked[top_k:]] = -np.inf
     exp = np.exp(masked - masked.max())
     probabilities = exp / exp.sum()
     weights = np.minimum(probabilities[:-1], max_weight).astype(np.float32)
@@ -30,11 +39,12 @@ def map_action(latent, observation, max_weight, bound=8.0):
 
 
 class LatentActionWrapper(gym.Wrapper):
-    def __init__(self, env, bound=8.0):
+    def __init__(self, env, bound=8.0, top_k=None):
         super().__init__(env)
         if not np.isfinite(bound) or bound <= 0:
             raise ValueError("bound must be finite and positive")
         self.bound = float(bound)
+        self.top_k = top_k
         self.action_space = gym.spaces.Box(-bound, bound, (env.market.n_stocks + 1,), np.float32)
         self._observation = None
 
@@ -46,7 +56,7 @@ class LatentActionWrapper(gym.Wrapper):
     def step(self, action):
         if self._observation is None:
             raise RuntimeError("Reset before submitting a latent action")
-        mapped = map_action(action, self._observation, self.env.broker.config.max_weight, self.bound)
+        mapped = map_action(action, self._observation, self.env.broker.config.max_weight, self.bound, self.top_k)
         obs, reward, terminated, truncated, info = self.env.step(mapped["weights"])
         self._observation = None if terminated or truncated else obs
         info["action_diagnostics"] = mapped

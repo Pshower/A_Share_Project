@@ -9,7 +9,7 @@ import pandas as pd
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-from src.agents.action_mapping import LatentActionWrapper, MAPPING_VERSION
+from src.agents.action_mapping import LatentActionWrapper, MAPPING_VERSION, mapping_version
 from src.data.preprocess import file_hash, read_config, resolve_path
 from src.envs.broker import BrokerConfig
 from src.envs.market import MarketDataProvider
@@ -17,6 +17,17 @@ from src.envs.trading import TradingEnv
 
 
 def validate_config(config):
+    top_k = config.get("action_top_k")
+    if top_k is not None and (type(top_k) is not int or not 1 <= top_k <= 500):
+        raise ValueError("action_top_k must be in [1, 500]")
+    if not np.isfinite(config.get("initial_log_std", 0.0)) or not -5 <= config.get("initial_log_std", 0.0) <= 1:
+        raise ValueError("initial_log_std must be in [-5, 1]")
+    for key, default in [("prior_strength", 4.0), ("residual_scale", 0.25)]:
+        if not np.isfinite(config.get(key, default)) or not 0 < config.get(key, default) <= 8:
+            raise ValueError("Invalid prior parameter: " + key)
+    recent = config.get("recent_episode_every", 0)
+    if type(recent) is not int or recent < 0 or (recent and not config.get("training_episode_steps")):
+        raise ValueError("Recent episode sampling requires a bounded training episode")
     from src.envs.initial_account import MODES
     if config.get("initial_portfolio", "cash") not in (*MODES, "mixed"):
         raise ValueError("Unknown initial portfolio mode")
@@ -129,7 +140,7 @@ class ResearchData:
                              lookback=config["lookback"], price_basis=manifest["price_basis"],
                              broker=asdict(BrokerConfig(**self.settings["broker"])),
                              initial_capital=self.settings["initial_capital"],
-                             mapping_version=MAPPING_VERSION, logit_bound=config["logit_bound"],
+                             mapping_version=mapping_version(top_k=config.get("action_top_k")), logit_bound=config["logit_bound"],
                              hidden_sizes=config["hidden_sizes"])
         if self.training_coverage is not None:
             self.contract["training_date_policy"] = "intersection"
@@ -138,6 +149,16 @@ class ResearchData:
             self.contract["initial_portfolio"] = config["initial_portfolio"]
         if config.get("training_episode_steps") is not None:
             self.contract["training_episode_steps"] = config["training_episode_steps"]
+        if config.get("recent_episode_every"):
+            self.contract["recent_episode_every"] = config["recent_episode_every"]
+        if config.get("action_top_k") is not None:
+            self.contract["action_top_k"] = config["action_top_k"]
+        if config.get("prior_feature_index") is not None:
+            idx = config["prior_feature_index"]
+            if type(idx) is not int or not 0 <= idx < len(manifest["feature_cols"]):
+                raise ValueError("Invalid prior feature index")
+            self.contract["prior"] = dict(feature_index=idx, strength=config.get("prior_strength", 4.0),
+                                           residual_scale=config.get("residual_scale", 0.25))
         if "data_source" in self.manifest:
             if self.research.get("online_source", {}).get("provider") != self.manifest["data_source"]:
                 raise ValueError("Dataset source differs from research configuration")
@@ -176,8 +197,9 @@ class ResearchData:
                                    BrokerConfig(**self.settings["broker"]),
                                    initial_portfolio=self.config.get("initial_portfolio", "cash") if split == "train" else "cash",
                                    max_steps=self.config.get("training_episode_steps") if split == "train" else None,
-                                   random_start=split == "train" and self.config.get("training_episode_steps") is not None),
-                                   self.config["logit_bound"])
+                                   random_start=split == "train" and self.config.get("training_episode_steps") is not None,
+                                   recent_episode_every=self.config.get("recent_episode_every", 0) if split == "train" else 0),
+                                   self.config["logit_bound"], self.config.get("action_top_k"))
 
     def vector_env(self, split="train"):
         env = DummyVecEnv([lambda: Monitor(self.env(split))])
