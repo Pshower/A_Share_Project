@@ -147,6 +147,30 @@ def test_revision_requires_explicit_research_acceptance(local_data, tmp_path):
     agent.model.get_env().close()
 
 
+def test_daily_plan_masks_unheld_features_but_never_silently_exits(local_data, tmp_path, monkeypatch):
+    from src.data.preprocess import DataPreprocessor
+    history = history_fixture(local_data, tmp_path)
+    original = DataPreprocessor.add_features
+    def missing(frame, *args):
+        values = original(frame, *args)
+        if frame.code.iloc[-1] == local_data.codes[0]:
+            values.iloc[-1, 0] = np.nan
+        return values
+    monkeypatch.setattr(DataPreprocessor, "add_features", staticmethod(missing))
+    env = local_data.vector_env()
+    try:
+        agent = PPOAgent(make_model(env, local_data.config), local_data.contract)
+        kwargs = dict(model_id="fixture", root=tmp_path, accept_revisions=True)
+        plan = build_daily_plan(agent, local_data, history["id"], **kwargs)
+        invalid = next(r for r in plan["rows"] if r["code"] == local_data.codes[0])
+        assert not invalid["valid"] and invalid["target_weight"] == 0
+        assert plan["masked_codes"] == [local_data.codes[0]]
+        with pytest.raises(ValueError, match="no automatic cash/exit"):
+            build_daily_plan(agent, local_data, history["id"], research_weights={local_data.codes[0]: .1}, **kwargs)
+    finally:
+        env.close()
+
+
 def test_inference_rejects_different_training_source(local_data, tmp_path):
     history = history_fixture(local_data, tmp_path)
     local_data.contract["data_source"] = "sina"

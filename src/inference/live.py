@@ -101,14 +101,18 @@ def build_daily_plan(agent, data, history_id, *, model_id, accept_revisions=Fals
     lookback = data.config["lookback"]
     if len(calendar) < lookback:
         raise ValueError("Insufficient history window")
-    window = np.stack([normalized[c].iloc[-lookback:].to_numpy(dtype=np.float32) for c in data.codes])
-    valid = np.isfinite(window).all(axis=(1, 2))
-    if not valid.all():
-        missing = [f"{code} ({', '.join(columns[j] for j in np.flatnonzero(~np.isfinite(window[i]).all(axis=0)))})"
-                   for i, code in enumerate(data.codes) if not valid[i]]
-        raise ValueError("Latest model window is incomplete; no automatic cash/exit action: " + "; ".join(missing))
-    obs = dict(stock_features=window, valid_mask=valid.astype(np.int8), buy_mask=valid.astype(np.int8),
-               sell_mask=np.ones(len(data.codes), dtype=np.int8),
+    from src.envs.market import MarketDataProvider
+    feature_panel = pd.concat(normalized, axis=1)
+    prices = pd.concat({c: frames[c].reindex(calendar)[["open", "close", "volume"]] for c in data.codes}, axis=1)
+    market = MarketDataProvider(feature_panel, columns, price_path=prices, price_basis="hfq_research", lookback=lookback)
+    window, valid, buy, sell = market.observation(market.n_dates - 1)
+    masked_codes = [c for c, available in zip(data.codes, valid) if not available]
+    held_missing = [c for c in masked_codes if research_weights.get(c, 0) > 0]
+    # Research execution can exit invalid assets; live advice must not silently do so.
+    if held_missing or not valid.any():
+        raise ValueError("Incomplete decision features; no automatic cash/exit action: " + ", ".join(held_missing or masked_codes))
+    obs = dict(stock_features=window, valid_mask=valid.astype(np.int8), buy_mask=buy.astype(np.int8),
+               sell_mask=sell.astype(np.int8),
                portfolio=np.array([research_weights.get(c, 0.) for c in data.codes] + [1 - sum(research_weights.values())], dtype=np.float32),
                receivable_ratio=np.zeros(1, dtype=np.float32))
     mapped = agent.inspect_action(obs)
@@ -119,7 +123,8 @@ def build_daily_plan(agent, data, history_id, *, model_id, accept_revisions=Fals
         if current > 0 and target == 0:
             intent = "exit"
         rows.append(dict(code=code, target_weight=target, current_research_weight=current,
-                         latent=float(mapped["latent"][i]), research_intent=intent))
+                         latent=float(mapped["latent"][i]), research_intent=intent, valid=bool(valid[i]),
+                         unavailable_reason=None if valid[i] else "incomplete_feature_window"))
     identifier, target = store.begin("plans")
     binding = dict(model_id=model_id, model_sha256=agent.provenance.get("loaded_model_sha256"),
                    extra_features=definitions, extra_feature_implementation_sha256=data.manifest.get("feature_engine_sha256"),
@@ -133,6 +138,7 @@ def build_daily_plan(agent, data, history_id, *, model_id, accept_revisions=Fals
                    real_account_compatible=False, exchange_calendar_verified=False,
                    requested_close_date=str(pd.Timestamp(close_as_of).date()) if close_as_of is not None else None,
                    actionable=False,
+                   masked_codes=masked_codes, missing_feature_policy="training_masks_for_unheld; block_missing_held_or_all_invalid",
                    complete_bar_policy=("Explicit date required for every stock; capture after 16:00 Asia/Shanghai; vendor finality and calendar not certified"
                                         if close_as_of is not None else
                                         "Exclude bars captured on or after the capture day; latest exchange session is not certified"))
