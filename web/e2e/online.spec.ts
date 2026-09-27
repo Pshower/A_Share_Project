@@ -13,17 +13,22 @@ test('online page opens without network jobs and requires explicit download cons
       body: JSON.stringify({ error: 'MOCK_ONLY_REQUEST_CAPTURED' }),
     })
   })
-  await page.goto('/#market')
+  await page.goto('/#market?kind=history')
   await expect(page.getByRole('heading', { name: '历史日线采集' })).toBeVisible()
   const submit = page.getByRole('button', { name: '开始联网下载', exact: true })
   await expect(submit).toBeDisabled()
   await page.getByLabel('联网股票代码', { exact: true }).fill('000001 600030')
-  await page.getByLabel('允许本次从东方财富联网采集', { exact: true }).check()
+  await expect(page.getByLabel('日线数据源', { exact: true })).toHaveValue('sina')
+  await page.getByLabel('允许本次从新浪联网采集', { exact: true }).check()
   await submit.click()
   await expect(page.getByRole('alert')).toContainText('MOCK_ONLY_REQUEST_CAPTURED')
   expect(captured.codes).toEqual(['000001', '600030'])
   expect(captured.bases).toEqual(['hfq', 'unadjusted'])
   expect(captured.allow_network).toBe(true)
+  expect(captured.source).toBe('sina')
+  await page.getByRole('button', { name: '报价与监控', exact: true }).click()
+  await expect(page.getByLabel('允许从东方财富获取这组股票的报价', { exact: true })).not.toBeChecked()
+  await expect(page.getByRole('button', { name: '刷新一次报价', exact: true })).toBeDisabled()
   expect((await (await page.request.get('/api/jobs')).json()).length).toBe(before.length)
 })
 
@@ -98,7 +103,7 @@ test('monitor UI renews and stops a leased mock session without external request
 
 test('online mobile pages retain timestamps and bounded tables', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/#market')
+  await page.goto('/#market?kind=history')
   await expect(page.getByRole('heading', { name: '历史日线采集' })).toBeVisible()
   for (const tab of ['联网历史', '最新日线计划', '报价与监控']) {
     await page.getByRole('button', { name: tab, exact: true }).click()

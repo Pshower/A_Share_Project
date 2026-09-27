@@ -1,5 +1,7 @@
 # 项目文档索引
 
+全仓库审查8项修复已完成：[修复与验收](repository_audit_fixes.md)。含训练/推理掩码统一、下载来源、队列竞争、评估契约、连接释放及浏览器回归；真实300股单日推理已通过一致性对照。
+
 首版已实现：[联网行情与多模型预测整合](market_model_prediction_plan.md)，新浪默认日线、图表信号、多模型研究意图与已存验证表现；连续回放和真实账户建议仍待完成。见 [验收记录](reports/market_model_integration_20260927.md)。
 
 最新研究：[稀疏与先验残差Agent摘要](reports/agent_improvement_20260927_summary.md)、[详细报告](reports/agent_improvement_20260927.md)。找到相对旧PPO收益更高的研究候选，但主要增益来自先验，未证明PPO学习优势，未实盘发布。

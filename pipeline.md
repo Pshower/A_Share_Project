@@ -40,7 +40,7 @@
 
 本地工作台已实现数据选择/构建、训练监控、模型选择/迁移、回测与动作预测，并完成真实浏览器测试。设计见 [工作台设计](doc/frontend_workbench_design.md)，运行见 [启动说明](doc/workbench_runbook.md)，证据见 [验收记录](doc/reports/workbench_acceptance_20260925.md)。界面完成不等同于策略研究或实盘能力完成。
 
-已增加显式联网采集和报价监控工作区。日线默认新浪，下载、训练和推理按来源契约锁定；不自动降级到东方财富。行情页支持最多三模型单日研究意图、K线日期联动和匹配模型哈希的已存验证表现。所有结果仍不可作为真实订单，连续回放和真实账户链路尚未完成；现有300股日线/特征缺项会明确阻断。见 [整合进度](doc/market_model_prediction_plan.md)、[本轮验收](doc/reports/market_model_integration_20260927.md) 和 [联网运行说明](doc/online_market_runbook.md)。
+已增加显式联网采集和报价监控工作区。日线默认新浪，下载、训练和推理按来源契约锁定；不自动降级到东方财富。行情页支持最多三模型单日研究意图、K线日期联动和匹配模型哈希的已存验证表现。单日观察复用训练掩码，未持有的特征缺失股票不参与配置；缺指定日线、已有缺失持仓或全池无效仍阻断。所有结果仍不可作为真实订单，连续回放和真实账户链路尚未完成。见 [审查修复与300股一致性验收](doc/repository_audit_fixes.md)、[整合进度](doc/market_model_prediction_plan.md) 和 [联网运行说明](doc/online_market_runbook.md)。
 
 | 模块 | 实际职责 |
 | --- | --- |
