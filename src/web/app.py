@@ -236,7 +236,7 @@ def create_app(root=ROOT, start_workers=True):
 
     @app.get("/api/market/history/{snapshot_id}/bars")
     def history_bars(snapshot_id: str, code: str, basis: Literal["hfq", "unadjusted"] = "unadjusted"):
-        record, directory = snapshots.get("history", snapshot_id)
+        record, directory = snapshots.get("history", snapshot_id, files=[f"{basis}/{code}.parquet"])
         entry = next((e for e in record["entries"] if e["code"] == code and e["basis"] == basis), None)
         if not entry or entry["status"] != "ready":
             raise ValueError("No saved bars for this stock and price basis")

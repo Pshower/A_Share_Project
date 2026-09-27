@@ -37,7 +37,7 @@ class Snapshots:
         directory.rename(final)
         return metadata
 
-    def get(self, kind, identifier, verify=True):
+    def get(self, kind, identifier, verify=True, *, files=None):
         if not re.fullmatch(self.KINDS[kind] + r"_[0-9a-f]{16}", identifier):
             raise ValueError("Invalid snapshot identifier")
         directory = (self.directory / kind / identifier).resolve()
@@ -46,8 +46,11 @@ class Snapshots:
         metadata = read_config(directory / "manifest.json")
         if metadata["id"] != identifier or metadata["kind"] != kind:
             raise ValueError("Snapshot identity mismatch")
+        if files is not None and (not verify or not files or not set(files) <= set(metadata["files"])):
+            raise ValueError("Requested files must be registered and verified")
         if verify:
-            for name, digest in metadata["files"].items():
+            for name in metadata["files"] if files is None else files:
+                digest = metadata["files"][name]
                 path = (directory / name).resolve()
                 if not path.is_relative_to(directory) or file_hash(path) != digest:
                     raise ValueError("Snapshot file mismatch")
