@@ -25,6 +25,15 @@ def test_top_k_respects_masks_caps_and_cash():
         map_action([1, 8, 3, 2, 0], obs, 0.4, top_k=0)
 
 
+def test_float32_normalization_never_reports_negative_cash():
+    for n in [3, 20, 100, 300, 500]:
+        obs = dict(valid_mask=np.ones(n), buy_mask=np.ones(n))
+        result = map_action([8.] * n + [-8.], obs, 1.)
+        assert result["weights"].astype(float).sum() <= 1
+        assert result["cash_weight"] >= 0
+        assert result["weights"].astype(float).sum() + result["cash_weight"] == pytest.approx(1)
+
+
 def test_prior_uses_current_eligible_ranks_and_equal_ties():
     net = SharedStockNetwork(1, 1, (8, 4), initial_log_std=-3, prior_feature_index=0)
     obs = dict(stock_features=torch.tensor([[[[1.]], [[2.]], [[2.]], [[999.]]]]),

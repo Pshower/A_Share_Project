@@ -1,5 +1,7 @@
 # 项目文档索引
 
+最新研究：[稀疏与先验残差Agent摘要](reports/agent_improvement_20260927_summary.md)、[详细报告](reports/agent_improvement_20260927.md)。找到相对旧PPO收益更高的研究候选，但主要增益来自先验，未证明PPO学习优势，未实盘发布。
+
 新增目标：[每日收盘股票池配置计划](eod_allocation_plan.md)；最新研究：[大网络 CPU/GPU 对照](reports/ppo_capacity_20260927.md)。
 
 当前执行协议：[新浪沪深300与多初始持仓](sina_hs300_protocol_20260927.md)，包含指定300股名单、来源一致性和训练/验证日期边界。

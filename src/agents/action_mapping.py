@@ -32,7 +32,7 @@ def map_action(latent, observation, max_weight, bound=8.0, top_k=None):
     # Roundoff must not create leverage or exceed the broker's float64 cap.
     weights = np.minimum(weights, np.nextafter(np.float32(max_weight), np.float32(0)))
     if weights.astype(np.float64).sum() > 1:
-        weights *= np.float32(1 / weights.astype(np.float64).sum())
+        weights *= np.nextafter(np.float32(1 / weights.astype(np.float64).sum()), np.float32(0))
     return dict(weights=weights, cash_weight=float(1 - weights.astype(np.float64).sum()),
                 latent=raw.copy(), clipped_latent=scores, eligible=eligible,
                 saturation_fraction=float(np.mean(np.abs(raw) >= bound)))
