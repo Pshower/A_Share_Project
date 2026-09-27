@@ -71,6 +71,9 @@ def preflight(store, identifier, root=ROOT):
             errors.append(coverage["reason"])
     if source_report["conflicts"]:
         errors.append("Conflicting HFQ sources: explicitly choose one capture for these stocks")
+    history_source = recipe.get("history_source") or source_report.get("provider") or "sina"
+    if source_report.get("provider") not in {None, history_source}:
+        errors.append("Experiment history source differs from bound snapshots")
     config = recipe["training"]
     definitions = (record["manifest"].get("extra_features", []) if build and build.get("extra_features") is None else (build or {}).get("extra_features", []))
     features = 20 + len(definitions) if build else record["features"]
@@ -85,6 +88,7 @@ def preflight(store, identifier, root=ROOT):
             checks_ready = checks_ready and any(j["stage"] == f"check:{seed}" and j["status"] == "succeeded" and j["fingerprint"] == expected for j in jobs)
     return dict(**experiment, jobs=jobs, source_report=source_report, errors=errors,
                 history_ids=history_ids, preparation_fingerprint=fingerprint, dataset_id=resolved,
+                history_source=history_source,
                 dataset_name=(build["version"] if build else record["name"]) if resolved else None,
                 coverage=coverage, estimated_rollout_mb=memory / 1024 ** 2,
                 total_requested_steps=config["total_timesteps"] * len(recipe["seeds"]),
@@ -106,7 +110,8 @@ def stage_jobs(store, identifier, stage, approval, root=ROOT):
         if not codes:
             raise ValueError("No missing stock sources; conflicts require explicit source selection")
         build = recipe["build"]
-        payload = dict(codes=codes, start_date=build["start_date"], end_date=build["end_date"], bases=["hfq"], allow_network=True)
+        payload = dict(codes=codes, start_date=build["start_date"], end_date=build["end_date"], bases=["hfq"], allow_network=True,
+                       source=state["history_source"])
         return [store.enqueue_experiment(identifier, stage, "online_history", payload, digest(payload))]
     if stage == "prepare":
         if state["dataset_id"]:

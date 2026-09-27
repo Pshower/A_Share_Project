@@ -94,6 +94,7 @@ class ExperimentRecipe(Request):
     build: Build | None = None
     history_ids: list[str] = Field(default_factory=list, max_length=20)
     source_mode: Literal["dataset", "history"] = "dataset"
+    history_source: Literal["sina", "eastmoney"] | None = None
     seeds: list[int] = Field(default=[42], min_length=1, max_length=5)
     parent_id: str | None = None
 

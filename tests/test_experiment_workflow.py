@@ -79,6 +79,36 @@ def test_source_bundle_missing_conflicts_and_provenance(local_data, tmp_path):
     assert Snapshots(tmp_path).get('history', joined['id'])[0]['source_history_ids'] == [a['id'], b['id']]
 
 
+def test_empty_history_experiment_can_download_and_locks_source(web_root):
+    store = Store(web_root / '.workbench')
+    original = recipe(web_root)
+    original['source_mode'] = 'history'
+    original['history_source'] = 'sina'
+    dates = Catalog(web_root).datasets()[0]['manifest']
+    original['build'] = dict(dataset_id=original['training']['dataset_id'], codes=['000001'], version='new_fixture',
+                             **{k: dates[k] for k in ['start_date', 'end_date', 'train_end', 'val_end']})
+    exp = store.create_experiment(original)
+    state = preflight(store, exp['id'], web_root)
+    assert state['source_report']['missing'] == ['000001'] and not state['errors']
+    job = stage_jobs(store, exp['id'], 'download', ExperimentApproval(allow_network=True), web_root)[0]
+    assert job['payload']['source'] == 'sina'
+
+
+def test_legacy_experiment_download_keeps_bound_provider(web_root, local_data):
+    settings = local_data.research['dataset']
+    batch = download_history(['000001'], settings['start_date'], settings['end_date'], ['hfq'],
+                             allow_network=True, provider=FakeProvider(local_data), root=web_root, source='eastmoney')
+    original = recipe(web_root)
+    original.update(source_mode='history', history_ids=[batch['id']], history_source=None)
+    original['training']['codes'] = ['000001', '600000']
+    original['build'] = dict(dataset_id=original['training']['dataset_id'], codes=original['training']['codes'],
+                            version='new_fixture', **{k: settings[k] for k in ['start_date', 'end_date', 'train_end', 'val_end']})
+    store = Store(web_root / '.workbench')
+    exp = store.create_experiment(original)
+    job = stage_jobs(store, exp['id'], 'download', ExperimentApproval(allow_network=True), web_root)[0]
+    assert job['payload']['source'] == 'eastmoney' and job['payload']['codes'] == ['600000']
+
+
 def test_schedule_and_risk_selection(local_data):
     cfg = deepcopy(local_data.config)
     cfg.update(learning_rate_schedule='linear', learning_rate_end_factor=0.1)

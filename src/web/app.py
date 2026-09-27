@@ -112,6 +112,10 @@ def create_app(root=ROOT, start_workers=True):
             validate_pool(body.training.dataset_id, body.training.codes)
         source_hashes = {identifier: file_hash(snapshots.get("history", identifier)[1] / "manifest.json") for identifier in body.history_ids}
         recipe = body.model_dump(mode="json")
+        providers = {snapshots.get("history", i, verify=False)[0]["request"]["provider"] for i in body.history_ids}
+        if len(providers) > 1 or (body.history_source and providers and body.history_source not in providers):
+            raise ValueError("Experiment history source must match all bound snapshots")
+        recipe["history_source"] = body.history_source or next(iter(providers), "sina")
         if recipe["build"] and recipe["build"]["extra_features"] is None:
             recipe["build"]["extra_features"] = record["manifest"].get("extra_features", [])
         recipe["template_manifest_sha256"] = file_hash(directory / "manifest.json")

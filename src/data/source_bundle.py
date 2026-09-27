@@ -14,7 +14,7 @@ def inspect_bundle(history_ids, codes, start, end, root=ROOT):
     store = Snapshots(root)
     sources = [(identifier, *store.get("history", identifier)) for identifier in history_ids]
     providers = {metadata["request"]["provider"] for _, metadata, _ in sources}
-    if len(providers) != 1:
+    if len(providers) > 1:
         raise ValueError("Source bundle cannot mix market data providers")
     bindings, missing, conflicts = {}, [], []
     for code in codes:
@@ -43,7 +43,7 @@ def inspect_bundle(history_ids, codes, start, end, root=ROOT):
         else:
             bindings[code] = dict(history_id=candidates[0][0], entry=candidates[0][2])
     return dict(ready=not missing and not conflicts, missing=missing, conflicts=conflicts, bindings=bindings,
-                provider=next(iter(providers)))
+                provider=next(iter(providers), None))
 
 
 def compose_bundle(history_ids, codes, start, end, root=ROOT):
