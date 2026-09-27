@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-import sqlite3
+from src.runtime.sqlite_connection import connection
 import uuid
 import time
 
@@ -41,9 +41,7 @@ class Store:
             """)
 
     def connect(self):
-        conn = sqlite3.connect(self.db, timeout=10)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return connection(self.db, rows=True)
 
     @staticmethod
     def decode(row):

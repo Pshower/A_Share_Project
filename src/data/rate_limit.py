@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import math
-import sqlite3
+from src.runtime.sqlite_connection import connection
 import time
 
 import requests
@@ -53,7 +53,7 @@ class AdaptivePacer:
     def __init__(self, root):
         self.path = root / ".workbench/network.sqlite3"
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.path, timeout=10) as conn:
+        with connection(self.path) as conn:
             conn.execute("CREATE TABLE IF NOT EXISTS clock (id INTEGER PRIMARY KEY, next REAL)")
             conn.execute("CREATE TABLE IF NOT EXISTS throttle (id INTEGER PRIMARY KEY, interval REAL, cooldown REAL, successes INTEGER)")
             conn.execute("INSERT OR IGNORE INTO throttle VALUES(1,1,0,0)")
@@ -64,7 +64,7 @@ class AdaptivePacer:
             events.check_cancel()
             if deadline is not None and time.monotonic() >= deadline:
                 raise TimeoutError("Download retry/time budget exhausted")
-            with sqlite3.connect(self.path, timeout=10) as conn:
+            with connection(self.path) as conn:
                 conn.execute("BEGIN IMMEDIATE")
                 interval, cooldown, _ = conn.execute("SELECT interval,cooldown,successes FROM throttle WHERE id=1").fetchone()
                 row = conn.execute("SELECT next FROM clock WHERE id=1").fetchone()
@@ -80,7 +80,7 @@ class AdaptivePacer:
             wait(min(delay, 0.2), deadline)
 
     def failure(self, delay):
-        with sqlite3.connect(self.path, timeout=10) as conn:
+        with connection(self.path) as conn:
             conn.execute("BEGIN IMMEDIATE")
             interval, cooldown, _ = conn.execute("SELECT interval,cooldown,successes FROM throttle WHERE id=1").fetchone()
             interval = min(30.0, interval * 2)
@@ -89,7 +89,7 @@ class AdaptivePacer:
         return interval
 
     def success(self):
-        with sqlite3.connect(self.path, timeout=10) as conn:
+        with connection(self.path) as conn:
             conn.execute("BEGIN IMMEDIATE")
             interval, cooldown, successes = conn.execute("SELECT interval,cooldown,successes FROM throttle WHERE id=1").fetchone()
             # An in-flight success must not undo another worker's newer failure.
