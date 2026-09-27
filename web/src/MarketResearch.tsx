@@ -3,14 +3,15 @@ import { Play, Plus, X, Square, Check, ArrowUpRight } from 'lucide-react'
 import MarketChart, { type ChartContext, type ModelSignal } from './MarketChart'
 import { api, post, percent, number, statusName } from './api'
 import { weightsFrom } from './researchWeights'
+import { pollModels, terminal } from './modelPolling'
 
 type Row = Record<string, any>
-const terminal = new Set(['succeeded', 'failed', 'cancelled', 'interrupted', 'blocked'])
 const sourceName = (s?: string) =>
   s === 'sina' ? '新浪' : s === 'eastmoney' ? '东方财富' : '来源未认证'
 const intentName = (r?: Row) =>
   !r
     ? '—'
+    : r.valid === false ? '数据不足，不参与配置'
     : r.target_weight === 0 && r.current_research_weight === 0
       ? '不配置'
       : (
@@ -108,24 +109,7 @@ export default function MarketResearch({
       if (polling) return
       polling = true
       try {
-        const updates = await Promise.all(
-          runs
-            .filter((r) => r.job_id && !terminal.has(r.status))
-            .map(async (r) => {
-              const job = await api('/jobs/' + r.job_id)
-              const plan =
-                job.status === 'succeeded' && job.result?.snapshot_id
-                  ? await api('/market/snapshots/plans/' + job.result.snapshot_id)
-                  : null
-              return {
-                ...r,
-                job_id: r.job_id,
-                status: job.status,
-                errors: job.error ? [job.error] : [],
-                plan,
-              }
-            })
-        )
+        const updates = await pollModels(runs, api)
         if (live)
           setRuns((current) => current.map((r) => updates.find((u) => u.job_id === r.job_id) || r))
       } catch (e) {
@@ -446,7 +430,7 @@ export default function MarketResearch({
                     </td>
                     <td>{intentName(row)}</td>
                     <td>
-                      {run
+                      {run?.read_error ? '状态读取失败，正在重试' : run
                         ? statusName[run.status] ||
                           (run.status === 'blocked' ? '已阻断' : run.status)
                         : check
