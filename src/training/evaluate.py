@@ -22,6 +22,7 @@ def evaluate_agent(agent, data, output, compare_baselines=False, *, split="val",
         raise ValueError("Evaluation data does not match the model contract")
     if split not in {"val", "test"}:
         raise ValueError("Evaluation split must be val or test")
+    settings = deepcopy(data.settings)
     if split == "test":
         if frozen is None:
             raise ValueError("Final test requires a frozen selection")
@@ -29,7 +30,7 @@ def evaluate_agent(agent, data, output, compare_baselines=False, *, split="val",
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     results, metrics = {}, {}
-    daily, holdings, orders, assumptions = run_policy(data.market(split, allow_test=split == "test"), agent, data.settings)
+    daily, holdings, orders, assumptions = run_policy(data.market(split, allow_test=split == "test"), agent, settings)
 
     def record(name, daily, holdings, orders):
         folder = output / name
@@ -44,10 +45,10 @@ def evaluate_agent(agent, data, output, compare_baselines=False, *, split="val",
     if compare_baselines:
         for name, interval in [("cash", None), ("buy_hold", None), ("equal_weight", None),
                                ("momentum", None), ("equal_weight", 1), ("momentum", 1)]:
-            settings = deepcopy(data.settings)
+            baseline_settings = deepcopy(settings)
             if interval is not None:
-                settings["rebalance_every"] = interval
-            daily, holdings, orders, _ = run_strategy(data.market(split, allow_test=split == "test"), name, settings)
+                baseline_settings["rebalance_every"] = interval
+            daily, holdings, orders, _ = run_strategy(data.market(split, allow_test=split == "test"), name, baseline_settings)
             record(name if interval is None else name + "_daily", daily, holdings, orders)
     write_json(output / "metrics.json", metrics)
     comparisons = {}
@@ -68,6 +69,7 @@ def evaluate_agent(agent, data, output, compare_baselines=False, *, split="val",
     write_json(output / "comparisons.json", comparisons)
     pd.DataFrame(metrics).T.to_csv(output / "metrics.csv")
     write_json(output / "experiment.json", dict(contract=data.contract, config=data.config,
+               evaluation_settings=settings,
                research_config=data.research, split=split, num_timesteps=agent.model.num_timesteps,
                frozen_selection=frozen,
                provenance=agent.provenance, git=git_metadata(),

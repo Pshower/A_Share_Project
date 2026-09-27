@@ -46,6 +46,7 @@ def freeze_selection(model_path, data, output):
     frozen = dict(created_at=datetime.now(timezone.utc).isoformat(), model_path=str(model_path),
                   model_sha256=file_hash(model_path / "model.zip"), policy_sha256=policy_digest(agent),
                   config_sha256=json_digest(data.config), research_config_sha256=json_digest(data.research),
+                  evaluation_settings_sha256=json_digest(data.settings),
                   contract=data.contract, selection=selection, selection_sha256=file_hash(selection_path),
                   source_hashes=source_hashes(), git=git_metadata(),
                   protocol="one_pass_test_no_retuning", test_evaluated=False)
@@ -58,6 +59,7 @@ def validate_frozen(agent, data, frozen):
     if (frozen["protocol"] != "one_pass_test_no_retuning" or frozen["contract"] != data.contract
             or frozen["config_sha256"] != json_digest(data.config)
             or frozen["research_config_sha256"] != json_digest(data.research)
+            or frozen.get("evaluation_settings_sha256") != json_digest(data.settings)
             or frozen["policy_sha256"] != policy_digest(agent)
             or frozen["model_sha256"] != agent.provenance.get("loaded_model_sha256")
             or frozen["source_hashes"] != source_hashes()):

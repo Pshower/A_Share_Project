@@ -37,7 +37,7 @@ def test_frozen_selection_binds_model_config_and_test_report(local_data, tmp_pat
     frozen = freeze_selection(folder, data, tmp_path / "frozen.json")
     loaded = PPOAgent.load(folder, data.contract)
     validate_frozen(loaded, data, frozen)
-    for field in ["model_sha256", "policy_sha256", "config_sha256", "research_config_sha256"]:
+    for field in ["model_sha256", "policy_sha256", "config_sha256", "research_config_sha256", "evaluation_settings_sha256"]:
         wrong = deepcopy(frozen)
         wrong[field] = "mismatch"
         with pytest.raises(ValueError, match="mismatch"):
@@ -51,6 +51,18 @@ def test_frozen_selection_binds_model_config_and_test_report(local_data, tmp_pat
     metrics = evaluate_agent(loaded, data, tmp_path / "test", split="test", frozen=frozen)
     assert metrics["trading_steps"] == 20
     assert read_config(tmp_path / "test/experiment.json")["split"] == "test"
+    assert read_config(tmp_path / "test/experiment.json")["evaluation_settings"] == data.settings
+    for field, value in [("seed", 12345), ("initial_portfolio", "concentrated"), ("initial_capital", 42)]:
+        original = deepcopy(data.settings)
+        data.settings[field] = value
+        with pytest.raises(ValueError, match="mismatch"):
+            validate_frozen(loaded, data, frozen)
+        data.settings = original
+    original = deepcopy(data.settings)
+    data.settings["broker"]["commission"] = .1
+    with pytest.raises(ValueError, match="mismatch"):
+        validate_frozen(loaded, data, frozen)
+    data.settings = original
     assert read_config(tmp_path / "frozen.json") == frozen
     model.get_env().close()
 
