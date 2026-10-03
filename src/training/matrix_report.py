@@ -435,6 +435,9 @@ def write_report(root):
     protocol = json.loads((root / "protocol.json").read_text(encoding="utf-8"))
     raw = json.loads((root / "summary.json").read_text(encoding="utf-8"))
     records = raw["records"] if isinstance(raw, dict) else raw
+    mode = protocol.get("initialization_mode", "prior")
+    if mode not in {"prior", "random"} or any(record.get("initialization_mode", "prior") != mode for record in records):
+        raise ValueError("Matrix report initialization mode differs from registered records")
     summary = summarize_matrix(records)
     diagnostic_note = []
     if any("diagnostic_capture_note" in record for record in records):
@@ -457,7 +460,12 @@ def write_report(root):
     _experience_artifacts(root, records, summary)
     caveat = ("本轮仅比较已经暴露的开发验证窗口，不是独立最终测试。2026-07-01之后的保留期未做绩效评估。"
               "四种账户是同一种子的账户场景，不是四个独立训练种子；表内先平均四账户，再报告种子间样本标准差。")
+    initialization_note = ("本轮无持续先验，股票和现金Actor采用普通随机初始化，输出不受先验残差幅度约束。"
+                           "每种容量、每个种子使用自己的未训练对照，不能共享初始化收益。"
+                           if protocol.get("initialization_mode") == "random" else
+                           "本轮使用持续动量先验，未训练对照为零Actor修正下的纯先验。")
     lines = ["# PPO训练预算与模型容量对比", "", caveat, "",
+             initialization_note, "",
              f"共{summary['total_runs']}次真实训练、{summary['total_checkpoints']}个比较快照，"
              f"实际训练量{summary['total_steps']:,}环境步，种子{summary['seeds']}。"
              "使用同源新浪300股、相同费用与HFQ研究成交假设，按预定最终checkpoint比较。", "",
@@ -468,7 +476,7 @@ def write_report(root):
              "收益单位为百分比，差值单位为百分点(pp)，+/-为跨种子样本标准差；最坏回撤取全部账户与种子的最大幅度。", "",
              *_table(summary), "", "![容量与预算矩阵](matrix.png)", "",
              "## 学习、先验与强基线", "",
-             "相对初始化先验的差值才用于检查训练后的收益增量。每日动量是同频对照，20日调仓动量保留较强规则对照；"
+             "相对自身初始化的差值才用于检查训练后的收益增量。每日动量是同频对照，20日调仓动量保留较强规则对照；"
              "不能仅凭优于旧PPO就宣称强化学习带来收益。费用和滑点已经计入净值，不重复扣减。", "",
              "| 配置 | Sharpe | 平均回撤% | 日均换手% | 实际平均现金% | 费用 | 滑点 | 训练秒 |",
              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
@@ -521,10 +529,10 @@ def write_report(root):
               "晚上市股票反复采样不增加独立信息。开发窗口短，种子数量有限，不据此发布实盘模型或保证未来效果。", "",
               "[预登记协议](protocol.json) · [完整矩阵汇总](matrix_summary.json) · [逐账户指标](metrics.csv) · [经验统计](experience.csv)"]
     (root / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    short = ["# 训练矩阵摘要", "", caveat, "", *diagnostic_note,
+    short = ["# 训练矩阵摘要", "", caveat, "", initialization_note, "", *diagnostic_note,
              f"{summary['total_runs']}次真实训练、{summary['total_checkpoints']}个快照；"
              f"实际训练量{summary['total_steps']:,}环境步。共享短前缀不重复计入训练量。", "", *_table(summary), "",
-             "差值必须与初始化先验、同频每日动量及20日调仓动量一起解释。"
+             "差值必须与自身初始化、同频每日动量及20日调仓动量一起解释。"
              "本矩阵同时改变共享编码器、Actor与Critic的容量，不能宣称Critic单独产生了收益增量。", "",
              "[完整报告](report.md) · [机器汇总](matrix_summary.json) · [全部指标](metrics.csv)"]
     (root / "summary.md").write_text("\n".join(short) + "\n", encoding="utf-8")

@@ -183,8 +183,12 @@ class MatrixCallback(ValidationCallback):
         )
 
 
-def config_for(base, root, size, widths, seed):
+def config_for(base, root, size, widths, seed, initialization_mode="prior"):
+    if initialization_mode not in {"prior", "random"}:
+        raise ValueError("Unknown matrix initialization mode")
     cfg = deepcopy(base)
+    if initialization_mode == "random":
+        cfg["prior_feature_index"] = None
     cfg.update(seed=seed, hidden_sizes=list(widths), device="cuda", torch_threads=1,
                output_root=str(root / "runs"))
     return cfg
@@ -223,34 +227,56 @@ def verify_completed(directory, config, protocol):
     return records
 
 
-def evaluate_controls(root, data, initial_path):
-    path = root / "controls" / "controls.json"
+def evaluate_controls(root, data, initial_path, initialization_mode="prior", run_id=None):
+    if initialization_mode not in {"prior", "random"}:
+        raise ValueError("Unknown matrix initialization mode")
+    directory = root / "controls"
     identity = dict(data=deepcopy(data.contract), seed=20260927, modes=list(MODES),
                     broker=data.settings["broker"], initial_capital=data.settings["initial_capital"])
-    identity["data"].pop("hidden_sizes")
+    if initialization_mode == "random":
+        if not isinstance(run_id, str) or Path(run_id).name != run_id or run_id in {"", ".", ".."}:
+            raise ValueError("Random initialization controls require a safe run_id")
+        if data.contract.get("prior") is not None:
+            raise ValueError("Random initialization must not use a persistent prior")
+        directory = directory / run_id
+        identity.update(initialization_mode="random", training_seed=data.config["seed"],
+                        initial_model_sha256=file_hash(Path(initial_path) / "model.zip"))
+    else:
+        identity["data"].pop("hidden_sizes")
+    path = directory / "controls.json"
     if path.exists():
         record = read_config(path)
         if record["identity"] != identity:
             raise ValueError("Control evaluation contract changed")
+        if not {f"{mode}/metrics.json" for mode in MODES} <= set(record["files"]):
+            raise ValueError("Control report is incomplete")
         for name, digest in record["files"].items():
-            artifact = (root / "controls" / name).resolve()
-            if not artifact.is_relative_to((root / "controls").resolve()) or file_hash(artifact) != digest:
+            artifact = (directory / name).resolve()
+            if not artifact.is_relative_to(directory.resolve()) or file_hash(artifact) != digest:
                 raise ValueError("Control report changed")
+        if record["metrics"] != {mode: read_config(directory / mode / "metrics.json") for mode in MODES}:
+            raise ValueError("Control metrics differ from registered artifacts")
         return record["metrics"]
-    if (root / "controls").exists():
+    if directory.exists():
         raise ValueError("Incomplete controls require review before resuming")
     agent = PPOAgent.load(initial_path, data.contract, "cuda")
-    if data.contract.get("prior") is None or any(torch.count_nonzero(head[-1].weight) or torch.count_nonzero(head[-1].bias)
-                                                for head in [agent.model.policy.network.stock_head, agent.model.policy.network.cash_head]):
+    heads = [agent.model.policy.network.stock_head, agent.model.policy.network.cash_head]
+    zero_heads = [not (torch.count_nonzero(head[-1].weight) or torch.count_nonzero(head[-1].bias)) for head in heads]
+    if agent.model.num_timesteps != 0:
+        raise ValueError("Initialization controls must use an untrained model")
+    if initialization_mode == "prior" and (data.contract.get("prior") is None or not all(zero_heads)):
         raise ValueError("Shared initialization controls require zero actor heads and the same prior")
+    if initialization_mode == "random" and any(zero_heads):
+        raise ValueError("Random initialization requires nonzero stock and cash actor heads")
     metrics = {}
     for mode in MODES:
         data.settings.update(seed=20260927, initial_portfolio=mode)
-        folder = root / "controls" / mode
+        folder = directory / mode
         evaluate_agent(agent, data, folder, compare_baselines=True)
         metrics[mode] = read_config(folder / "metrics.json")
-    files = {p.relative_to(root / "controls").as_posix(): file_hash(p) for p in (root / "controls").rglob("*") if p.is_file()}
-    write_json(path, dict(identity=identity, metrics=metrics, files=files, zero_actor_prior=True))
+    files = {p.relative_to(directory).as_posix(): file_hash(p) for p in directory.rglob("*") if p.is_file()}
+    write_json(path, dict(identity=identity, metrics=metrics, files=files,
+                         zero_actor_prior=initialization_mode == "prior"))
     del agent
     gc.collect()
     torch.cuda.empty_cache()
@@ -258,7 +284,8 @@ def evaluate_controls(root, data, initial_path):
 
 
 def run_trial(base, root, size, widths, seed, protocol):
-    cfg = config_for(base, root, size, widths, seed)
+    initialization_mode = protocol.get("initialization_mode", "prior")
+    cfg = config_for(base, root, size, widths, seed, initialization_mode)
     run_id = f"{size}_{seed}"
     directory = root / "runs" / run_id
     completed = verify_completed(directory, cfg, protocol)
@@ -293,7 +320,7 @@ def run_trial(base, root, size, widths, seed, protocol):
     del model, callback, env, initial, experience
     gc.collect()
     torch.cuda.empty_cache()
-    controls = evaluate_controls(root, data, directory / "initial_model")
+    controls = evaluate_controls(root, data, directory / "initial_model", initialization_mode, run_id)
     records = []
     for budget, steps in budgets.items():
         path = directory / (budget + "_model")
@@ -309,6 +336,7 @@ def run_trial(base, root, size, widths, seed, protocol):
                                  initialized=controls[mode]["ppo"],
                                  baselines={name: value for name, value in controls[mode].items() if name != "ppo"})
         record = dict(size=size, budget=budget, seed=seed, steps=steps, hidden_sizes=widths,
+                      initialization_mode=initialization_mode,
                       parameters=audit["parameters"], elapsed_seconds=audit["elapsed_seconds"],
                       training_diagnostics=audit["training_diagnostics"], experience=audit["experience"], metrics=metrics,
                       training_updates_path=str((directory / "training_updates.csv").relative_to(root)),
@@ -332,25 +360,61 @@ def main(argv=None):
     parser.add_argument("--short-steps", type=int, default=8192)
     parser.add_argument("--long-steps", type=int)
     parser.add_argument("--seeds", nargs="+", type=int, default=[42, 123, 2026])
+    parser.add_argument("--initialization-mode", choices=["prior", "random"], default="prior")
+    parser.add_argument("--reference-matrix", type=Path)
+    parser.add_argument("--smoke", action="store_true", help="Register reduced budgets as engineering smoke only")
     parser.add_argument("--train", action="store_true")
     args = parser.parse_args(argv)
     root = resolve_path(args.output)
-    root.mkdir(parents=True, exist_ok=True)
     base = read_config(resolve_path(args.config))
-    probes = [read_config(p) for p in root.glob("capacity_h*_d*.json")]
-    design = choose_design(probes, len(args.seeds))
+    if args.initialization_mode == "random":
+        base["prior_feature_index"] = None
+    reference = None
+    if args.reference_matrix is not None:
+        reference_root = resolve_path(args.reference_matrix)
+        if root == reference_root or root.is_relative_to(reference_root) or reference_root.is_relative_to(root):
+            raise ValueError("New output and reference matrix directories must be separate")
+        reference_protocol = read_config(reference_root / "protocol.json")
+        if read_config(reference_root / "status.json").get("status") != "complete":
+            raise ValueError("The reference matrix must be complete")
+        from .matrix_compare import load_matrix
+        reference_evidence = load_matrix(reference_root, "prior")["evidence"]
+        old_base, new_base = deepcopy(reference_protocol["base_config"]), deepcopy(base)
+        for values in [old_base, new_base]:
+            values.pop("prior_feature_index", None)
+            values.pop("output_root", None)
+        if old_base != new_base:
+            raise ValueError("Reference matrix hyperparameters or exploration changed")
+        design = deepcopy(reference_protocol["design"])
+        reference = dict(root=str(reference_root), protocol_sha256=file_hash(reference_root / "protocol.json"),
+                         design_source="registered reference matrix; no new capacity probes", evidence=reference_evidence)
+    else:
+        probes = [read_config(p) for p in root.glob("capacity_h*_d*.json")]
+        design = choose_design(probes, len(args.seeds))
     long_steps = args.long_steps or design["long_steps"]
     if not 0 < args.short_steps < long_steps or args.short_steps % 512 or long_steps % 512:
         raise ValueError("Fixed budgets must be increasing positive multiples of 512")
     if len(set(args.seeds)) != len(args.seeds) or any(s < 0 for s in args.seeds):
         raise ValueError("Use unique nonnegative seeds")
+    if reference is not None and not args.smoke:
+        if (args.short_steps != reference_protocol["short_steps"] or long_steps != reference_protocol["long_steps"]
+                or args.seeds != reference_protocol["seeds"]):
+            raise ValueError("Formal comparison must preserve the reference budgets and seeds; use --smoke for engineering")
     if not torch.cuda.is_available():
         raise RuntimeError("Matrix experiment requires working CUDA")
-    data = ResearchData(config_for(base, root, "small", design["small_hidden"], args.seeds[0]))
-    if data.contract.get("data_source") != "sina" or len(data.codes) != 300 or data.contract.get("prior") is None:
-        raise ValueError("This registered matrix requires the existing Sina 300-stock prior model")
+    data = ResearchData(config_for(base, root, "small", design["small_hidden"], args.seeds[0], args.initialization_mode))
+    if data.contract.get("data_source") != "sina" or len(data.codes) != 300:
+        raise ValueError("This registered matrix requires the existing Sina 300-stock data")
+    if (data.contract.get("prior") is not None) != (args.initialization_mode == "prior"):
+        raise ValueError("Matrix initialization mode differs from the policy prior")
     core = deepcopy(data.contract)
     core.pop("hidden_sizes")
+    if reference is not None:
+        old_core, new_core = deepcopy(reference_protocol["core_contract"]), deepcopy(core)
+        old_core.pop("prior", None)
+        new_core.pop("prior", None)
+        if old_core != new_core:
+            raise ValueError("Reference matrix data or execution contract changed")
     protocol = dict(schema_version=1, design=design, seeds=args.seeds, short_steps=args.short_steps,
                     long_steps=long_steps, maximum_training_steps=2 * len(args.seeds) * long_steps,
                     base_config=base, core_contract=core, source_hashes=source_hashes(),
@@ -358,7 +422,9 @@ def main(argv=None):
                     train_end=data.manifest["train_end"], val_end=data.manifest["val_end"],
                     validation_already_exposed=True, test_evaluated=False,
                     critic_diagnostic_capture="rollout_end_copy_v2",
+                    initialization_mode=args.initialization_mode, reference_matrix=reference, engineering_smoke=args.smoke,
                     gpu=torch.cuda.get_device_name(0), torch_version=str(torch.__version__))
+    root.mkdir(parents=True, exist_ok=True)
     protocol_path = root / "protocol.json"
     if protocol_path.exists():
         if read_config(protocol_path) != protocol:
