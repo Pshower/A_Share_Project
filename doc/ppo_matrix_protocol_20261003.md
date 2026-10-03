@@ -2,6 +2,8 @@
 
 2026-10-03。用户要求在不增加原始行情的情况下，扩充训练经历和网络容量，比较短步数与长步数、小模型与大模型的组合。本轮解释“长部署”为长训练步数。
 
+状态：已完成。6次真实训练、12个快照、393,216步；各格三个种子及四账户开发评估均完成，未打开保留期绩效。扩大规模没有稳定收益增量，见 [摘要](reports/ppo_matrix_20261003_summary.md) 和 [详细报告](reports/ppo_matrix_20261003.md)。以下保留运行前固定的协议，不以结果追溯修改设计。
+
 ## 数据与比较范围
 
 沿用已下载新浪300股和 `sina_hs300_study_20260927`，保留原scaler、股票顺序及HFQ模拟交易设置。训练仅截至2026-03-31；2026-04至06月60个交易步用于开发比较。这个窗口此前已经使用过，结果不得称为独立最终测试。2026-07之后保持隔离。
@@ -56,3 +58,11 @@ python -m src.training.research_matrix --config reports/runs/agent_improvement_2
 ```
 
 运行状态在输出目录 `status.json`，逐次更新在各run的 `training_updates.csv`。恢复仅跳过审计和文件哈希一致的已完成run，不覆盖不完整run。对正在执行的run，可在其 `events` 目录创建 `stop` 文件协作停止；本轮未宣称支持完整环境/RNG状态的中断续训。
+
+## 完成审计与诊断更正
+
+正式训练使用代码 `ce2db04`，全部624个登记文件SHA核验通过。相同种子在大小模型间账户/日期序列相同，短快照严格包含于长训练前缀；实际采样393,216步，不把快照步数和442,368当作实际训练量。准备阶段另有4,096步。
+
+冻结版本额外 `critic/*` 的中途采集发生在SB3重置live buffer之后，不能使用。原模型、回测指标和登记audit/CSV保持不动；派生摘要剔除全部 `tail_mean/critic/*` 和短快照 `last/critic/*`，长末次有效。SB3的 `train/value_loss`、`train/explained_variance`有效，图表只使用有效指标。原摘要归档为 `summary_raw.json`，排除记录在 `diagnostic_validity.json`。
+
+训练完成后代码在提交 `b484a4a` 改为在rollout_end复制真实buffer，后续协议含 `critic_diagnostic_capture=rollout_end_copy_v2`。当前代码与冻结协议来源已不同，新实验必须用新输出目录，不能直接向本轮目录追加运行。只生成报告使用 `python -m src.training.matrix_report --output reports/runs/ppo_matrix_20261003`。最终完整离线回归239项通过、13项联网测试排除，包含三项诊断缓存及六项报告提示回归。
