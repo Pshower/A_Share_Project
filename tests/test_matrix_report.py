@@ -1,11 +1,13 @@
 """Arithmetic and completeness checks only; these tests never train."""
 
 from copy import deepcopy
+import json
 import math
 
 import pytest
 
 from src.training.matrix_report import ACCOUNTS, summarize_matrix
+from src.training import matrix_report
 
 
 def _records():
@@ -146,3 +148,45 @@ def test_experience_counts_must_match_the_checkpoint_prefix(wrong_counts):
         record["experience"]["total_steps"] += 1
     with pytest.raises(ValueError, match="Experience steps|experience counts"):
         summarize_matrix(records)
+
+
+@pytest.mark.parametrize("note", [None, "", "Frozen v1: reset-buffer critic diagnostics were excluded."])
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_report_shows_diagnostic_capture_notice_only_for_annotated_records(tmp_path, monkeypatch, note, wrapped):
+    records = _records()
+    if note is not None:
+        records[-1]["diagnostic_capture_note"] = note
+    inputs = {
+        "protocol.json": dict(seeds=[42, 123], test_evaluated=False),
+        "summary.json": dict(records=records) if wrapped else records,
+        "summary_raw.json": _records(),
+        "diagnostic_validity.json": dict(all_strategy_metrics_unchanged=True),
+    }
+    for name, content in inputs.items():
+        (tmp_path / name).write_text(json.dumps(content), encoding="utf-8")
+    original = {name: (tmp_path / name).read_bytes() for name in inputs}
+    for helper in ["_matrix_plot", "_training_plot", "_experience_artifacts"]:
+        monkeypatch.setattr(matrix_report, helper, lambda *args: None)
+
+    matrix_report.write_report(tmp_path)
+
+    report = (tmp_path / "report.md").read_text(encoding="utf-8")
+    summary = (tmp_path / "summary.md").read_text(encoding="utf-8")
+    critic_section = next(section for section in report.split("\n## ")
+                          if "Critic" in section.partition("\n")[0])
+    if note is None:
+        for text in [critic_section, summary]:
+            assert "diagnostic_validity.json" not in text
+            assert "summary_raw.json" not in text
+            assert "`tail_mean/critic/*`" not in text
+    else:
+        notice = next(paragraph for paragraph in critic_section.split("\n\n")
+                      if "diagnostic_validity.json" in paragraph)
+        assert notice in summary
+        for fragment in ["v1", "rollout buffer", "`critic/*`", "`last/critic/*`", "`tail_mean/critic/*`",
+                         "`train/value_loss`", "`train/explained_variance`",
+                         "\u65e0\u6548\u8bca\u65ad", "\u6709\u6548\u5e76\u4fdd\u7559",
+                         "\u539f\u59cb\u8bc1\u636e\u672a\u4fee\u6539",
+                         "](diagnostic_validity.json)", "](summary_raw.json)"]:
+            assert fragment in notice
+    assert {name: (tmp_path / name).read_bytes() for name in inputs} == original

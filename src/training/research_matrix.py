@@ -5,6 +5,7 @@ from copy import deepcopy
 from contextlib import contextmanager
 import gc
 import random
+from types import SimpleNamespace
 from pathlib import Path
 from time import perf_counter
 
@@ -76,8 +77,9 @@ def diagnostic_summary(rows):
     return result
 
 
-def critic_fit(model):
-    buffer = model.rollout_buffer
+def critic_fit(model, buffer=None):
+    if buffer is None:
+        buffer = model.rollout_buffer
     target = np.asarray(buffer.returns).reshape(-1).astype(float)
     previous = np.asarray(buffer.values).reshape(-1).astype(float)
     predictions = []
@@ -106,13 +108,14 @@ class MatrixCallback(ValidationCallback):
         self.experience, self.initial, self.budgets = experience, initial, budgets
         self.status_path, self.run_id = status_path, run_id
         self.saved = set()
+        self.critic_rollout = None
 
     def record_update(self):
         count = len(self.update_records)
         super().record_update()
         if len(self.update_records) == count:
             return
-        self.update_records[-1].update(critic_fit(self.model))
+        self.update_records[-1].update(critic_fit(self.model, buffer=self.critic_rollout))
         pd.DataFrame(self.update_records).to_csv(self.output / "training_updates.csv", index=False)
         elapsed = perf_counter() - self.started
         write_json(self.status_path, dict(status="training", run_id=self.run_id, steps=self.model.num_timesteps,
@@ -169,6 +172,15 @@ class MatrixCallback(ValidationCallback):
     def _on_training_end(self):
         self.record_update()
         self.save_fixed_snapshot()
+
+    def _on_rollout_end(self):
+        super()._on_rollout_end()
+        # SB3 resets the live buffer before the next on_rollout_start callback.
+        buffer = self.model.rollout_buffer
+        self.critic_rollout = SimpleNamespace(
+            returns=buffer.returns.copy(), values=buffer.values.copy(),
+            observations={name: values.copy() for name, values in buffer.observations.items()},
+        )
 
 
 def config_for(base, root, size, widths, seed):
@@ -345,6 +357,7 @@ def main(argv=None):
                     evaluation_seed=20260927, evaluation_modes=list(MODES), checkpoint_selection="fixed_budget_shared_prefix",
                     train_end=data.manifest["train_end"], val_end=data.manifest["val_end"],
                     validation_already_exposed=True, test_evaluated=False,
+                    critic_diagnostic_capture="rollout_end_copy_v2",
                     gpu=torch.cuda.get_device_name(0), torch_version=str(torch.__version__))
     protocol_path = root / "protocol.json"
     if protocol_path.exists():

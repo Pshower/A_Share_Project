@@ -436,6 +436,16 @@ def write_report(root):
     raw = json.loads((root / "summary.json").read_text(encoding="utf-8"))
     records = raw["records"] if isinstance(raw, dict) else raw
     summary = summarize_matrix(records)
+    diagnostic_note = []
+    if any("diagnostic_capture_note" in record for record in records):
+        diagnostic_note = [
+            "**诊断采集说明：** 冻结 v1 的中途 `critic/*` 基于已重置的 rollout buffer，属于无效诊断。"
+            "短预算的 `last/critic/*` 和全部 `tail_mean/critic/*` 已从派生汇总剔除；"
+            "长预算训练结束时的末次 `last/critic/*` 有效并保留。"
+            "`train/value_loss` 和 `train/explained_variance` 有效。原始证据未修改，"
+            "详见[诊断有效性说明](diagnostic_validity.json)和[原始汇总](summary_raw.json)。",
+            "",
+        ]
     if protocol.get("test_evaluated") is True:
         raise ValueError("This report only supports development validation")
     if "seeds" in protocol and sorted(protocol["seeds"]) != summary["seeds"]:
@@ -495,6 +505,7 @@ def write_report(root):
             lines.append(f"| {_cell_label(record)} | {record['seed']} | {account} | {value * 100:.3f} | "
                          + " | ".join(f"{gap * 100:.3f}" for gap in gaps) + " |")
     lines += ["", "## 训练与Critic诊断", "",
+              *diagnostic_note,
               "![训练诊断](training_comparison.png)", "",
               "value_loss、explained_variance、KL和clip fraction描述各自on-policy训练过程。"
               "这些指标不是固定验证集的Critic预测精度；value_loss下降也不直接证明策略收益改善。"
@@ -510,7 +521,7 @@ def write_report(root):
               "晚上市股票反复采样不增加独立信息。开发窗口短，种子数量有限，不据此发布实盘模型或保证未来效果。", "",
               "[预登记协议](protocol.json) · [完整矩阵汇总](matrix_summary.json) · [逐账户指标](metrics.csv) · [经验统计](experience.csv)"]
     (root / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    short = ["# 训练矩阵摘要", "", caveat, "",
+    short = ["# 训练矩阵摘要", "", caveat, "", *diagnostic_note,
              f"{summary['total_runs']}次真实训练、{summary['total_checkpoints']}个快照；"
              f"实际训练量{summary['total_steps']:,}环境步。共享短前缀不重复计入训练量。", "", *_table(summary), "",
              "差值必须与初始化先验、同频每日动量及20日调仓动量一起解释。"
