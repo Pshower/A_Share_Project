@@ -33,11 +33,11 @@ BUY和REDUCE的最小经济成交额为 `max(一手成交额, min_commission / 0
 
 沿用共享股票编码器及Actor/Critic，宽度256/128，无显式动量先验。每股输出4类方向logits与1个size/priority均值，共享size的log_std。两个末层均施加该pilot的gain且bias为0，不额外给BUY或HOLD固定偏置。观察增加 `share_state[N,2]`（当前/预计可卖股数除每手股数，保留不足一手部分）、`trade_lot_bounds[N,4]`（BUY最小/最大、REDUCE最小/最大整数手数）和 `legal_directions[N,4]`。这些边界及掩码由精确账本/价格一次构造，policy和mapper共用，不从float32权重反算股数或完整退出资格。网络输入使用边界乘一手市值比的相对名义额，不直接输入可能很大的原始手数；组合上下文追加最低经济名义額/净值。实际数量与锁定仍由执行日账本复核。
 
-动作空间是2N个存储坐标：N个整数方向码和N个条件latent，不代表2N个独立Gaussian。方向使用状态合法性掩码的Categorical；HOLD始终合法。冻结或数据无效只允许HOLD。EXIT只在当前已知可全部卖出时允许，实际开盘仍复核。
+动作空间是2N个存储坐标：N个整数方向码和N个条件latent，不代表2N个独立Gaussian。方向使用状态合法性掩码的Categorical；HOLD始终合法。冻结或数据无效只允许HOLD。EXIT只在当前已知可全部卖出时允许，实际开盘仍复核。边界构造使用已知滑点假设的侧向估计成交价；开盘5%与最低金额检查使用实际模拟成交价。佣金比例配置不得低于不可避免的比例佣金费率。
 
 `log_prob = sum(log P(direction | state) + I(size_active) * log p(size | state))`。
 
-HOLD/EXIT的size确定性为0，不计Gaussian概率。REDUCE仅在数量区间有选择时使用size；BUY在数量可选或需要新股优先级时使用size。新股排序使用size latent，不按名义金额偏好高价股。样本中全部合法方向及对应条件size参与联合概率，即使随后被topN或资金过滤，也不能只留下成交股票的log_prob。
+HOLD/EXIT的size确定性为0，不计Gaussian概率。REDUCE仅在数量区间有选择时使用size；BUY的size始终参与资金/名额优先级，固定数量时也保留其Gaussian概率。买入排序使用size latent，不按名义金额偏好高价股。样本中全部合法方向及对应条件size参与联合概率，即使随后被topN或资金过滤，也不能只留下成交股票的log_prob。
 
 熵使用方向熵加方向概率加权的条件size熵。PPO联合KL仍比较同一观测下的新旧策略分布，不是实仓变化惩罚；不得把KL除以N后沿用原阈值。测试须覆盖完整概率、非法方向、冻结、条件size、置换、保存加载、零动作及真实股数/费用不变量。
 
