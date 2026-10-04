@@ -36,7 +36,7 @@ def run_strategy(market, name, settings):
     return run_policy(market, strategy, settings)
 
 
-def run_policy(market, strategy, settings):
+def run_policy(market, strategy, settings, *, trace_sink=None):
     """Shared execution and accounting audit for baselines and learned policies."""
     env = TradingEnv(market, initial_capital=settings["initial_capital"],
                      broker_config=BrokerConfig(**settings["broker"]),
@@ -44,10 +44,17 @@ def run_policy(market, strategy, settings):
     from src.agents.delta_mapping import DeltaActionWrapper, DeltaOrder
     contract = getattr(strategy, "contract", {})
     delta = contract.get("action_mode") == "stock_delta"
+    trade = contract.get("action_mode") == "stock_trade"
     if delta:
         specification = contract["delta"]
         env = DeltaActionWrapper(env, contract["logit_bound"], specification["max_delta_weight"],
                                  settings.get("delta_top_n", specification["top_n"]))
+    elif trade:
+        from src.agents.trade_mapping import TradeActionWrapper, TradeOrder
+        specification = contract["trade"]
+        env = TradeActionWrapper(env, contract["logit_bound"], specification["max_trade_weight"],
+                                 specification["max_commission_ratio"],
+                                 settings.get("trade_top_n", specification["top_n"]))
     obs, initial = env.reset(seed=settings["seed"])
     daily = [dict(date=initial["date"], equity=initial["equity"], cash=initial["cash"],
                   daily_return=0.0, fee=0.0, slippage_cost=0.0, turnover=0.0,
@@ -57,8 +64,11 @@ def run_policy(market, strategy, settings):
     step = 0
     while True:
         events.check_cancel()
+        decision_obs = obs
         action = strategy.act(obs, step)
-        if isinstance(action, DeltaOrder):
+        if trade and isinstance(action, TradeOrder):
+            obs, reward, terminated, truncated, info = env.step_order(action)
+        elif isinstance(action, DeltaOrder):
             if not delta:
                 raise ValueError("Delta order requires a delta environment contract")
             obs, reward, terminated, truncated, info = env.step_order(action)
@@ -82,6 +92,8 @@ def run_policy(market, strategy, settings):
                                    rtol=0, atol=1e-6)
         if not env.observation_space.contains(obs):
             raise ValueError("Invalid model observation")
+        if trace_sink is not None:
+            trace_sink(previous["date"], decision_obs, action, info)
         daily.append(dict(date=info["date"], equity=info["equity"], cash=info["cash"], daily_return=reward,
                           fee=fees, slippage_cost=slippage, turnover=gross / previous["equity"],
                           holding_count=int(held.sum()),
@@ -101,6 +113,9 @@ def run_policy(market, strategy, settings):
                          "filled_shares", "price", "fee", "slippage_cost", "status", "reasons", "cash_after", "position_after"]
     if delta:
         order_columns += ["requested_delta_weight", "exit_requested", "opening_equity"]
+    elif trade:
+        extra = dict.fromkeys(key for record in env.unwrapped.broker.orders for key in record)
+        order_columns += [key for key in extra if key not in order_columns]
     orders = pd.DataFrame(env.unwrapped.broker.orders, columns=order_columns)
     return daily, holdings, orders, info["assumptions"]
 

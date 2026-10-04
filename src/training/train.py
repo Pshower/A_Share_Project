@@ -74,7 +74,10 @@ class ValidationCallback(BaseCallback):
             row.update({"portfolio/" + k: v / self.portfolio_counts[k] for k, v in self.portfolio_totals.items()})
         row.update({"orders_total/" + k: v for k, v in self.reason_counts.items()})
         if "train/entropy_loss" in row and row["train/entropy_loss"] is not None:
-            row["train/entropy_per_dimension"] = -row["train/entropy_loss"] / self.model.action_space.shape[0]
+            if self.data.config.get("action_mode") == "stock_trade":
+                row["train/entropy_per_stock"] = -row["train/entropy_loss"] / len(self.data.codes)
+            else:
+                row["train/entropy_per_dimension"] = -row["train/entropy_loss"] / self.model.action_space.shape[0]
         row["resource/cuda_allocated_mb"] = torch.cuda.memory_allocated(self.model.device) / 2 ** 20 if self.model.device.type == "cuda" else None
         self.portfolio_totals.clear()
         self.portfolio_counts.clear()
@@ -113,7 +116,9 @@ class ValidationCallback(BaseCallback):
             self.initial_account_steps.update([info.get("initial_account", {}).get("mode", "cash")])
             diagnostics = info.get("action_diagnostics")
             if diagnostics:
-                self.logger.record_mean("portfolio/target_cash", diagnostics["cash_weight"])
+                trade = self.data.config.get("action_mode") == "stock_trade"
+                cash_metric = "requested_cash_reference" if trade else "target_cash"
+                self.logger.record_mean("portfolio/" + cash_metric, diagnostics["cash_weight"])
                 self.logger.record_mean("portfolio/action_saturation", diagnostics["saturation_fraction"])
                 self.logger.record_mean("portfolio/raw_return", info["reward"])
                 self.logger.record_mean("portfolio/actual_cash", info["cash"] / info["equity"] if info["equity"] else 0)
@@ -124,11 +129,12 @@ class ValidationCallback(BaseCallback):
                 previous = self.previous_equity.get(index, self.data.settings["initial_capital"])
                 self.logger.record_mean("portfolio/gross_turnover", gross / previous)
                 weights = diagnostics.get("weights")
-                sample = dict(target_cash=diagnostics["cash_weight"], actual_cash=info["cash"] / info["equity"] if info["equity"] else 0,
+                sample = dict(actual_cash=info["cash"] / info["equity"] if info["equity"] else 0,
                               raw_return=info["reward"], fees=sum(o["fee"] for o in orders), gross_turnover=gross / previous,
                               unfilled_orders=sum(o["status"] != "filled" for o in orders),
                               action_saturation=diagnostics["saturation_fraction"])
-                if weights is not None:
+                sample[cash_metric] = diagnostics["cash_weight"]
+                if weights is not None and not trade:
                     probabilities = np.append(weights, diagnostics["cash_weight"])
                     positive = probabilities[probabilities > 0]
                     sample.update(target_weight_entropy=float(-(positive * np.log(positive)).sum()),
@@ -136,6 +142,10 @@ class ValidationCallback(BaseCallback):
                                   cap_fraction=float(np.mean(weights >= self.data.settings["broker"]["max_weight"] - 1e-7)))
                 if diagnostics.get("eligible") is not None:
                     sample["eligible_stocks"] = int(diagnostics["eligible"].sum())
+                if trade:
+                    for name in ("requested_notional_l1", "trade_notional_l1", "top_n_excess", "frozen_weight"):
+                        if name in diagnostics:
+                            sample[name] = float(diagnostics[name])
                 self.portfolio_totals.update(sample)
                 self.portfolio_counts.update(sample.keys())
                 self.portfolio_samples += 1
@@ -144,7 +154,7 @@ class ValidationCallback(BaseCallback):
                 for reason, count in self.reason_counts.items():
                     self.logger.record("orders_total/" + reason, count)
                 self.previous_equity[index] = self.data.settings["initial_capital"] if self.locals["dones"][index] else info["equity"]
-                if weights is not None:
+                if weights is not None and not trade:
                     self.previous_target[index] = np.zeros_like(weights) if self.locals["dones"][index] else weights.copy()
         return True
 

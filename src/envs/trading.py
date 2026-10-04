@@ -125,11 +125,23 @@ class TradingEnv(gym.Env):
         return self._advance(None, delta_weights=delta_weights, freeze_mask=frozen,
                              top_n=top_n, exit_mask=exits)
 
+    def step_shares(self, shares, freeze_mask=None, top_n=None, exit_mask=None,
+                    buy_priority=None, max_trade_weight=0.05, max_commission_ratio=0.001):
+        shares = self.broker.validate_shares(shares, self.market.n_stocks, exit_mask)
+        frozen, exits, priority = self.broker._validate_share_options(
+            shares, freeze_mask, top_n, exit_mask, buy_priority,
+            max_trade_weight, max_commission_ratio)
+        return self._advance(None, shares=shares, freeze_mask=frozen, top_n=top_n,
+                             exit_mask=exits, buy_priority=priority,
+                             max_trade_weight=max_trade_weight,
+                             max_commission_ratio=max_commission_ratio)
+
     def advance(self):
         """Advance one day without placing orders, for hold/rebalance schedules."""
         return self._advance(None)
 
-    def _advance(self, weights, *, delta_weights=None, freeze_mask=None, top_n=None, exit_mask=None):
+    def _advance(self, weights, *, delta_weights=None, freeze_mask=None, top_n=None, exit_mask=None,
+                 shares=None, buy_priority=None, max_trade_weight=0.05, max_commission_ratio=0.001):
         if self._done:
             raise RuntimeError("Call reset before stepping or after episode end")
         idx = self.market.current_index
@@ -150,7 +162,13 @@ class TradingEnv(gym.Env):
         quote["buy_mask"] &= valid
         for i in np.flatnonzero(~valid):
             quote["reasons"][i].append("invalid_decision_features")
-        if delta_weights is not None:
+        if shares is not None:
+            frozen = freeze_mask | ((self.portfolio.positions > 0) & ~valid)
+            orders = self.broker.trade_shares(
+                self.portfolio, shares, date=self.market.dates[idx + 1], freeze_mask=frozen,
+                top_n=top_n, exit_mask=exit_mask, buy_priority=buy_priority,
+                max_trade_weight=max_trade_weight, max_commission_ratio=max_commission_ratio, **quote)
+        elif delta_weights is not None:
             frozen = freeze_mask | ((self.portfolio.positions > 0) & ~valid)
             orders = self.broker.trade_deltas(self.portfolio, delta_weights, date=self.market.dates[idx + 1],
                                               freeze_mask=frozen, top_n=top_n, exit_mask=exit_mask, **quote)
@@ -162,6 +180,8 @@ class TradingEnv(gym.Env):
         self.market.step()
         self._steps += 1
         info = self._info(orders)
+        if shares is not None:
+            info["opening_snapshot"] = self.broker.last_trade_snapshot
         info["corporate_actions"] = events
         reward = info["equity"] / previous_value - 1 if previous_value > 0 else 0.0
         terminated = self.market.current_index == self.market.n_dates - 1 or info["equity"] <= 0

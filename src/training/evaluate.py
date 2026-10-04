@@ -16,7 +16,7 @@ from .env_factory import ResearchData
 from .freeze import validate_frozen
 
 
-def evaluate_agent(agent, data, output, compare_baselines=False, *, split="val", frozen=None):
+def evaluate_agent(agent, data, output, compare_baselines=False, *, split="val", frozen=None, trace_sink=None):
     """No gradients; callers label initialized policies as connectivity checks only."""
     if agent.contract != data.contract:
         raise ValueError("Evaluation data does not match the model contract")
@@ -30,7 +30,9 @@ def evaluate_agent(agent, data, output, compare_baselines=False, *, split="val",
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     results, metrics = {}, {}
-    daily, holdings, orders, assumptions = run_policy(data.market(split, allow_test=split == "test"), agent, settings)
+    trace_options = {} if trace_sink is None else {"trace_sink": trace_sink}
+    daily, holdings, orders, assumptions = run_policy(data.market(split, allow_test=split == "test"), agent, settings,
+                                                    **trace_options)
 
     def record(name, daily, holdings, orders):
         folder = output / name

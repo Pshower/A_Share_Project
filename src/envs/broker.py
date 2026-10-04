@@ -56,6 +56,32 @@ class BrokerSimulator:
             raise ValueError("Delta weights must be a finite vector matching the portfolio")
         return delta_weights.copy()
 
+    def validate_shares(self, shares, n_stocks, exit_mask=None):
+        shares = np.asarray(shares, dtype=float)
+        exits = np.zeros(n_stocks, dtype=bool) if exit_mask is None else np.asarray(exit_mask)
+        if exits.shape != (n_stocks,) or not np.isin(exits, [0, 1]).all():
+            raise ValueError("Share execution masks must match the portfolio")
+        exits = exits.astype(bool)
+        if (shares.shape != (n_stocks,) or not np.isfinite(shares).all()
+                or np.any((shares != np.rint(shares)) & ~exits)):
+            raise ValueError("Non-EXIT share requests must be finite integers matching the portfolio")
+        return shares.copy()
+
+    def _validate_share_options(self, shares, freeze_mask, top_n, exit_mask,
+                                buy_priority, max_trade_weight, max_commission_ratio):
+        frozen, exits = self._validate_delta_options(shares, freeze_mask, top_n, exit_mask)
+        priority = np.zeros(len(shares)) if buy_priority is None else np.asarray(buy_priority, dtype=float)
+        if priority.shape != shares.shape or not np.isfinite(priority).all():
+            raise ValueError("Buy priority must be a finite vector matching the portfolio")
+        if np.any((shares != 0) & ~exits & (np.abs(shares) % self.config.lot_size != 0)):
+            raise ValueError("BUY and REDUCE requests must use whole lots")
+        if not np.isfinite(max_trade_weight) or not 0 < max_trade_weight <= 1:
+            raise ValueError("max_trade_weight must be in (0, 1]")
+        if (not np.isfinite(max_commission_ratio) or not 0 < max_commission_ratio <= 1
+                or max_commission_ratio < self.config.commission):
+            raise ValueError("max_commission_ratio must cover the configured commission")
+        return frozen, exits, priority.copy()
+
     def _validate_delta_options(self, delta_weights, freeze_mask, top_n, exit_mask):
         n = len(delta_weights)
 
@@ -120,6 +146,41 @@ class BrokerSimulator:
                                       freeze_mask=frozen, delta_weights=delta_weights,
                                       top_n=top_n, exit_mask=exits)
 
+    def trade_shares(self, portfolio, shares, prices, valuation_prices, date, *,
+                     buy_mask=None, sell_mask=None, volume=None, reasons=None,
+                     limit_up=None, limit_down=None, freeze_mask=None, top_n=None,
+                     exit_mask=None, buy_priority=None, max_trade_weight=0.05,
+                     max_commission_ratio=0.001):
+        shares = self.validate_shares(shares, portfolio.n_stocks, exit_mask)
+        frozen, exits, priority = self._validate_share_options(
+            shares, freeze_mask, top_n, exit_mask, buy_priority,
+            max_trade_weight, max_commission_ratio)
+        execution = self._prepare_execution(portfolio, prices, valuation_prices, date,
+                                            buy_mask, sell_mask, volume, reasons, limit_up, limit_down)
+        equity, valid = execution["equity"], execution["valid"]
+        if not np.isfinite(equity) or equity <= 0:
+            raise ValueError("Share execution requires positive finite opening equity")
+        frozen |= (portfolio.positions > 0) & ~execution["sell"]
+        # EXIT is an intent to close the actual book after settlement and events.
+        shares[exits] = -portfolio.positions[exits]
+        self.last_trade_snapshot = dict(
+            date=str(execution["date"].date()), codes=list(portfolio.stock_codes),
+            positions=portfolio.positions.copy(), available_positions=portfolio.available_positions.copy(),
+            cash=float(portfolio.cash), receivables=float(portfolio.receivable_value),
+            equity=float(equity), prices=execution["prices"].copy(),
+            valuation_prices=execution["valuation_prices"].copy())
+        marks = np.where(valid, execution["prices"], execution["valuation_prices"])
+        marks = np.where(np.isfinite(marks) & (marks > 0), marks, 0)
+        weights = np.maximum(0, portfolio.positions + shares) * marks / equity
+        pending = list(np.flatnonzero(shares < 0))
+        pending += sorted(np.flatnonzero(shares > 0),
+                          key=lambda i: (-priority[i], str(portfolio.stock_codes[i])))
+        options = dict(max_trade_weight=float(max_trade_weight),
+                       min_notional=float(self.config.min_commission / max_commission_ratio))
+        return self._execute_requests(portfolio, shares, weights, execution, pending,
+                                      freeze_mask=frozen, top_n=top_n, exit_mask=exits,
+                                      share_options=options)
+
     def _prepare_execution(self, portfolio, prices, valuation_prices, date,
                            buy_mask, sell_mask, volume, reasons, limit_up, limit_down):
         n = portfolio.n_stocks
@@ -158,7 +219,8 @@ class BrokerSimulator:
                     date=date, valid=np.isfinite(prices) & (prices > 0))
 
     def _execute_requests(self, portfolio, delta, weights, execution, pending, *,
-                          freeze_mask=None, delta_weights=None, top_n=None, exit_mask=None):
+                          freeze_mask=None, delta_weights=None, top_n=None, exit_mask=None,
+                          share_options=None):
         prices, valid, date = execution["prices"], execution["valid"], execution["date"]
         buy, sell, volumes = execution["buy"], execution["sell"], execution["volumes"]
         upper, lower, reasons = execution["upper"], execution["lower"], execution["reasons"]
@@ -179,11 +241,15 @@ class BrokerSimulator:
                 if reasons and reasons[i]:
                     why.extend(reasons[i])
                 qty = 0
+            elif (share_options is not None and selling and exit_mask[i]
+                  and portfolio.positions[i] != np.floor(portfolio.positions[i])):
+                why.append("unsupported_fractional_position")
+                qty = 0
             elif not (sell[i] if selling else buy[i]):
                 why.extend(reasons[i] if reasons and reasons[i] else ["sell_mask" if selling else "buy_mask"])
                 qty = 0
             else:
-                if delta_weights is not None and not selling:
+                if (delta_weights is not None or share_options is not None) and not selling:
                     room = max(0, np.floor(self.config.max_weight * execution["equity"] / prices[i])
                                - portfolio.positions[i])
                     if qty > room:
@@ -213,6 +279,19 @@ class BrokerSimulator:
                     if qty > cap:
                         qty = cap
                         why.append("volume_limit")
+                if share_options is not None:
+                    full_exit = bool(selling and exit_mask[i] and qty == portfolio.positions[i] and qty > 0)
+                    if not full_exit:
+                        if selling:
+                            qty = min(qty, max(0, portfolio.positions[i] - 1))
+                        cap = np.floor(share_options["max_trade_weight"] * execution["equity"] / price)
+                        if qty > cap:
+                            qty = cap
+                            why.append("trade_weight_limit")
+                        rounded = np.floor(qty / self.config.lot_size) * self.config.lot_size
+                        if rounded < qty:
+                            why.append("reduce_lot" if selling else "buy_lot")
+                        qty = rounded
                 if not selling:
                     rounded = np.floor(qty / self.config.lot_size) * self.config.lot_size
                     if rounded < qty:
@@ -231,10 +310,16 @@ class BrokerSimulator:
                     if affordable < qty:
                         qty = affordable
                         why.append("insufficient_cash")
+                if share_options is not None and qty > 0:
+                    full_exit = bool(selling and exit_mask[i] and qty == portfolio.positions[i])
+                    if not full_exit and qty * price + 1e-8 < share_options["min_notional"]:
+                        qty = 0
+                        why.append("minimum_trade_notional")
                 if qty > 0:
                     fee = self.fee(qty * price, selling)
                     if selling and portfolio.cash + qty * price < fee:
-                        why.append("insufficient_cash_for_fee")
+                        why.append("insufficient_cash_for_sell_fee" if share_options is not None
+                                   else "insufficient_cash_for_fee")
                         qty, fee = 0, 0.0
                     else:
                         filled = -qty if selling else qty
@@ -251,6 +336,12 @@ class BrokerSimulator:
                 record.update(requested_delta_weight=float(delta_weights[i]),
                               requested_trade_value=float(abs(delta_weights[i]) * execution["equity"]),
                               opening_equity=float(execution["equity"]), exit_requested=bool(exit_mask[i]))
+            if share_options is not None:
+                record.update(trade_direction=3 if exit_mask[i] else 2 if selling else 1,
+                              exit_requested=bool(exit_mask[i]),
+                              exit_completed=bool(exit_mask[i] and filled < 0 and portfolio.positions[i] == 0),
+                              min_trade_notional=share_options["min_notional"],
+                              opening_equity=float(execution["equity"]))
             records.append(record)
         self.orders.extend(records)
         return records
