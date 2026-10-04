@@ -1,6 +1,6 @@
 # 项目文档索引
 
-进行中：[股票增量Actor研究协议](ppo_delta_actor_protocol_20261004.md)。股票输出交易增量，现金为剩余，新增股数冻结与可卖状态、topN条件和小gain初始化；先做训练期稳定性pilot，再执行小模型三种子训练与开发回测。旧模型保留旧动作契约，尚未完成或发布新模型。
+已完成：[股票增量Actor研究摘要](reports/ppo_delta_actor_20261004_summary.md)、[详细报告](reports/ppo_delta_actor_20261004.md) 与 [预登记协议](ppo_delta_actor_protocol_20261004.md)。股票输出交易增量，现金为剩余，新增冻结/可卖状态及topN条件；三种子196,608正式步、6快照，另8,192步pilot。主K20短/长净收益-0.4163%/-0.3528%，无合格候选，不晋升默认。训练/回测执行已完成，不代表收益目标或真实账户适配完成；旧模型保留旧动作契约。
 
 已完成：[无先验随机初始化二乘二矩阵](ppo_random_matrix_protocol_20261003.md)，新增6次训练、12快照及393,216步，逐模型/种子评估随机初始化并与旧四格合并比较。没有随机配置通过研究门槛；八格中观察到的最佳PPO仍为先验小模型短预算，且未超过初始化及强规则基线。见 [摘要](reports/ppo_random_matrix_20261003_summary.md) 与 [详细报告](reports/ppo_random_matrix_20261003.md)，含KL限制、成本、风险和代表模型；不晋升实盘默认。
 
@@ -18,7 +18,7 @@
 
 该轮已完成：[新浪沪深300报告摘要](reports/sina_hs300_20260927_summary.md) 与 [详细报告](reports/sina_hs300_20260927.md)。模型训练成功但未证明策略优势，未晋升默认。
 
-更新日期：2026-09-26
+更新日期：2026-10-04
 
 建议先读 [项目 Pipeline](../pipeline.md)，再看 [实施进度与验收记录](implementation_plan.md)。阶段四已完成框架及 32 只股票的轻量训练和冻结测试，但尚未证明策略优势。最新结果见 [报告摘要](reports/ppo_lightweight_20260925_summary.md) 和 [详细报告](reports/ppo_lightweight_20260925.md)。
 
