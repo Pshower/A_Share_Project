@@ -51,6 +51,9 @@ class EpisodeAudit(gym.Wrapper):
             truncated=False,
             end_date=None,
         )
+        if "top_n" in observation:
+            record["top_n"] = int(observation["top_n"][0])
+            record["conditioned_state_sha256"] = _sha256(dict(account, date=date, top_n=record["top_n"]))
         self.episodes.append(record)
         self._active_episode = record
         return observation, info
@@ -75,7 +78,7 @@ class EpisodeAudit(gym.Wrapper):
     def stats(self):
         # VecEnv resets after a terminal step, even when training stops immediately.
         experienced = [episode for episode in self.episodes if episode["steps"]]
-        return dict(
+        result = dict(
             total_steps=sum(self._decision_date_counts.values()),
             started_episodes=len(experienced),
             completed_episodes=sum(episode["completed"] for episode in experienced),
@@ -86,3 +89,9 @@ class EpisodeAudit(gym.Wrapper):
             mode_steps=dict(sorted(self._mode_steps.items())),
             mode_episodes=dict(sorted(Counter(episode["mode"] for episode in experienced).items())),
         )
+        if experienced and "top_n" in experienced[0]:
+            result.update(top_n_episodes=dict(sorted(Counter(str(e["top_n"]) for e in experienced).items())),
+                          top_n_steps=dict(sorted(Counter({str(k): sum(e["steps"] for e in experienced if e["top_n"] == k)
+                                                          for k in {e["top_n"] for e in experienced}}).items())),
+                          unique_conditioned_states=len({e["conditioned_state_sha256"] for e in experienced}))
+        return result

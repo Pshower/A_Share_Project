@@ -74,7 +74,7 @@ class ValidationCallback(BaseCallback):
             row.update({"portfolio/" + k: v / self.portfolio_counts[k] for k, v in self.portfolio_totals.items()})
         row.update({"orders_total/" + k: v for k, v in self.reason_counts.items()})
         if "train/entropy_loss" in row and row["train/entropy_loss"] is not None:
-            row["train/entropy_per_dimension"] = -row["train/entropy_loss"] / (len(self.data.codes) + 1)
+            row["train/entropy_per_dimension"] = -row["train/entropy_loss"] / self.model.action_space.shape[0]
         row["resource/cuda_allocated_mb"] = torch.cuda.memory_allocated(self.model.device) / 2 ** 20 if self.model.device.type == "cuda" else None
         self.portfolio_totals.clear()
         self.portfolio_counts.clear()

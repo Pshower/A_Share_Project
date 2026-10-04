@@ -14,6 +14,8 @@ from src.data.preprocess import ROOT, file_hash, write_json
 from src.runtime.device import resolve_device
 from .action_mapping import map_action, MAPPING_VERSION, mapping_version
 from .ppo_policy import SharedStockPolicy
+from .delta_policy import SharedDeltaPolicy
+from .delta_mapping import DELTA_MAPPING_VERSION, DeltaOrder, map_delta_action
 
 
 def make_model(env, config):
@@ -22,11 +24,16 @@ def make_model(env, config):
     if config.get("learning_rate_schedule", "constant") == "linear":
         initial, factor = options["learning_rate"], config.get("learning_rate_end_factor", 0.1)
         options["learning_rate"] = lambda remaining: initial * (factor + (1 - factor) * min(1.0, max(0.0, remaining)))
-    return PPO(SharedStockPolicy, env, seed=config["seed"], device=resolve_device(config["device"]),
-               policy_kwargs=dict(hidden_sizes=tuple(config["hidden_sizes"]),
+    kwargs = dict(hidden_sizes=tuple(config["hidden_sizes"]),
                    initial_log_std=config.get("initial_log_std", 0.0),
                    prior_feature_index=config.get("prior_feature_index"),
-                   prior_strength=config.get("prior_strength", 4.0), residual_scale=config.get("residual_scale", 0.25)),
+                   prior_strength=config.get("prior_strength", 4.0), residual_scale=config.get("residual_scale", 0.25))
+    policy = SharedStockPolicy
+    if config.get("action_mode") == "stock_delta":
+        policy = SharedDeltaPolicy
+        kwargs = dict(hidden_sizes=tuple(config["hidden_sizes"]), initial_log_std=config.get("initial_log_std", -1.5),
+                      actor_output_gain=config.get("actor_output_gain", .01))
+    return PPO(policy, env, seed=config["seed"], device=resolve_device(config["device"]), policy_kwargs=kwargs,
                verbose=0, **options)
 
 
@@ -36,12 +43,22 @@ class PPOAgent:
         self.contract = deepcopy(contract)
         self.provenance = deepcopy(provenance or {})
         n = len(contract["stock_codes"])
-        if (contract["mapping_version"] != mapping_version(contract.get("action_top_k"))
-                or model.action_space.shape != (n + 1,)
+        delta = contract.get("action_mode") == "stock_delta"
+        expected_mapping = DELTA_MAPPING_VERSION if delta else mapping_version(contract.get("action_top_k"))
+        if (contract["mapping_version"] != expected_mapping
+                or model.action_space.shape != ((n,) if delta else (n + 1,))
                 or model.observation_space["stock_features"].shape != (n, contract["lookback"], len(contract["feature_cols"]))
                 or not np.all(model.action_space.high == contract["logit_bound"])
                 or not np.all(model.action_space.low == -contract["logit_bound"])):
             raise ValueError("Model spaces do not match the artifact contract")
+        if delta:
+            if not isinstance(model.policy, SharedDeltaPolicy) or "delta" not in contract or contract.get("prior") is not None:
+                raise ValueError("Delta policy does not match its action contract")
+            if (model.observation_space["execution_features"].shape != (n, 3)
+                    or model.observation_space["allocation_context"].shape != (6,)
+                    or model.policy.actor_output_gain != contract["delta"]["actor_output_gain"]):
+                raise ValueError("Delta execution state or initialization differs from contract")
+            return
         network = model.policy.network
         expected_prior = contract.get("prior")
         actual_prior = (dict(feature_index=network.prior_feature_index, strength=network.prior_strength,
@@ -64,11 +81,18 @@ class PPOAgent:
         tensor, _ = self.model.policy.obs_to_tensor(observation)
         with torch.no_grad():
             latent = self.model.policy.get_distribution(tensor).get_actions(deterministic).cpu().numpy()[0]
+        if self.contract.get("action_mode") == "stock_delta":
+            return map_delta_action(latent, observation, self.contract["broker"]["max_weight"],
+                                    self.contract["delta"]["max_delta_weight"], self.contract["logit_bound"])
         return map_action(latent, observation, self.contract["broker"]["max_weight"], self.contract["logit_bound"],
                           self.contract.get("action_top_k"))
 
     def act(self, observation, step=None, deterministic=True):
-        return self.inspect_action(observation, deterministic)["weights"]
+        result = self.inspect_action(observation, deterministic)
+        if self.contract.get("action_mode") == "stock_delta":
+            return DeltaOrder(result["delta_weights"], result["freeze_mask"], result["exit_mask"],
+                              result["top_n"], result)
+        return result["weights"]
 
     def save(self, directory, config, extra=None):
         directory = Path(directory)
@@ -100,7 +124,7 @@ class PPOAgent:
         # Only the pool and data identity may change; scaling and execution stay fixed.
         if self.contract.get("data_source") != new_contract.get("data_source"):
             raise ValueError("Pool transfer cannot change the training data source")
-        for key in ["action_top_k", "prior"]:
+        for key in ["action_top_k", "prior", "action_mode", "delta"]:
             if self.contract.get(key) != new_contract.get(key):
                 raise ValueError(f"Incompatible transfer contract: {key}")
         for key in ["feature_cols", "lookback", "price_basis", "broker", "initial_capital",

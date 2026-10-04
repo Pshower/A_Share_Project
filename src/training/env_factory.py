@@ -10,6 +10,7 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 from src.agents.action_mapping import LatentActionWrapper, MAPPING_VERSION, mapping_version
+from src.agents.delta_mapping import DeltaActionWrapper, DELTA_MAPPING_VERSION, EXECUTION_FIELDS, ALLOCATION_FIELDS
 from src.data.preprocess import file_hash, read_config, resolve_path
 from src.envs.broker import BrokerConfig
 from src.envs.market import MarketDataProvider
@@ -17,6 +18,20 @@ from src.envs.trading import TradingEnv
 
 
 def validate_config(config):
+    mode = config.get("action_mode", "target")
+    if mode not in {"target", "stock_delta"}:
+        raise ValueError("Unknown action_mode")
+    if mode == "stock_delta":
+        if config.get("prior_feature_index") is not None or config.get("action_top_k") is not None:
+            raise ValueError("Delta actor cannot use a legacy prior or static action_top_k")
+        for key, default in [("max_delta_weight", .05), ("actor_output_gain", .01)]:
+            if not np.isfinite(config.get(key, default)) or not 0 < config.get(key, default) <= 1:
+                raise ValueError("Invalid delta actor parameter: " + key)
+        choices = config.get("top_n_choices", [])
+        if not isinstance(choices, list) or any(type(k) is not int for k in choices) or len(set(choices)) != len(choices):
+            raise ValueError("top_n_choices must be a unique integer list")
+        if any(type(k) is not int or not 0 <= k <= 500 for k in [config.get("top_n", 20), *choices]):
+            raise ValueError("top_n must be in [0, 500]")
     top_k = config.get("action_top_k")
     if top_k is not None and (type(top_k) is not int or not 1 <= top_k <= 500):
         raise ValueError("action_top_k must be in [1, 500]")
@@ -153,6 +168,14 @@ class ResearchData:
             self.contract["recent_episode_every"] = config["recent_episode_every"]
         if config.get("action_top_k") is not None:
             self.contract["action_top_k"] = config["action_top_k"]
+        if config.get("action_mode") == "stock_delta":
+            self.contract.update(action_mode="stock_delta", mapping_version=DELTA_MAPPING_VERSION,
+                                 delta=dict(max_delta_weight=config.get("max_delta_weight", .05),
+                                            actor_output_gain=config.get("actor_output_gain", .01),
+                                            top_n=config.get("top_n", 20), top_n_choices=config.get("top_n_choices", []),
+                                            execution_fields=list(EXECUTION_FIELDS), allocation_fields=list(ALLOCATION_FIELDS),
+                                            top_n_semantics="grandfather_existing_actual_exit_releases_slot",
+                                            cash_semantics="residual_after_stock_trades_and_receivables"))
         if config.get("prior_feature_index") is not None:
             idx = config["prior_feature_index"]
             if type(idx) is not int or not 0 <= idx < len(manifest["feature_cols"]):
@@ -193,13 +216,17 @@ class ResearchData:
                                   end_date=end, lookback=self.config["lookback"])
 
     def env(self, split):
-        return LatentActionWrapper(TradingEnv(self.market(split), self.settings["initial_capital"],
+        env = TradingEnv(self.market(split), self.settings["initial_capital"],
                                    BrokerConfig(**self.settings["broker"]),
                                    initial_portfolio=self.config.get("initial_portfolio", "cash") if split == "train" else "cash",
                                    max_steps=self.config.get("training_episode_steps") if split == "train" else None,
                                    random_start=split == "train" and self.config.get("training_episode_steps") is not None,
-                                   recent_episode_every=self.config.get("recent_episode_every", 0) if split == "train" else 0),
-                                   self.config["logit_bound"], self.config.get("action_top_k"))
+                                   recent_episode_every=self.config.get("recent_episode_every", 0) if split == "train" else 0)
+        if self.config.get("action_mode") == "stock_delta":
+            return DeltaActionWrapper(env, self.config["logit_bound"], self.config.get("max_delta_weight", .05),
+                                      self.settings.get("delta_top_n", self.config.get("top_n", 20)),
+                                      self.config.get("top_n_choices") if split == "train" else None)
+        return LatentActionWrapper(env, self.config["logit_bound"], self.config.get("action_top_k"))
 
     def vector_env(self, split="train"):
         env = DummyVecEnv([lambda: Monitor(self.env(split))])

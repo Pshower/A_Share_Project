@@ -41,6 +41,13 @@ def run_policy(market, strategy, settings):
     env = TradingEnv(market, initial_capital=settings["initial_capital"],
                      broker_config=BrokerConfig(**settings["broker"]),
                      initial_portfolio=settings.get("initial_portfolio", "cash"))
+    from src.agents.delta_mapping import DeltaActionWrapper, DeltaOrder
+    contract = getattr(strategy, "contract", {})
+    delta = contract.get("action_mode") == "stock_delta"
+    if delta:
+        specification = contract["delta"]
+        env = DeltaActionWrapper(env, contract["logit_bound"], specification["max_delta_weight"],
+                                 settings.get("delta_top_n", specification["top_n"]))
     obs, initial = env.reset(seed=settings["seed"])
     daily = [dict(date=initial["date"], equity=initial["equity"], cash=initial["cash"],
                   daily_return=0.0, fee=0.0, slippage_cost=0.0, turnover=0.0,
@@ -51,7 +58,12 @@ def run_policy(market, strategy, settings):
     while True:
         events.check_cancel()
         action = strategy.act(obs, step)
-        obs, reward, terminated, truncated, info = env.advance() if action is None else env.step(action)
+        if isinstance(action, DeltaOrder):
+            if not delta:
+                raise ValueError("Delta order requires a delta environment contract")
+            obs, reward, terminated, truncated, info = env.step_order(action)
+        else:
+            obs, reward, terminated, truncated, info = env.advance() if action is None else env.step(action)
         orders = info["orders"]
         fees = sum(o["fee"] for o in orders)
         slippage = sum(o["slippage_cost"] for o in orders)
@@ -85,8 +97,11 @@ def run_policy(market, strategy, settings):
     daily["net_value"] = daily.equity / daily.equity.iloc[0]
     daily["drawdown"] = daily.equity / daily.equity.cummax() - 1
     holdings = pd.DataFrame(positions, index=daily.date, columns=market.stock_codes)
-    orders = pd.DataFrame(env.broker.orders, columns=["date", "code", "side", "target_weight", "requested_shares",
-                         "filled_shares", "price", "fee", "slippage_cost", "status", "reasons", "cash_after", "position_after"])
+    order_columns = ["date", "code", "side", "target_weight", "requested_shares",
+                         "filled_shares", "price", "fee", "slippage_cost", "status", "reasons", "cash_after", "position_after"]
+    if delta:
+        order_columns += ["requested_delta_weight", "exit_requested", "opening_equity"]
+    orders = pd.DataFrame(env.unwrapped.broker.orders, columns=order_columns)
     return daily, holdings, orders, info["assumptions"]
 
 

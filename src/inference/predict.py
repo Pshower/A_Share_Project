@@ -7,7 +7,7 @@ from src.envs.market import MarketDataProvider
 from src.envs.portfolio import Portfolio
 
 
-def predict_action(agent, data, as_of, account=None, display_codes=None):
+def predict_action(agent, data, as_of, account=None, display_codes=None, top_n=None):
     if agent.contract != data.contract:
         raise ValueError("Model/data contract mismatch")
     date = pd.Timestamp(as_of).normalize()
@@ -52,6 +52,17 @@ def predict_action(agent, data, as_of, account=None, display_codes=None):
                sell_mask=sell.astype(np.int8), portfolio=np.append(portfolio.get_weights(closes),
                portfolio.cash / equity).astype(np.float32),
                receivable_ratio=np.array([portfolio.receivable_value / equity], dtype=np.float32))
+    if data.contract.get("action_mode") == "stock_delta":
+        from src.agents.delta_mapping import enrich_delta_observation
+        from src.envs.broker import BrokerConfig
+        requested_top = data.config.get("top_n", 20) if top_n is None else top_n
+        if requested_top not in set(data.config.get("top_n_choices", []) + [data.config.get("top_n", 20)]):
+            raise ValueError("Requested top_n was not registered for this delta model")
+        # External accounts have no dated release ledger; do not guess that locks expire overnight.
+        obs = enrich_delta_observation(obs, portfolio, closes, BrokerConfig(**data.settings["broker"]),
+                                       requested_top)
+    elif top_n is not None:
+        raise ValueError("Legacy models do not support conditional top_n")
     mapped = agent.inspect_action(obs)
     rows = []
     for i, code in enumerate(data.codes):
@@ -60,14 +71,23 @@ def predict_action(agent, data, as_of, account=None, display_codes=None):
         intent = "unchanged" if abs(change) <= 1e-6 else "buy" if change > 0 else "sell"
         if portfolio.positions[i] > 0 and target == 0:
             intent = "exit"
-        rows.append(dict(code=code, current_weight=current, target_weight=target, difference=change,
+        row = dict(code=code, current_weight=current, target_weight=target, difference=change,
                          intent=intent, reference_amount=change * equity, valid=bool(valid[i]),
                          buy_allowed=bool(buy[i]), sell_allowed=bool(sell[i]),
                          shares=int(portfolio.positions[i]), available_shares=int(portfolio.available_positions[i]),
                          close_reference=float(closes[i]) if np.isfinite(closes[i]) else None,
-                         latent=float(mapped["latent"][i]), eligible=bool(mapped["eligible"][i])))
-    return dict(as_of=str(date.date()), price_basis=data.contract["price_basis"], equity=equity,
+                         latent=float(mapped["latent"][i]), eligible=bool(mapped["eligible"][i]))
+        if data.contract.get("action_mode") == "stock_delta":
+            row.update(requested_delta_weight=float(mapped["delta_weights"][i]),
+                       frozen=bool(mapped["freeze_mask"][i]), exit_requested=bool(mapped["exit_mask"][i]))
+        rows.append(row)
+    result = dict(as_of=str(date.date()), price_basis=data.contract["price_basis"], equity=equity,
                 current_cash_ratio=portfolio.cash / equity, target_cash_ratio=mapped["cash_weight"],
                 pool_size=len(data.codes), display_codes=list(display_codes), rows=rows,
                 account=account, contract=data.contract, deterministic=True,
-                note="Historical target weights and close-reference intentions, not next-day fills or price forecasts.")
+                note=("Historical trade increments and close-reference intentions, not next-day fills or price forecasts."
+                      if data.contract.get("action_mode") == "stock_delta" else
+                      "Historical target weights and close-reference intentions, not next-day fills or price forecasts."))
+    if data.contract.get("action_mode") == "stock_delta":
+        result.update(action_mode="stock_delta", top_n=mapped["top_n"], frozen_weight=mapped["frozen_weight"])
+    return result

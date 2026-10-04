@@ -28,6 +28,8 @@ def build_daily_plan(agent, data, history_id, *, model_id, accept_revisions=Fals
                      close_as_of=None):
     if agent.contract != data.contract or data.contract["price_basis"] != "hfq_research":
         raise ValueError("This binding only supports the existing HFQ research contract")
+    if data.contract.get("action_mode") == "stock_delta":
+        raise ValueError("Delta inference requires a share/cash account and execution state; use account-aware historical inference")
     from src.data.feature_definitions import validate_definitions
     definitions = validate_definitions(data.research["dataset"].get("extra_features", []), FEATURES)
     columns = FEATURES + [d["name"] for d in definitions]

@@ -30,7 +30,8 @@ def model_requirements(catalog, model_id):
                 price_basis=record["price_basis"], trained=record["trained"],
                 source=contract.get("data_source"), train_end=research["dataset"]["train_end"],
                 val_end=research["dataset"]["val_end"],
-                policy_type="momentum_residual" if contract.get("prior") else "sparse_ppo" if contract.get("action_top_k") else "dense_ppo",
+                policy_type="stock_delta_ppo" if contract.get("action_mode") == "stock_delta" else
+                            "momentum_residual" if contract.get("prior") else "sparse_ppo" if contract.get("action_top_k") else "dense_ppo",
                 scaler_sha256=contract["artifacts"]["scaler_params.json"])
 
 
