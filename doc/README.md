@@ -1,5 +1,7 @@
 # 项目文档索引
 
+进行中：[七方向探索协议](ppo_exploration_protocol_20261006.md)、[阶段报告](reports/ppo_exploration_20261006.md)及[摘要](reports/ppo_exploration_20261006_summary.md)。信号、冻结模型部署、资金/股票池可行性及奖励数学诊断已完成；时间窗口、编码分离、采样和目标设计的固定预算训练待运行。当前诊断不是独立测试，保护2026年7月以后的绩效，旧模型保持不变。
+
 已完成：[整手交易与明确保持动作摘要](reports/ppo_trade_actor_20261005_summary.md)、[详细报告](reports/ppo_trade_actor_20261005.md)与[预登记协议](ppo_trade_actor_protocol_20261005.md)。HOLD/BUY/REDUCE/EXIT、冻结与经济整手约束已实现；126,343参数、三种子98,304正式步及8,192 pilot步、6快照、主K20和辅助K10/40四账户开发回测均完成。主K20短/长平均净ROI为-2.5182%/-6.2879%，对自身初始化有平均改善但没有合格候选，不晋升默认。费用进入模拟净值奖励一次，Critic没有另加微单处罚；执行验收不等于收益或现实成交验收。后续稀疏交易与信用分配建议见报告，尚未实施。
 
 已完成：[股票增量Actor研究摘要](reports/ppo_delta_actor_20261004_summary.md)、[详细报告](reports/ppo_delta_actor_20261004.md) 与 [预登记协议](ppo_delta_actor_protocol_20261004.md)。股票输出交易增量，现金为剩余，新增冻结/可卖状态及topN条件；三种子196,608正式步、6快照，另8,192步pilot。主K20短/长净收益-0.4163%/-0.3528%，无合格候选，不晋升默认。训练/回测执行已完成，不代表收益目标或真实账户适配完成；旧模型保留旧动作契约。
@@ -20,7 +22,7 @@
 
 该轮已完成：[新浪沪深300报告摘要](reports/sina_hs300_20260927_summary.md) 与 [详细报告](reports/sina_hs300_20260927.md)。模型训练成功但未证明策略优势，未晋升默认。
 
-更新日期：2026-10-05
+更新日期：2026-10-07
 
 建议先读 [项目 Pipeline](../pipeline.md)，再看 [实施进度与验收记录](implementation_plan.md)。阶段四已完成框架及 32 只股票的轻量训练和冻结测试，但尚未证明策略优势。最新结果见 [报告摘要](reports/ppo_lightweight_20260925_summary.md) 和 [详细报告](reports/ppo_lightweight_20260925.md)。
 
