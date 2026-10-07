@@ -25,7 +25,7 @@ def main():
         raise ValueError("Summary counts differ from sealed snapshot records")
     inputs = {name: file_hash(root / name) for name in ("study_summary.json", "summary.json")}
     colors = ["#337cbd", "#36836b", "#ac4e60"]
-    fig, axes = plt.subplots(2, 2, figsize=(12, 8), layout="constrained", sharex=True)
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8.5), layout="constrained", sharex=True)
     for column, fold in enumerate(FOLDS):
         for budget, offset, alpha, hatch in (("short", -.19, .55, "//"), ("long", .19, 1., None)):
             selected = [summary["fold_arms"][fold][f"{arm}_{budget}"] for arm in ARMS]
@@ -49,18 +49,21 @@ def main():
             roi = np.mean([account[rule]["cumulative_return"] for account in rules.values()]) * 100
             axes[0, column].axhline(roi, color=color, linestyle=style, linewidth=1.1,
                                     label=f"{label}: {roi:.2f}%")
-        axes[0, column].set_title(f"{fold} Q2 historical validation")
+        axes[0, column].set_title(f"{fold} Q2 historical validation", pad=34)
         axes[0, column].set_ylabel("Net ROI (%)")
-        axes[0, column].legend(fontsize=8, loc="upper left", ncol=2, framealpha=1.)
+        axes[0, column].legend(fontsize=8, loc="lower left", bbox_to_anchor=(0, 1.02),
+                               ncol=2, borderaxespad=0., framealpha=1.)
         axes[1, column].set_ylabel("Paired ROI difference vs mean (pp)")
         axes[1, column].axhline(0, color="#222222", linewidth=.9)
         axes[1, column].set_xticks(range(3), ["Mean", "Attention", "Dispersion"])
         for axis in axes[:, column]:
             axis.grid(axis="y", alpha=.2)
             axis.set_axisbelow(True)
+    qualification = "No configuration qualified" if summary["qualified_candidate"] is None else "Research candidate only"
     fig.suptitle(
         "Pure-market pooling: identical initial Actor and Critic functions\n"
-        "Four-account mean per seed; error bars = sample SD across three paired seeds",
+        "Four-account mean per seed; error bars = sample SD across three paired seeds\n"
+        f"{qualification}; historical HFQ simulation, not independent testing",
         fontsize=13,
     )
     fig.savefig(root / "comparison.png", dpi=160)
@@ -72,11 +75,17 @@ def main():
         actual = file_hash(path / "model.zip")
         if actual != record["model_sha256"] or actual != metadata["model_sha256"]:
             raise ValueError("Cannot index an altered model")
+        participation = record["parameter_participation"]
         index.append(dict(
             fold=record["fold"], arm=record["arm"], seed=record["seed"], budget=record["budget"],
             steps=record["steps"], parameters=record["parameters"], model_path=record["model_path"],
             model_sha256=actual, git_commit=metadata["git"]["commit"], git_dirty=metadata["git"]["dirty"],
             source_count=len(metadata["source_hashes"]),
+            active_parameters=participation["expected_functionally_active_parameters"],
+            adam_state_tensors=participation["adam_state_tensor_count"],
+            optimizer_steps_min=record["optimizer_steps_min"], optimizer_steps_max=record["optimizer_steps_max"],
+            query_l2=participation["summary_query_l2"],
+            variance_projection_l2=participation["variance_projection_l2"],
         ))
     pd.DataFrame(index).to_csv(root / "model_index.csv", index=False)
     write_json(root / "plot_evidence.json", dict(

@@ -1,33 +1,43 @@
 # 纯行情摘要优化研究摘要
 
-日期：2026-10-07。**状态：预注册已提交，等待正式训练准入及真实封存结果；尚未证明收益提高，也未完成模型选择。**
+日期：2026-10-07。**本轮研究已完成：18次训练、36快照、192验证路径，金融训练147,456步；最终回归及独立完整性审计通过。没有配置通过全部收益/风险门槛，候选null，不替换默认模型。** 每日实盘配置模型目标仍未达标。
 
-## 这轮检验什么
+## 结果
 
-保留共享 Critic、原 HOLD/BUY/REDUCE/EXIT Actor、条件 size、奖励、费用和执行约束，只比较三种不含账户信息的市场摘要：
+固定Actor、共享Critic、奖励及交易机制，仅比较行情embedding的mean/attention/dispersion。总参数均141,575，q/W零初值，同初始策略函数；有效容量及全局裁剪影响分别保留。mean不是原始指标均值，encoder可隐式保留非线性统计，新结构测试归纳偏置/学习效率，非必然新增信息。
 
-| arm | 改动 |
-| --- | --- |
-| mean | 原有效股票等权均值 |
-| attention | 学习哪些有效股票更值得关注 |
-| dispersion | 学习横截面离散度是否有用 |
+每seed先平均四账户，再平均同seed两折，最后对三个seed计算均值/样本SD；配对差单位为百分点，不是显著性结论。
 
-三臂总参数均为 141,575，q/W 均从零开始；不仅参数相同，还要求方向、size、log_std 和 Critic 的初始函数相同，减少上一轮的初始化混淆。同总参数不等于同有效容量，闲置参数、实际梯度和 Adam 状态将分别记录。新增摘要仍受 Actor 和共享 Critic 共同训练。[预注册](../ppo_market_summary_protocol_20261007.md)，提交 `551842b`。
+| 摘要 | 4,096步净ROI | 8,192步净ROI | 短 / 长相对mean |
+| --- | ---: | ---: | --- |
+| mean | +0.702734% | +0.707718% | 0 / 0 |
+| attention | +0.703497% | +0.705927% | +0.000762 / -0.001790 pp |
+| dispersion | +0.613680% | +0.131585% | -0.089054 / -0.576133 pp |
 
-## 为什么仍需谨慎
+没有稳定增益的新摘要。dispersion在2024局部提高+.052518/+.313058pp，在2023降低-.230627/-1.465323pp，不能择年声称改善。mean加长训练两折分别+1.565995/-1.556028pp，跨折几乎抵消，不支持步数越多越好。
 
-对旧封存轨迹的只读分析发现，全体 192 个旧训练快照评估路径中，原始非 HOLD 请求 1,933,961 次，经 top-N/现金过滤后仅 175,114 个映射订单，实际非零成交 174,827 个；映射后成交率 99.836%。BUY 请求金额只有 3.010% 进入映射。主要约束损失发生在股票独立请求到全局交易分配之间，不能假定摘要是唯一瓶颈。
+六配置2023最坏DD均12.1372%至13.7353%，超过10%且落后同机制20日动量，全部不合格。固定2024/seed42长预算mean/attention为-3.722541%、dispersion为-3.615018%，不是配置均值或部署推荐。
 
-旧 pure_shared 长预算在 2023/2024 的成本约为初始资本 2.504%/2.606%，方向选择边界微弱，size 均值远小于探索 sigma。此证据支持后续单独研究稀疏、资金/名额感知 Actor 和独立优先级/数量，但本轮不混改 Actor，也不能把观测成本直接加回 ROI 声称潜在收益。
+## 学到什么
 
-诊断读取 192 条旧模型评估和 48 条去重初始化路径，1,009 个输入 SHA，全部 240 条路径记账恒等式和汇总复算通过；无模型推理、梯度或新环境步。[诊断 JSON](../../reports/runs/ppo_market_summary_20261007_diagnostics/projection.json) SHA256：`4131c19be0294a3735bf6bb77470b207bff0ddd12a568e57718d08c1492e0a45`。
+attention的q非零，但12快照10个全部账户指标与mean相同；uniform偏离最坏界仅.1544%至1.1234%，不是实测注意力/盈利界。固定预算弱干预无效果不等于架构普遍无用。
 
-## 正式安排
+旧轨迹193万非HOLD请求过滤后仅17.5万映射订单，映射后成交率99.836%，瓶颈主要在独立请求到全局名额/现金分配，非Broker。它是旧研究数值，不混成本轮结果。
 
-复用新浪 300 股、20 特征及封存 2023/2024 历史折；各折训练截止当年 3 月 31 日，Q2 验证，scaler 不重新拟合。三 arm × 两折 × 三 seed，共 18 run，快照 4,096/8,192 步共享前缀；实际预算 147,456 RL 步，计划 36 快照。模型/初始化/规则共计划 192 条验证路径，若每条 59 步则 11,328 步，最终以实际记录为准。
+本轮[完整投影](../../reports/runs/ppo_market_summary_20261007/projection_diagnostics.json) 则为144模型路径中163.17万非HOLD请求、13.89万映射/13.87万非零成交，映射后成交率99.835%；BUY名义金额仅2.8707%通过映射。它是描述性瓶颈证据，不是移除约束就增收益的因果证明。
 
-比较 attention/dispersion 相对 mean 的配对净 ROI 与自身初始化增量，逐折、逐 seed 披露成本、回撤和换手。候选须两折分别通过回撤、初始化增益和 20 日动量门槛；稳定改善还要求两折均有正配对均值且至少 2/3 seed 为正。不挑幸运 seed，不按中途利润追加预算。
+本轮mean/seed42 [size诊断](../../reports/runs/ppo_market_summary_20261007/size_selection_diagnostics.json) 显示训练映射可变lot区间分位约66%、确定性验证约50%，新仓偏采样上尾；这是quantity/priority共用信号的联合筛选，非仓位/资本比例。整手/现金/价格及train/val差异使其不能作收益因果证明。下一轮优先独立研究排序数量解耦和预算感知稀疏动作，不混改本轮。
 
-**目前没有本轮收益表、胜出配置或完成结论。** 等待真实训练、封存、离线回归和独立审计后更新。旧 83 份源码及实验保持不变，不下载、不接触保护期绩效，不替换工作台默认模型、不生成真实订单。既有窗口已暴露，HFQ 研究执行和固定股票池限制仍在。
+## 验证与限制
 
-[详细报告](ppo_market_summary_20261007.md) · [冻结预注册](../ppo_market_summary_protocol_20261007.md) · [旧投影诊断](../../reports/runs/ppo_market_summary_20261007_diagnostics/projection.json)
+金融actual147456步/5760Adam/576episode/288chunk，192路径（144模型+24初始+24规则）共11328验证步。73728短前缀已含，快照步数和221184不是新增训练量。六mean短快照均实证精确重放旧共同张量/Adam，不增加独立seed。
+
+注册与全部54模型metadata Git为b17a31c dirty=true，冻结源码85份、旧83不变。worker/tail真exit0；主曾partialguard在环境/模型创建及learn前exit1，是协调退出非额外训练，随后仅cached汇总真实exit0，env/optimizer新增0，barrier已complete。
+
+正式封存后的最终全套实际**967passed、13deselected、11warnings，260.58秒，exit0**。合成测试与金融预算分开，测试通过非收益达标。原132数值项复算对汇总误差0；绘图/36索引与投影exit0，无额外模型推理/环境/优化。
+
+[唯一独立最终审计](../../reports/runs/ppo_market_summary_20261007/final_audit.json) 真实seal exit0、status=passed，15锚点/1,964 registry-marker关联及全部54模型metadata、85源码、192原生金融曲线重算通过，额外model/grad/env/optimizer均0。SHA256：`fbb932aea3e269b3b46308e0bda21db6ef082bc9d92db033c1c42df26fdfbe41`。完整性通过不等于策略达标。
+
+未下载、未碰2026-07-01后保护期；窗口已暴露、固定池和HFQ研究执行限制仍在。不生成真实订单，真实未复权/公司行为账本、未见时期及未见股票验证仍须补齐。
+
+[详细报告](ppo_market_summary_20261007.md) · [预注册](../ppo_market_summary_protocol_20261007.md) · [研究札记](../market_summary_research_notes_20261007.md) · [机器汇总](../../reports/runs/ppo_market_summary_20261007/study_summary.json) · [对照图](../../reports/runs/ppo_market_summary_20261007/comparison.png) · [36模型索引](../../reports/runs/ppo_market_summary_20261007/model_index.csv) · [最终验收](../../reports/runs/ppo_market_summary_20261007/final_acceptance.json) · [独立审计](../../reports/runs/ppo_market_summary_20261007/final_audit.json)
