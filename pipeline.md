@@ -1,6 +1,6 @@
 # A 股日频强化学习交易 Pipeline
 
-进行中：[排序动作与辅助训练预注册](doc/ppo_priority_rank_protocol_20261011.md)、[报告](doc/reports/ppo_priority_rank_20261011.md)及[摘要](doc/reports/ppo_priority_rank_20261011_summary.md)。用户选择长预算16,384步，计划两折三种子2×2，共24次训练、393,216实际RL步、48共享前缀快照。动作显式扩为direction/quantity/priority的3N请求，比较共享排序和独立排序；方法比较PPO与训练期五日rank辅助loss，联合同次Adam，不做预训练或把未来标签放进观察。纯行情均值、共享Critic、净值奖励及执行约束保留；真实稀疏selector和风险目标改造仍为后续规划。工程离线准入1,293项通过、13项联网排除，未开始正式收益试验，不改旧85源码、旧产物或默认模型。
+进行中：[排序动作与辅助训练预注册](doc/ppo_priority_rank_protocol_20261011.md)、[报告](doc/reports/ppo_priority_rank_20261011.md)及[摘要](doc/reports/ppo_priority_rank_20261011_summary.md)。用户选择长预算16,384步，计划两折三种子2×2，共24次训练、393,216实际RL步、48共享前缀快照。动作显式扩为direction/quantity/priority的3N请求，比较共享排序和独立排序；方法比较PPO与训练期五日rank辅助loss，联合同次Adam，不做预训练或把未来标签放进观察。纯行情均值、共享Critic、净值奖励及执行约束保留；真实稀疏selector和风险目标改造仍为后续规划。工程基线9a52851、离线准入1,293项通过、13项联网排除；prepare成功后91源码和标签池已冻结，两个年度GPU worker正在执行正式试验，不改旧85源码、旧产物或默认模型。
 
 已完成：[纯行情摘要优化协议](doc/ppo_market_summary_protocol_20261007.md)、[报告](doc/reports/ppo_market_summary_20261007.md)及[摘要](doc/reports/ppo_market_summary_20261007_summary.md)。相同初始参数及Actor/Critic函数的mean/attention/dispersion三臂完成两折三种子18次训练、147,456实际RL步、5,760次Adam、36快照及192条验证路径。注意力收益近似mean，query虽更新但干预弱；离散度2024局部改善、2023退步，长预算跨折平均比mean低0.5761个百分点。所有配置均未通过完整门槛，候选null，不切换默认。本轮85份源码全程冻结，旧83份未修改；最终967项离线测试通过、13联网排除，原生账本、初始化/随机流、缓存重入及产物签名已复核。另发现priority/quantity共用size的条件选择偏移，后续独立研究稀疏决策、数量解耦和风险预算；本轮没有混改Actor/奖励、下载数据或评估保护期。
 
