@@ -1,6 +1,6 @@
 # 项目文档索引
 
-进行中：[排序动作与rank辅助PPO预注册](ppo_priority_rank_protocol_20261011.md)、[报告](reports/ppo_priority_rank_20261011.md)及[摘要](reports/ppo_priority_rank_20261011_summary.md)。3N数量/优先级对照与训练期标签辅助任务，16K长预算、24次正式试验、393,216计划RL步；工程基线9a52851、离线准入1,293项通过、13项联网排除。prepare已成功，91源码及两折训练期标签已冻结，两年度GPU worker训练进行中，不预填收益。真正预算感知稀疏选择与风险奖励不混入本轮。
+已完成：[排序动作与rank辅助PPO预注册](ppo_priority_rank_protocol_20261011.md)、[报告](reports/ppo_priority_rank_20261011.md)及[摘要](reports/ppo_priority_rank_20261011_summary.md)。24次正式GPU试验、393,216实际RL步、48个8K/16K共享前缀快照、264条固定评估路径；3N数量/优先级对照和训练期辅助任务已实现。观察最高为独立优先级+PPO短预算，净ROI+1.1904%，较同轮共享排序+2.2565个百分点，但所有配置未通过两折门槛，候选None，不升级默认。最终1,293项离线回归通过、13项联网排除；91源码/原85份、训练标签、原生账本与CRC已复核，读取校验异常及仅登记更正的完整历程见报告。真实稀疏selector、截面条件辅助训练、风险奖励和实际成交适配仍待下一轮研究。
 
 已完成：[纯行情摘要优化预注册](ppo_market_summary_protocol_20261007.md)、[报告](reports/ppo_market_summary_20261007.md)及[摘要](reports/ppo_market_summary_20261007_summary.md)。同初始函数的三臂完成18次训练、147,456实际RL步、36快照和192条验证路径；attention收益近似mean，dispersion在2024改善但2023退步，无跨折稳定增益或合格候选。最终967项离线回归通过、13联网排除；源码、原生账本和产物身份复核通过。没有更换Actor/奖励、默认模型或评估保护期，后续交易与风险研究见笔记。
 
