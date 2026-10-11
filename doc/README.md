@@ -1,5 +1,7 @@
 # 项目文档索引
 
+进行中：[排序动作与rank辅助PPO预注册](ppo_priority_rank_protocol_20261011.md)、[报告](reports/ppo_priority_rank_20261011.md)及[摘要](reports/ppo_priority_rank_20261011_summary.md)。3N数量/优先级对照与训练期标签辅助任务，16K长预算、24次正式试验、393,216计划RL步；工程离线准入1,293项通过、13项联网排除，正式训练待执行，不预填收益。真正预算感知稀疏选择与风险奖励不混入本轮。
+
 已完成：[纯行情摘要优化预注册](ppo_market_summary_protocol_20261007.md)、[报告](reports/ppo_market_summary_20261007.md)及[摘要](reports/ppo_market_summary_20261007_summary.md)。同初始函数的三臂完成18次训练、147,456实际RL步、36快照和192条验证路径；attention收益近似mean，dispersion在2024改善但2023退步，无跨折稳定增益或合格候选。最终967项离线回归通过、13联网排除；源码、原生账本和产物身份复核通过。没有更换Actor/奖励、默认模型或评估保护期，后续交易与风险研究见笔记。
 
 后续候选：[纯行情摘要研究笔记](market_summary_research_notes_20261007.md)。区分相对强弱、市场广度、条件注意力、集合交互、风险及多尺度摘要，包含初始化、数据和Actor执行瓶颈；除本轮三臂外均未实现，不代表收益已提高。

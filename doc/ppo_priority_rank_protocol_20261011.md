@@ -49,7 +49,7 @@ loss = clipped_PPO + vf_coef*value_MSE + ent_coef*entropy_loss
        + lambda_rank*rank_Huber
 ```
 
-plain方法lambda_rank=0；rank方法=.05，每次实际被接受的PPO更新从独立train-only池抽1,024个stock-date样本。辅助预测仅用market_encoder和signal head，不读账户，不将未来标签放入观察或直接变成交易先验。
+plain方法lambda_rank=0；rank方法=.05，Huber delta固定为.1，每次实际被接受的PPO更新从独立train-only池抽1,024个stock-date样本。辅助预测仅用market_encoder和signal head，不读账户，不将未来标签放入观察或直接变成交易先验。原始辅助梯度范数可另作只读autograd诊断，不追加optimizer；监督计算成本单独披露。
 
 保留优势归一化、联合概率ratio/clip、GAE、value loss、targetKL和全局gradclip。辅助抽样在KL检查通过之后，使用独立NumPy RNG，不消耗PPO shuffle、日期、账户或K随机流。没有单独aux Adam，也不在PPO训练后偷偷追加encoder更新。lambda=0的新class应与原PPO合成重放等价。
 
