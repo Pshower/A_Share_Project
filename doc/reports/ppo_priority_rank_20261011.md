@@ -8,7 +8,7 @@
 
 上一轮 144 条训练模型验证路径中，BUY 名义金额仅 2.8707% 穿过映射，映射后非零成交率为 99.835%。这是旧研究的描述性执行诊断，不是本轮结果，也不证明减少过滤必然增加收益。新研究必须以真实执行后的扣成本收益、风险和初始化增量验证，而不是只提高请求利用率。
 
-协议 [预注册](../ppo_priority_rank_protocol_20261011.md) 已以 `b8a4237` 先行提交；工程基线为 `9a52851`。正式 prepare 已实际 exit 0，注册 Git 为 `9a52851cd52120f5abdedcd02c82416c5ec79f72`、dirty=true，冻结 **91 份源码，原85份未改**，核实总参数125,322。dirty 标记如实保留，不声称工作树全净；正式模型逐份 metadata Git 在封存后另列。
+协议 [预注册](../ppo_priority_rank_protocol_20261011.md) 已以 `b8a4237` 先行提交；工程基线为 `9a52851`。正式 prepare 已实际 exit 0，注册 Git 为 `9a52851cd52120f5abdedcd02c82416c5ec79f72`、dirty=true，冻结 **91 份 `src` Python 源码，原85份未改**，该计数不含tests/tools；核实总参数125,322。dirty 标记如实保留，不代表冻结源码变化，也不声称工作树全净；正式模型逐份 metadata Git 在封存后另列。
 
 [机器登记](../../reports/runs/ppo_priority_rank_20261011_16k/protocol.json) 已固定两折原输入、标签池、预算和源码 SHA；冻结协议文档 SHA256 为 `c0557670ab546f686a115b584be01d55bb09f2e87dfe699d064f049b204f81d1`。完成进度写在报告，不回改已冻结协议或源码。
 
@@ -132,6 +132,18 @@ CUDA、torch_threads1，actor gain0.1，quantity/priority initial log_std=-0.7�
 
 合成硬件 benchmark 的 batch128 更新测得：CPU4 线程 **371.83 ms**，CUDA **20.309 ms**，该内核 GPU 约快 **18.3 倍**。它不使用金融数据，不是金融 pilot，也不保证环境推进、账本、轨迹写盘和评估的整体墙钟同样加速。本轮按协议使用 CUDA/torch_threads1，并记录实际运行耗时及设备。
 
+## 轨迹完整性事故
+
+**当前状态：独立恢复获批，最终执行待两个 worker 正常结束。canonical 原件暂未改动，不将候选重建件称为已恢复封口。** 本节只披露完整性处理，不填写中途收益。
+
+`2023_coupled_ppo_42` 的首个 training chunk `steps_000001_000512.npz` 出现压缩内容单 bit 损坏，67 个 ZIP member 中只有 `opening_valuation_prices.npy` CRC 失败。损坏文件 SHA256 为 `58b2299be29129525bc9155a4763bfe1f495802377152fdea0493ac2d8dec16f`；训练时 index、short/long 快照及两条 row-prefix 记录一致要求原 SHA256 `c88750f4a6f30fd93505b26d6a9a93010a0dc0710936a23a722aa0c9a0e1f5df`。
+
+runtime 构造非权威恢复候选，仅将文件 offset5,221,314 的一个字节由 `0x75` 改为 `0xF5`（xor `0x80`，1 bit）。候选完整 SHA **精确恢复上述训练时原 SHA**，不是修改索引 hash 来接受不同 payload。独立审计核验全部512×300价格与冻结 prices parquet及CRC有效同轨迹字段一致、67 member CRC全部通过、5个原登记锚一致，已批准原字节恢复。
+
+扩大健康扫描检查161个稳定NPZ（112已封口、49未封口），仅发现这一文件异常；未封口文件的健康扫描不能算正式完成审计。损坏原因仍未确定，不归咎GPU、存储或其他硬件，也不将确切原字节重建等同于根因定位。
+
+候选、证明和独立审批均保存在 [forensics重建证明](../../reports/runs/ppo_priority_rank_20261011_16k/forensics/2023_first_chunk_recovery_proof.json) 与 [独立审批](../../reports/runs/ppo_priority_rank_20261011_16k/forensics/independent_recovery_approval.json)。计划等两个worker正常退出后，保留损坏原件、旧completed marker和worker receipt，恢复确切原bytes，并记录透明lineage amendment后重新封口。当前不静默覆盖canonical，不改冻结源码/协议，不增加RL、推理、梯度、optimizer或重新训练来掩盖事故；恢复执行结果待记录。
+
 ## 评估规则
 
 先平均同 seed 四账户，再平均同 seed 两折，最后对三个 seed 求均值和样本 SD。分别报告每折/每 seed、short/long、初始化增量、动作和方法主效应、四个条件效应及交互；六个 fold/seed、48 个快照不能伪装成独立种子。
@@ -145,6 +157,7 @@ CUDA、torch_threads1，actor gain0.1，quantity/priority initial log_std=-0.7�
 - 已提交预注册和工程基线；针对性、root 集成及全仓离线验收均已通过。
 - 正式 prepare exit0，91源码、两折数据与标签池身份已冻结；2023/2024两个正式worker已启动，按24 trial × 16,384步固定预算执行。
 - 正式训练进行中，尚不填写未封存的实际总RL/Adam/辅助曝光、48快照、收益/风险/初始化对照或候选。
+- 一个首chunk压缩bit完整性事故已获得独立确切原字节恢复审批；canonical暂未改，恢复/透明重新封口待两个worker正常结束。
 - 待正式产物封存后生成模型索引、对照图、完整汇总和独立审计，再更新摘要与本报告。
 
 本轮没有实现真实 autoregressive 稀疏选择、风险 reward、BC 预训练、GRU 或条件 attention，也没有新增下载数据。即使研究完成，未见时期、未见股票与真实成交/公司行为账本仍须补齐，不能将工程通过当成每日实盘配置目标达成。
