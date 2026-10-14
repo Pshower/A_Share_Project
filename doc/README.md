@@ -1,5 +1,7 @@
 # 项目文档索引
 
+进行中：[多步收益归因协议](ppo_timing_credit_protocol_20261015.md)与[研究记录](reports/ppo_timing_credit_20261015.md)。固定动作、数据、参数量与初始化，进行奖励×GAE lambda的2×2实验；计划八组筛选，仅通过开发门槛才开展六组多种子确认。预算不是已执行步数，实际进度和结果见研究记录。
+
 已完成：[调仓初始化强度协议](ppo_timing_margin_protocol_20261014.md)、[报告](reports/ppo_timing_margin_20261014.md)与[摘要](reports/ppo_timing_margin_20261014_summary.md)。六trial完成49,152 RL步、1,920次Adam，较弱margin改变了行为却未跨折改善：0.5在2023差-5.427832pp、2024差+0.328781pp；最终未准入，确认0、不部署。margin2新训练精确复现旧参数/轨迹；最终独审通过并签署3,244文件，旧96源码及前轮输入未改。
 
 已完成：[规则锚定调仓控制器协议](ppo_timing_protocol_20261014.md)、[详细报告](reports/ppo_timing_20261014.md)与[摘要](reports/ppo_timing_20261014_summary.md)。保留原20日动量股票引擎，RL学习HOLD/REBALANCE时机；10次训练、131,072 RL步、5,120次Adam。两确认折相对基线平均-0.942373个百分点，未胜出，不切换默认。单次跳过调仓节费但损失后续收益，不能仅由参数更新或正绝对收益认定成功；最终独审通过，2,259文件签名，原91源码不变，调仓decoder固定抽样与完整账本范围分别披露。

@@ -1,5 +1,7 @@
 # A 股日频强化学习交易 Pipeline
 
+进行中：[多步收益归因协议](doc/ppo_timing_credit_protocol_20261015.md)与[研究记录](doc/reports/ppo_timing_credit_20261015.md)。固定原动作、数据、12,805参数和初始化，比较净对数/相对对数奖励与GAE lambda 0.95/1.0的2×2组合；计划八组开发筛选共65,536 RL步，仅通过预登记门槛才运行六组多种子确认。正式训练前提交协议与运行器，实际结果另报，不改变既有基线或保护期。
+
 已完成：[调仓初始化强度协议](doc/ppo_timing_margin_protocol_20261014.md)、[报告](doc/reports/ppo_timing_margin_20261014.md)与[摘要](doc/reports/ppo_timing_margin_20261014_summary.md)。六trial完成49,152 Agent RL步、同量独立基线步及1,920次Adam；0.5在2023/2024基线差为-5.427832/+0.328781pp，1为-1.164668/0pp，2仍等于基线。探索和greedy变化增加却没有跨折增量，按登记筛选失败、确认0、不部署。margin2重新训练精确复现旧参数/原生轨迹；最终独审通过并签3,244文件，旧96源码和前轮已签输入未改。
 
 已完成：[规则锚定调仓控制器协议](doc/ppo_timing_protocol_20261014.md)、[详细报告](doc/reports/ppo_timing_20261014.md)与[摘要](doc/reports/ppo_timing_20261014_summary.md)。129维、12,805参数categorical策略固定原M20股票引擎，只学习HOLD/REBALANCE时机。10次训练完成131,072 Agent RL步、131,072独立基线步、5,120次Adam；2025净ROI11.2092%与基线相同，2026为18.9886%而基线20.8733%，两折平均增量-0.942373个百分点，未通过门槛、不部署。唯一确认动作偏离节费但损失后续收益，不把参数变化当学习成功；最终独审通过并签名2,259文件，完整账本核对与调仓decoder固定抽样范围分别记录。
