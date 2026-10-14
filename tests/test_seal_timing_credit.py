@@ -243,3 +243,35 @@ def test_incomplete_worker_receipt_cannot_seal(frozen):
     with pytest.raises(ValueError, match="Worker receipt is not complete"):
         tool.seal(study)
     assert not (study / "final_audit.json").exists()
+
+
+def test_native_windows_source_keys_match_parent_posix_without_rewriting_protocol(frozen):
+    study, _, _ = frozen
+    protocol = tool.read(study / "protocol.json")
+    protocol["source_hashes"] = {str(tool.PureWindowsPath(name)): digest for name, digest in protocol["source_hashes"].items()}
+    write(study / "protocol.json", protocol)
+    before = (study / "protocol.json").read_bytes()
+    for folder in ("credit_all", "credit_counterfactual"):
+        path = study / "diagnostics" / folder / "diagnostics.json"
+        diagnostic = tool.read(path)
+        diagnostic["protocol_sha256"] = tool.sha(study / "protocol.json")
+        write(path, diagnostic)
+    result = tool.seal(study)
+    assert result["source_count"] == 96
+    assert (study / "protocol.json").read_bytes() == before
+    assert all("\\" not in name for name in result["signed_files_sha256"])
+
+
+@pytest.mark.parametrize("name", [r"C:\src\agents\a.py", r"\src\agents\a.py", r".\src\agents\a.py",
+    r"src\..\agents\a.py", r"src\.\agents\a.py", r"src\\agents\a.py", r"src\agents/a.py",
+    "src/./agents/a.py", "../src/agents/a.py", "/src/agents/a.py", "src/agents/a.py:stream"])
+def test_registered_source_paths_reject_absolute_drive_dot_and_noncanonical_forms(name):
+    with pytest.raises(ValueError):
+        tool.canonical_source_hashes({name: "0" * 64})
+
+
+def test_registered_source_alias_conflicts_are_rejected():
+    with pytest.raises(ValueError, match="alias"):
+        tool.canonical_source_hashes({r"src\agents\a.py": "0" * 64, "src/agents/a.py": "1" * 64})
+    with pytest.raises(ValueError, match="alias"):
+        tool.canonical_source_hashes({r"src\agents\a.py": "0" * 64, "src/agents/A.py": "0" * 64})

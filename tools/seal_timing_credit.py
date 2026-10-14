@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import math
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import sys
 
 import numpy as np
@@ -82,6 +82,27 @@ def verify_files(files):
         require(alias not in aliases or aliases[alias] == expected, "Conflicting signed alias SHA: " + name)
         aliases[alias] = expected
         require(sha(path) == expected, "Signed file changed: " + name)
+
+
+def canonical_source_hashes(registered):
+    """Normalize the frozen native-Windows source registry, never its bytes."""
+    require(isinstance(registered, dict), "Registered source hashes must be a mapping")
+    result, aliases = {}, {}
+    for name, digest in registered.items():
+        require(isinstance(name, str), "Registered source path must be text")
+        path = PureWindowsPath(name) if "\\" in name else PurePosixPath(name)
+        require(not path.is_absolute() and not getattr(path, "drive", "") and not path.root
+                and ":" not in name and str(path) == name
+                and not any(part in (".", "..") for part in path.parts),
+                "Registered source path must be canonical and workspace-relative")
+        canonical = path.as_posix()
+        require(canonical.startswith("src/") and canonical.endswith(".py"), "Registered source is not a src Python file")
+        alias = canonical.casefold()
+        require(alias not in aliases or aliases[alias] == (canonical, digest), "Conflicting registered source alias")
+        aliases[alias] = (canonical, digest)
+        require(canonical not in result or result[canonical] == digest, "Conflicting registered source SHA")
+        result[canonical] = digest
+    return result
 
 
 def process_evidence(row):
@@ -232,7 +253,8 @@ def build_seal(study):
     add_file(files, parent_path, PARENT_SHA256)
     sources = {key: value for key, value in files.items() if key.startswith("src/") and key.endswith(".py")}
     actual_sources = {path.relative_to(ROOT).as_posix() for path in (ROOT / "src").rglob("*.py")}
-    require(len(sources) == 96 and set(sources) == actual_sources and sources == protocol["source_hashes"],
+    require(len(sources) == 96 and set(sources) == actual_sources
+            and sources == canonical_source_hashes(protocol["source_hashes"]),
             "Frozen 96-source set or bytes changed")
     progress_path = study / "independent_audit_progress.json"
     progress = read(progress_path)
