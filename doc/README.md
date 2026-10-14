@@ -1,6 +1,6 @@
 # 项目文档索引
 
-准备中：[结构与训练预算协议](ppo_timing_phase_budget_protocol_20261015.md)。linear/due残差Actor与8,192/32,768步矩阵，短为共享前缀，计划四次长训练；组件合成43项通过，runner及正式登记待完成，尚未真实行情训练。配对Q仍是另文候选。
+已登记、待训练：[结构与训练预算协议](ppo_timing_phase_budget_protocol_20261015.md)与[记录](reports/ppo_timing_phase_budget_20261015.md)。linear/due残差Actor与8,192/32,768步矩阵，短为共享前缀，计划四次长训练；组件43项、运行器及独审74项通过，3bb394e提交并prepare成功，真实训练0步。配对Q仍是另文候选。
 
 已完成：[多步收益归因协议](ppo_timing_credit_protocol_20261015.md)、[详细报告](reports/ppo_timing_credit_20261015.md)与[摘要](reports/ppo_timing_credit_20261015_summary.md)。八trial、65,536 RL步、2,560次Adam；relative_log/lambda1在2023比M20高0.977594pp、2024持平，其余三配置两折持平。局部增量未达到跨折准入，确认0、不晋升。四个短trace控制重新训练精确复现；128实际GAE全量重建误差0，终审通过并签4,676文件，旧96源码和前轮输入未改。
 
