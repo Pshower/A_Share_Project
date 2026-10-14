@@ -1,6 +1,6 @@
 # 调仓结构与训练预算研究记录
 
-日期：2026-10-15。状态：框架已完成合成验收并正式登记，两个fold worker已启动，筛选运行中；尚无worker退出或封口结果，不填中途收益或满预算完成次数。首次登记点真实金融步骤为0，启动后的实际步骤待封口核对，不把登记点0冒充实时计数。
+日期：2026-10-15。状态：已正式登记并运行，2023 linear在完成32K训练后发生最终状态哈希工程失败，worker实际exit1；2024 linear已封口，due训练仍活跃。原四run/八快照矩阵尚未完成，不作收益结论或固定选择，不将已付预算抹成0。首次登记点真实金融步骤为0仅是起点记录，不是实时计数。
 
 依据：[Credit详细报告](ppo_timing_credit_20261015.md)及[摘要](ppo_timing_credit_20261015_summary.md)。上一轮relative_log/lambda1在2023比基线高0.977594pp、2024持平，未达准入，确认0。本轮不改判该结果，另行检验架构与预算，规则见[训练前协议](../ppo_timing_phase_budget_protocol_20261015.md)。
 
@@ -65,4 +65,8 @@
 
 正式Adam、账户/日期/phase覆盖、评价路径、耗时/内存及模型索引待实际封口统计，不按计划反推完成次数。尚无筛选收益或选择结果，确认是否获授权仍待固定门槛，不提前称本轮screen_failed或准入成功。
 
-screen两独占fold工作进程50482/90201仍活跃。根代理最近仅报告两个linear训练进度各30,208/32,768步、Adam1,180；这不是封口的完成计数或收益结论，不预填131,072步、八快照或条件确认。匹配共享前缀和九张量模型的辅助冷审、分析及封存工具已完成上述验收，正式最终冷审和签章尚未完成。仅在四个长run及八快照完整封口后报告开发收益、固定选择和条件确认，不读取未封口中途收益选模。后续补详细账户、资源与独立审计；尚未有本轮候选模型或实盘建议。
+2023 worker session50482实际exit1，输出chunk984001：linear已达到32,768个Agent RL步、1,280次Adam，但最终capture在 `_json_state`→严格 `json_digest` 的nonfinite标量路径失败，final_model未保存、completed marker未生成。8K short模型、64个PPO buffer、64个bootstrap sidecar和Agent/基线各32K trace完整存在；文件存在不冒充完整审计通过或已封口正式样本。Broker合法拒单记录的 `price=NaN`、`filled=0` 可以进入history，原数组摘要已编码dtype/shape/SHA，scalar未编码是本次工程缺口；不因此补值或放宽模型finite检查。
+
+2024 worker session90201的linear已经completed并保存32K终点，已进入due训练且仍活跃。其状态与2023失败分别保留，尚不判原完整矩阵收益成功/失败，不读取任何未封口ROI。原尝试最终真实成本将在旧worker结束后另记，正式final_audit尚未生成，不伪造完成或补写旧最终模型。
+
+[状态哈希工程修复附录](../ppo_timing_phase_state_repair_protocol_20261015.md)提出新explicit driver及独立目录 `reports/runs/ppo_timing_phase_state_repair_20261015`，只对状态哈希scalar作typed NaN/+Inf/-Inf bit编码；原源码、冻结协议、模型/行情输入、动作、奖励、GAE和全部gate不变。修复正式样本须从头四次32K，新增131,072 RL及同量训练基线，原已付成本另计，不能借旧run充样本。附录尚待driver/验收/提交/prepare，不预填测试通过数、正式新步骤或ROI。尚无本轮候选模型或实盘建议。
