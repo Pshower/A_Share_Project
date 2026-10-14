@@ -1,6 +1,6 @@
 # 调仓结构与训练预算矩阵协议
 
-日期：2026-10-15。状态：正式prepare前草案，runner与独立验收完成后提交并冻结；目前没有本轮正式金融训练。最终父审计SHA由实际Credit唯一封存绑定，不借用未完成签章。结果另写报告，训练后不改本协议。
+日期：2026-10-15。状态：训练前登记，运行器与独立合成验收已完成，提交后由正式prepare冻结；目前没有本轮正式金融训练。父Credit唯一审计SHA为 `fd3449e3d0fcb2df87fa9cd3d87274fa3d93290bb77a3b8d111c5c04751e8955`，其4,676份签名输入与旧96源码保持不变。结果另写报告，训练后不改本协议。
 
 ## 依据与假设
 
@@ -52,3 +52,21 @@ Credit固定2×2筛选完成八trial、65,536 RL步。relative_log/lambda1在202
 独立核对全量账本、Box、macro概率、HOLD、CRC、GAE及四种账户指标；REBALANCE decoder固定每chunk首末真实调仓抽样，披露范围，不冒充全量decoder。分析比较同预算架构效应与同轨迹长短效应，不以单seed说明统计显著；反复使用同一价格历史不称新增原始数据。
 
 保存实际命令、退出码、测试和唯一最终签章。失败同样写详细报告/摘要、更新进度并提交；不回改当前Credit协议或其结果。配对Monte Carlo Q辅助、额外动作、额外观察和新奖励均不纳入本轮。
+
+## 实现验收与入口
+
+已实现 `tools/research_timing_phase_budget.py`、专用phase policy/agent及作者、独立测试。组件根代理合成联合43项通过（45.44秒）；最终运行器与独审根代理联合 **74项通过（32.35秒，exit0）**。人工PPO更新、fake归档和缓存样例不计真实金融经历。
+
+独审发现并修复指标role层索引、归档float32与完整唯一Adam参数坐标校验、初始到快照权重差值真实重算、Adam标量step类型及三个public入口提前冻结校验。已有阶段和旧签署产物不改；不得把仅有optimizer计数或保存的delta声明当作参数成长证明。
+
+在 `AShareGPU` 环境、仓库根目录执行，先登记再运行；两个fold worker分别独占两种架构目录。全worker封口后再聚合，未准入时不得执行confirm：
+
+```powershell
+python -B -u -m tools.research_timing_phase_budget --stage prepare
+python -B -u -m tools.research_timing_phase_budget --stage screen --fold 2023
+python -B -u -m tools.research_timing_phase_budget --stage screen --fold 2024
+python -B -u -m tools.research_timing_phase_budget --stage screen
+python -B -u -m tools.research_timing_phase_budget --stage report
+```
+
+`report` 在准入时要求六个确认run全部封口；此时先分别运行 `--stage confirm --fold 2025`、`--stage confirm --fold 2026`，再运行 `--stage confirm` 和报告。默认本轮目录为 `reports/runs/ppo_timing_phase_budget_20261015`，不覆盖前轮，保存加载默认为推理，训练只由显式stage执行。
