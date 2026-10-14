@@ -1,6 +1,6 @@
 # 项目文档索引
 
-已登记、待训练：[结构与训练预算协议](ppo_timing_phase_budget_protocol_20261015.md)与[记录](reports/ppo_timing_phase_budget_20261015.md)。linear/due残差Actor与8,192/32,768步矩阵，短为共享前缀，计划四次长训练；组件43项、运行器及独审74项通过，3bb394e提交并prepare成功，真实训练0步。配对Q仍是另文候选。
+工程修复中：[结构与训练预算协议](ppo_timing_phase_budget_protocol_20261015.md)及[原记录](reports/ppo_timing_phase_budget_20261015.md)保持冻结口径。2023 linear完成32,768步后最终状态摘要保存失败，exit1、无最终模型/完成标记；2024 linear已封口，due仍运行。318份失败证据已固定；[隔离修复附录](ppo_timing_phase_state_repair_protocol_20261015.md)仅修状态哈希标量编码，新目录四次32K重新训练，新增131,072 RL、旧成本另计。新driver和独审验收进行中，不读未封口收益或改选模/风险标准。配对Q仍是另文候选。
 
 已完成：[多步收益归因协议](ppo_timing_credit_protocol_20261015.md)、[详细报告](reports/ppo_timing_credit_20261015.md)与[摘要](reports/ppo_timing_credit_20261015_summary.md)。八trial、65,536 RL步、2,560次Adam；relative_log/lambda1在2023比M20高0.977594pp、2024持平，其余三配置两折持平。局部增量未达到跨折准入，确认0、不晋升。四个短trace控制重新训练精确复现；128实际GAE全量重建误差0，终审通过并签4,676文件，旧96源码和前轮输入未改。
 

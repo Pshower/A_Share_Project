@@ -1,6 +1,6 @@
 # A 股日频强化学习交易 Pipeline
 
-已登记、待训练：[结构与训练预算协议](doc/ppo_timing_phase_budget_protocol_20261015.md)与[研究记录](doc/reports/ppo_timing_phase_budget_20261015.md)。固定relative_log/lambda1，比较linear与新增109参数due残差Actor、8,192与32,768步；四次长训练的八个快照，短为共享前缀，计划131,072 RL步而非重复累计。组件合成43项、最终运行器/独审联合74项通过，提交3bb394e并prepare成功；真实训练当前0步。配对Q仍仅候选，不同时加入，不把框架验收当收益证据。
+工程修复中：[结构与训练预算协议](doc/ppo_timing_phase_budget_protocol_20261015.md)及[原记录](doc/reports/ppo_timing_phase_budget_20261015.md)保持研究口径。2023 linear实际训练32,768步后，最终状态摘要因合法拒单缺失价格标量而保存失败，exit1、无最终模型或完成标记；2024 linear已封口，due仍运行，不读未封口收益。318份失败证据已固定，新[隔离修复附录](doc/ppo_timing_phase_state_repair_protocol_20261015.md)仅修状态哈希编码，另目录从头四次32K，新增131,072 RL及同量基线步、旧成本另计。数据、Actor、奖励、全部选模/风险标准不变，新driver与独审验收尚在进行，不冒称收益目标达成。配对Q仍仅候选。
 
 已完成：[多步收益归因协议](doc/ppo_timing_credit_protocol_20261015.md)、[详细报告](doc/reports/ppo_timing_credit_20261015.md)与[摘要](doc/reports/ppo_timing_credit_20261015_summary.md)。八trial完成65,536 RL步、同量独立基线步及2,560次Adam；relative_log/lambda1在2023比M20基线高0.977594pp，2024持平，其他三配置两折持平。出现真实局部学习增量，但两折准入未达，确认0、不部署。四个lambda0.95控制重新训练精确复现，128实际GAE缓冲区全量重算误差0；唯一终审通过并签4,676文件，旧96源码不变，完整账本核验与调仓decoder抽样范围分别披露。
 
