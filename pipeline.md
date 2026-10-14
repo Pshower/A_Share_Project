@@ -1,6 +1,8 @@
 # A 股日频强化学习交易 Pipeline
 
-进行中：[多步收益归因协议](doc/ppo_timing_credit_protocol_20261015.md)与[研究记录](doc/reports/ppo_timing_credit_20261015.md)。固定原动作、数据、12,805参数和初始化，比较净对数/相对对数奖励与GAE lambda 0.95/1.0的2×2组合；计划八组开发筛选共65,536 RL步，仅通过预登记门槛才运行六组多种子确认。正式训练前提交协议与运行器，实际结果另报，不改变既有基线或保护期。
+准备中：[结构与训练预算协议](doc/ppo_timing_phase_budget_protocol_20261015.md)。固定relative_log/lambda1，比较linear与新增109参数due残差Actor、8,192与32,768步；四次长训练的八个快照，短为共享前缀，计划131,072 RL步而非重复累计。policy/白名单agent组件合成联合43项通过，正式矩阵runner待实现与登记；配对Q仍仅候选，不同时加入，尚无本轮真实行情训练。
+
+已完成：[多步收益归因协议](doc/ppo_timing_credit_protocol_20261015.md)、[详细报告](doc/reports/ppo_timing_credit_20261015.md)与[摘要](doc/reports/ppo_timing_credit_20261015_summary.md)。八trial完成65,536 RL步、同量独立基线步及2,560次Adam；relative_log/lambda1在2023比M20基线高0.977594pp，2024持平，其他三配置两折持平。出现真实局部学习增量，但两折准入未达，确认0、不部署。四个lambda0.95控制重新训练精确复现，128实际GAE缓冲区全量重算误差0；唯一终审通过并签4,676文件，旧96源码不变，完整账本核验与调仓decoder抽样范围分别披露。
 
 已完成：[调仓初始化强度协议](doc/ppo_timing_margin_protocol_20261014.md)、[报告](doc/reports/ppo_timing_margin_20261014.md)与[摘要](doc/reports/ppo_timing_margin_20261014_summary.md)。六trial完成49,152 Agent RL步、同量独立基线步及1,920次Adam；0.5在2023/2024基线差为-5.427832/+0.328781pp，1为-1.164668/0pp，2仍等于基线。探索和greedy变化增加却没有跨折增量，按登记筛选失败、确认0、不部署。margin2重新训练精确复现旧参数/原生轨迹；最终独审通过并签3,244文件，旧96源码和前轮已签输入未改。
 
