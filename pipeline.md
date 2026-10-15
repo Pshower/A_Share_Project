@@ -1,6 +1,6 @@
 # A 股日频强化学习交易 Pipeline
 
-工程修复已验收、待登记：[原记录](doc/reports/ppo_timing_phase_budget_20261015.md)保留2023最终保存失败与2024两run完成；三次原尝试消耗98,304 RL及同量基线步、3,840次记录Adam，原矩阵未完成、不选模。318份失败证据固定，新[修复附录](doc/ppo_timing_phase_state_repair_protocol_20261015.md)及[研究记录](doc/reports/ppo_timing_phase_state_repair_20261015.md)只修状态哈希编码，新旧框架237项联合离线通过。独立新目录尚未prepare、未正式重跑，计划新增四次32K而不借旧样本；数据/Actor/奖励/全部门槛保持不变。用户的数据改进建议已审阅并列为其他研究分支，不原位替换旧特征、不自动采集或宣称已战胜基线。
+修复版正式筛选训练已启动：[修复协议](doc/ppo_timing_phase_state_repair_protocol_20261015.md)及[运行记录](doc/reports/ppo_timing_phase_state_repair_20261015.md)已登记独立目录，237项联合离线验收和登记独审通过。2023/2024两个AShareGPU后台worker实际采样与优化，监督器保存日志及真实退出回执；先linear再due，共计划四次32K、131,072新增RL步，未完成不预填结果。原尝试98,304步与失败成本另计，不借旧样本；数据、Actor、奖励和全部选模/风险门槛不变。新数据建议仍为独立分支，不自动采集、换版或声称已战胜基线。
 
 已完成：[多步收益归因协议](doc/ppo_timing_credit_protocol_20261015.md)、[详细报告](doc/reports/ppo_timing_credit_20261015.md)与[摘要](doc/reports/ppo_timing_credit_20261015_summary.md)。八trial完成65,536 RL步、同量独立基线步及2,560次Adam；relative_log/lambda1在2023比M20基线高0.977594pp，2024持平，其他三配置两折持平。出现真实局部学习增量，但两折准入未达，确认0、不部署。四个lambda0.95控制重新训练精确复现，128实际GAE缓冲区全量重算误差0；唯一终审通过并签4,676文件，旧96源码不变，完整账本核验与调仓decoder抽样范围分别披露。
 

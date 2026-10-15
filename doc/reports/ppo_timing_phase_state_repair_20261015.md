@@ -1,6 +1,6 @@
 # 调仓状态修复与架构预算研究记录
 
-日期：2026-10-15。状态：独立wrapper及联合工程验收已完成，新研究目录已实际prepare成功，登记独立核验亦通过；尚未验证启动训练worker。此prepared核实点的正式训练、评价、确认步骤均为0；它不是未来worker启动后的实时计数。尚无本轮收益、模型索引或候选，不读取原目录任何未封口ROI。
+日期：2026-10-15。状态：新研究目录已prepare、登记独立核验通过，2023/2024正式筛选worker已实际启动，日志已确认采样和Adam更新；两Python进程存活、均未收到真实退出回执。当前仍是linear训练，尚未完成四run/八快照，不预填未来预算；prepare时0步仅是起点记录。尚无本轮封口收益、模型索引或候选，不读取任何未封口ROI。
 
 本报告独立于原尝试，可变的人类进度不回写冻结协议或正式叶文件。设计依据[工程修复附录](../ppo_timing_phase_state_repair_protocol_20261015.md)，原方法遵循[架构与预算协议](../ppo_timing_phase_budget_protocol_20261015.md)。原事故与进度见[原研究记录](ppo_timing_phase_budget_20261015.md)；本轮从头执行，不能将原已有模型或32K经历作为新样本。
 
@@ -96,7 +96,33 @@ due_phase_residual只给REBALANCE logit增加 `phase_0 * (u_due · context)`，c
 
 登记独立审计session77863实际exit0、输出5ae775，状态passed、scope为 `frozen_registration`，协议SHA与上述一致；进度文件SHA为 `3904a414113af0316f812c08ed477abc9f2ddfdee85eb7de02f8781743a28005`。父4,676输入、原96源码、repair10库存及失败318保留文件均核对通过。此次模型实例、神经前向、环境步、梯度、optimizer和登记leaf写入均为0，不是正式训练或收益验收。
 
-该prepare/登记核实点 `runs_exists=false`：实际目录有协议、prepared状态及只读登记审计进度记录，尚无训练run。本轮Agent RL、训练基线、Adam、模型与评价计数此刻均为0；旧尝试Agent/基线各98,304步仍另列，不借作新样本。新两个worker等待launcher验证，尚不登记PID或运行步数；后续启动将以新回执替换状态，不把这张0步记录当实时进度。
+该prepare/登记核实点曾为 `runs_exists=false`：当时目录有协议、prepared状态及只读登记审计进度记录，尚无训练run；Agent RL、训练基线、Adam、模型与评价计数均为0。这是已发生的起点记录，不是以下启动后的实时状态。旧尝试Agent/基线各98,304步仍另列，不借作新样本。
+
+### 正式后台筛选启动
+
+持久化launcher与prepared报告提交 `fc450a7`。首次裸PowerShell脚本因本机RemoteSigned限制被拒，根代理输出c1c298、exit1；脚本未执行，没有遗留后台worker。仅作过程级ExecutionPolicy设置的修正提交 `5128c9a` 后，两个启动过程均实际exit0，不修改系统或用户全局执行策略。
+
+最终 `tools/start_phase_state_repair.ps1` SHA为 `d24717d2455703b8d81ca609d23e5d4ef1e6667ab226a1b99e0da924b260ff7a`，不是作者早期8131开头版本。启动命令为：
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tools\start_phase_state_repair.ps1 -Fold 2023
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tools\start_phase_state_repair.ps1 -Fold 2024
+```
+
+| fold | 根代理启动过程 | supervisor PID | 实际Python PID | started UTC |
+| --- | --- | ---: | ---: | --- |
+| 2023 | session60388，exit0，输出878c0e | 6836 | 46492 | 2026-10-15T15:17:35.503399+00:00 |
+| 2024 | session95935，exit0，输出229abd | 34772 | 46676 | 2026-10-15T15:18:24.050988+00:00 |
+
+根代理native CIM核对输出de1612确认上述两Python进程正在以 `-B -u` 运行已冻结的 `tools/research_timing_phase_budget_repaired.py`，`--stage` 为screen、`--output` 指向本轮修复root、`--fold` 为对应年份。两个 `background/screen_<fold>.started.json` 已存在；尚无真实exit回执，stdout/stderr在该启动核实点为空只是startup状态，不说明失效，也不证明任何预算已完成。
+
+日志相对本轮正式root位于 `background/screen_2023.stdout.log`、`background/screen_2024.stdout.log`，各有对应stderr日志。supervisor会持续托管各fold的linear、due及对应本地评价，仅执行screen，不自动aggregate、确认或晋升。真实子进程终止后才写 `background/screen_<fold>.exit.json`；该托管回执的 `root_observed_exit=false` 不冒充根代理亲自观察到训练退出，后续还需核验回执与封口文件。
+
+根代理实际监控5a03b4退出0时，2023 linear已2,048/32,768步、Adam80，2024已1,536步、Adam60；均alive、stderr0、无exit或supervisor_error。随后独立只读核验39811c/2cd75e退出0，2023为3,584步/Adam140、2024为3,072步/Adam120，均已越过首次512步/Adam20；恰好两Python及两supervisor，claim/token/脚本SHA/协议匹配，无重复进程。两个初始模型metadata实际clock0、CPU、96源码、完整新协议与driver身份一致。这些是各自读取时的进度点，不是自动更新的实时总量或完成结果；未额外加载网络、读取ROI或执行环境步。
+
+全局 `status.json` 暂保留prepare阶段状态，screen worker独占各自run及回执，不据此误判训练未启动；运行中以后台日志、实际进程和worker回执核对。全部四个物理run封口后，才通过冻结driver汇总screen和决定是否授权确认。
+
+上述是独立外部进程托管机制，以脚本Git/SHA和启动回执绑定，不是新增模型方法或改写repair科学库存10。机器协议文件SHA仍为 `24e7e54419bbc98c97c232187d765ff041be02cbe10f4709fc7db86205785a46`，原96源码与冻结输入不变。本次仅记录启动证据，暂不填写实际RL、Adam、评价步数或中途收益。
 
 最终报告待四physical/八paired snapshot全部封口后写架构×预算经济表、逐账户净ROI/成本/回撤、原生行为、模型路径、RL/基线/Adam/评价去重计数、资源、控制复现和条件确认实际次数。独立冷审核对全Box/账本/macro概率/HOLD/CRC/GAE，decoder首末固定抽样另披露，不冒称全量重解码；最终唯一签章尚不存在。本批尚无候选，不改变默认模型或自动部署，后续配对Q/额外动作不纳入。
 
