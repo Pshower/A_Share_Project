@@ -153,7 +153,8 @@ if (-not $Worker) {
         launch_token = $token; launcher_sha256 = $launcherSha; registration_sha256 = $registrationSha
         requested_utc = [DateTimeOffset]::UtcNow.ToString('o'); executable = $python; arguments = $arguments }
     $shell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $supervisorArgs = '-NoProfile -NonInteractive -File "{0}" -Fold {1} -Worker -LaunchToken {2}' -f $launcherPath, $Fold, $token
+    # Only this reviewed supervisor process; never changes user or machine policy.
+    $supervisorArgs = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -Fold {1} -Worker -LaunchToken {2}' -f $launcherPath, $Fold, $token
     $supervisor = Start-Process -FilePath $shell -ArgumentList $supervisorArgs -WorkingDirectory $repository -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $background ($prefix + '.supervisor.stdout.log')) `
         -RedirectStandardError (Join-Path $background ($prefix + '.supervisor.stderr.log')) -PassThru
