@@ -40,7 +40,7 @@
 
 该轮已完成：[新浪沪深300报告摘要](reports/sina_hs300_20260927_summary.md) 与 [详细报告](reports/sina_hs300_20260927.md)。模型训练成功但未证明策略优势，未晋升默认。
 
-更新日期：2026-10-07
+更新日期：2026-10-15
 
 建议先读 [项目 Pipeline](../pipeline.md)，再看 [实施进度与验收记录](implementation_plan.md)。阶段四已完成框架及 32 只股票的轻量训练和冻结测试，但尚未证明策略优势。最新结果见 [报告摘要](reports/ppo_lightweight_20260925_summary.md) 和 [详细报告](reports/ppo_lightweight_20260925.md)。
 
@@ -68,6 +68,7 @@
 | [training_data_linkage.md](training_data_linkage.md) | 多股训练日期交集、观察窗口、原始行情与下载批次关联 | 理解为何某些股票不能进入旧训练区间，以及怎样关联新数据版本 |
 | [feature_builder_plan.md](feature_builder_plan.md) | 数据管理追加特征、预览、新版本构建及模型兼容 | 首版已实现；含规划、使用步骤及真实构建验收 |
 | [akshare_download_expansion.md](akshare_download_expansion.md) | AKShare 可选数据、五类扩展下载、独立归档和后续候选 | 用户手动采集资料 / 资金流 / 分钟 / 指数 / 分红，不自动进入训练 |
+| [training_data_improvement_plan.md](training_data_improvement_plan.md) | 训练数据可得性探测、缺口替代方案与改进建议；设计稿，未实施 | 评估扩充训练数据、改造股票池 / 价格口径或补交易状态时 |
 | [data_feature_ppo_integration_plan.md](data_feature_ppo_integration_plan.md) | 数据需求、特征方案、版本发布与 PPO 的统一实验流程 | 下一步集成设计；含准入、任务编排、恢复与落地顺序，尚未实施 |
 | [ppo_training_improvement_plan.md](ppo_training_improvement_plan.md) | 超参数、训练监控、模型评价、选模与训练方法改进 | 核心工程已接入；算法候选和实现边界另行标记 |
 | [experiment_workbench_runbook.md](experiment_workbench_runbook.md) | 数据与 PPO 实验流程、参数、监控、评价及实现边界 | 已实现核心工程；明确区别于待研究的算法和扩展数据适配 |
