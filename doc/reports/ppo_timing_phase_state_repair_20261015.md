@@ -1,6 +1,6 @@
 # 调仓状态修复与架构预算研究记录
 
-日期：2026-10-15。状态：独立wrapper及联合工程验收已完成，新研究目录尚未prepare。此预注册核实点的正式训练、评价、确认步骤均为0；它不是未来worker启动后的实时计数。尚无本轮收益、模型索引或候选，不读取原目录任何未封口ROI。
+日期：2026-10-15。状态：独立wrapper及联合工程验收已完成，新研究目录已实际prepare成功，登记独立核验亦通过；尚未验证启动训练worker。此prepared核实点的正式训练、评价、确认步骤均为0；它不是未来worker启动后的实时计数。尚无本轮收益、模型索引或候选，不读取原目录任何未封口ROI。
 
 本报告独立于原尝试，可变的人类进度不回写冻结协议或正式叶文件。设计依据[工程修复附录](../ppo_timing_phase_state_repair_protocol_20261015.md)，原方法遵循[架构与预算协议](../ppo_timing_phase_budget_protocol_20261015.md)。原事故与进度见[原研究记录](ppo_timing_phase_budget_20261015.md)；本轮从头执行，不能将原已有模型或32K经历作为新样本。
 
@@ -73,11 +73,30 @@ due_phase_residual只给REBALANCE logit增加 `phase_0 * (u_due · context)`，c
 
 ## 注册与当前进度
 
-修复附录与原失败人类记录先行提交 `65d40e1`，新driver为 `tools/research_timing_phase_budget_repaired.py`，配套 `tests/test_timing_phase_state_repair.py` 与 `tests/test_timing_phase_state_repair_review.py` 已完成。根代理十份新旧框架及辅助测试实际session35708、exit0（d17d2c）：237 passed、63.98秒。作者/独审另一次61项、51.39秒不与该运行相加；均非金融经历。正式root `reports/runs/ppo_timing_phase_state_repair_20261015` 尚未prepare，无本轮正式训练、评价、确认模型或收益。
+修复附录与原失败人类记录先行提交 `65d40e1`，新driver为 `tools/research_timing_phase_budget_repaired.py`，配套 `tests/test_timing_phase_state_repair.py` 与 `tests/test_timing_phase_state_repair_review.py` 已完成。根代理十份新旧框架及辅助测试实际session35708、exit0（d17d2c）：237 passed、63.98秒。作者/独审另一次61项、51.39秒不与该运行相加；均非金融经历。根代理prepare session30574实际exit0、输出306698，正式root `reports/runs/ppo_timing_phase_state_repair_20261015` 已登记为prepared。
 
-拟登记的 `engineering_repair` 将绑定新driver、两测试、冻结附录、原辅助审计/分析/封存工具及测试、失败manifest和原core身份。原机器协议SHA `f8fba8ec1616f5f23dfc15ba18153ccacce3bc108c772f0d019a7f1a10e717c3`，原core runner SHA `9c54115cff7a88e4b0c668fff073d7aaaa3c3336c6e40ae5cc80b42c3db7826a`，父Credit终审 `fd3449e3d0fcb2df87fa9cd3d87274fa3d93290bb77a3b8d111c5c04751e8955`；原96源码与4,676父签输入保持不变。
+实际[修复版机器协议](../../reports/runs/ppo_timing_phase_state_repair_20261015/protocol.json)文件SHA为 `24e7e54419bbc98c97c232187d765ff041be02cbe10f4709fc7db86205785a46`，注册Git为 `29fdc89a6f29878313ce412c895b74d63f17b5a1`、dirty=true。保留用户IDE/PDF等已有变更，不擅自回退；同提交中的用户建议文档与索引不是本轮新特征、数据或科学输入。协议身份以实际登记逐文件SHA为准，不以dirty标记代替来源核验。
 
-新协议顶层使用新driver SHA，旧普通入口应拒绝。只有显式context以不写文件/不传模型的只读core视图验证旧runner身份，随后验证完整repair扩展；真实配置和模型绑定完整新协议及新driver，不把两身份混用。实际协议文件SHA、Git、测试退出与新root身份须在正式prepare成功后填入，不从草案推定。
+`engineering_repair` 版本为 `typed_nonfinite_scalar_bits_v2`，已绑定10份新driver/两测试/修复附录/原辅助审计分析封存工具及其测试，以及318文件失败manifest和原core身份。关键身份如下：
+
+| 登记输入 | 实际SHA256 |
+| --- | --- |
+| 新driver，亦为新协议顶层tool_sha256 | `8850bd2cb1180c2eb811958dd84a244bd450664ecebe57f7984c71b0212c26d6` |
+| 修复作者测试 | `85a911031e2c1e70eb52df1ffc0267baf424e95a71a2f3b3e5f68704f88bbc89` |
+| 修复独立测试 | `192acc6810fc6bb48f1bc02d6716982a141b28d7d01e33b64eddcb1a4572fa43` |
+| 修复附录 | `b2cb5a3959dff02db57fde01701fce3d1e05fba04a36c313da051dd9e3d5f540` |
+| 原core架构预算人类协议，仍为顶层document_sha256 | `21596c50dc0aa50b1eaee326abb7fd5fc54ecdcb5c200a9abf66abbdc29a1de9` |
+| 原core机器协议 | `f8fba8ec1616f5f23dfc15ba18153ccacce3bc108c772f0d019a7f1a10e717c3` |
+| 原core runner | `9c54115cff7a88e4b0c668fff073d7aaaa3c3336c6e40ae5cc80b42c3db7826a` |
+| 父Credit唯一终审 | `fd3449e3d0fcb2df87fa9cd3d87274fa3d93290bb77a3b8d111c5c04751e8955` |
+
+全部96份原源码、原component/helper/test库存及4,676父签输入保持不变；10份repair库存的其余逐文件身份见机器协议，不用新driver SHA替代旧core身份，也不混用机器协议文件字节SHA与规范化JSON身份。
+
+新协议顶层使用新driver SHA，旧普通入口拒绝。只有显式context以不写文件/不传模型的只读core视图验证旧runner身份，随后验证完整repair扩展；真实配置和模型绑定完整新协议及新driver，不把两身份混用。以上身份来自prepare后实际机器协议，不从草案推定。
+
+登记独立审计session77863实际exit0、输出5ae775，状态passed、scope为 `frozen_registration`，协议SHA与上述一致；进度文件SHA为 `3904a414113af0316f812c08ed477abc9f2ddfdee85eb7de02f8781743a28005`。父4,676输入、原96源码、repair10库存及失败318保留文件均核对通过。此次模型实例、神经前向、环境步、梯度、optimizer和登记leaf写入均为0，不是正式训练或收益验收。
+
+该prepare/登记核实点 `runs_exists=false`：实际目录有协议、prepared状态及只读登记审计进度记录，尚无训练run。本轮Agent RL、训练基线、Adam、模型与评价计数此刻均为0；旧尝试Agent/基线各98,304步仍另列，不借作新样本。新两个worker等待launcher验证，尚不登记PID或运行步数；后续启动将以新回执替换状态，不把这张0步记录当实时进度。
 
 最终报告待四physical/八paired snapshot全部封口后写架构×预算经济表、逐账户净ROI/成本/回撤、原生行为、模型路径、RL/基线/Adam/评价去重计数、资源、控制复现和条件确认实际次数。独立冷审核对全Box/账本/macro概率/HOLD/CRC/GAE，decoder首末固定抽样另披露，不冒称全量重解码；最终唯一签章尚不存在。本批尚无候选，不改变默认模型或自动部署，后续配对Q/额外动作不纳入。
 
