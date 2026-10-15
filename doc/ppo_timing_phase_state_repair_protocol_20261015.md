@@ -1,12 +1,12 @@
 # 调仓预算实验状态哈希工程修复附录
 
-日期：2026-10-15。状态：新修复driver与独立验收完成前草案；尚未执行本附录下的正式训练。该附录只修工程状态编码，不改原冻结[架构与预算协议](ppo_timing_phase_budget_protocol_20261015.md)，也不依据未封口收益更改研究方法或选模规则。验收实际通过、提交与逐文件身份登记后，才允许prepare新目录。
+日期：2026-10-15。状态：新修复driver及联合合成验收已完成；尚未prepare或执行本附录下的正式训练。该附录只修工程状态编码，不改原冻结[架构与预算协议](ppo_timing_phase_budget_protocol_20261015.md)，也不依据未封口收益更改研究方法或选模规则。提交与逐文件身份登记后，才允许prepare新目录。
 
 ## 已观察事故
 
 原目录为 `reports/runs/ppo_timing_phase_budget_20261015`。2023 worker session50482实际exit1，输出chunk984001：linear已达到32,768个Agent RL步与1,280次Adam，最终capture在 `_json_state` 到严格 `json_digest` 的路径因nonfinite标量失败。未保存final_model、未生成该run的completed marker，因此不能当作已封口正式样本。
 
-其8,192步short模型、64个原PPO buffer、64个实际bootstrap sidecar及Agent/基线各32,768步训练trace完整存在。是否逐文件健康由事故证据manifest与后续只读核验披露，不将文件存在冒充完整科学审计通过。原2024 worker session90201的linear已completed并保存32K终点，随后进入due训练且仍活跃；不据此称原四run/八快照矩阵成功，也不读取未封口ROI判断方法好坏。
+其8,192步short模型、64个原PPO buffer、64个实际bootstrap sidecar及Agent/基线各32,768步训练trace完整存在。是否逐文件健康由事故证据manifest与后续只读核验披露，不将文件存在冒充完整科学审计通过。原2024 worker session90201已实际exit0（81fbdc），linear/due均completed并保存32K终点；原三次尝试消耗Agent RL与训练基线各98,304步、记录Adam3,840次，其中失败尾部960次未持久化。不据此称原四run/八快照矩阵成功，也不读取未封口ROI判断方法好坏。
 
 核心缺口是状态哈希标量编码：Broker拒单记录可以合法含 `price=NaN`、`filled=0`，随后进入history。原codec已用dtype/shape/字节SHA表示NumPy数组，但非有限scalar未编码，严格JSON摘要拒绝其原样进入。该工程异常不说明模型参数、模型输入、实际成交或奖励含有可接受的非有限数值。
 
@@ -44,4 +44,19 @@ Actor、129特征、Discrete(2)动作、初始映射权重、价格源、HFQ研�
 
 复验快照隔离、全部8/9张量Adam覆盖、真实权重变化、实际clock和两个fresh Credit控制要求。合成测试、函数恢复及保存加载验收不计正式金融经历，不预写通过数或收益。
 
-原2024 worker正常结束后，全部原尝试的真实成本与完成/失败状态分别记录，不混入修复样本或虚称原final_audit已生成。新研究结束后另行报告实际预算、模型/账户/资源、数值复现、固定选择、条件确认和唯一冷审/签章；失败同样如实保留。原4,676父签输入及任何新签文件封口后不再修改。
+全部原尝试的真实成本与完成/失败状态已在原目录 `engineering_attempt_costs.json` 和原研究报告分别记录，不混入修复样本或虚称原final_audit已生成。新研究结束后另行报告实际预算、模型/账户/资源、数值复现、固定选择、条件确认和唯一冷审/签章；失败同样如实保留。原4,676父签输入及任何新签文件封口后不再修改。
+
+## 实际工程验收与入口
+
+根代理联合运行原组件、原运行器与独审、新driver作者/独审、审计/分析/封存工具十份测试文件，实际session35708、退出结果d17d2c：**237 passed，63.98秒，exit0**。作者与独审另一次61项通过、51.39秒，不与根代理运行相加。上述是离线合成和冷读兼容验收，不是正式训练或收益证明；新目录仍不存在。
+
+在 `AShareGPU` 环境及仓库根目录显式执行：
+
+```powershell
+python -B -u -m tools.research_timing_phase_budget_repaired --stage prepare
+python -B -u -m tools.research_timing_phase_budget_repaired --stage screen --fold 2023
+python -B -u -m tools.research_timing_phase_budget_repaired --stage screen --fold 2024
+python -B -u -m tools.research_timing_phase_budget_repaired --stage screen
+```
+
+仅所有物理run与八快照封口后聚合；条件确认、report、audit、analyze及seal均通过同一显式driver，不从旧普通入口绕过工程扩展。新增数据、特征或执行口径建议是其他研究分支，不并入本工程修复协议；变更科学方法须另行登记。

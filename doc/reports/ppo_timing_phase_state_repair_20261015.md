@@ -1,6 +1,6 @@
 # 调仓状态修复与架构预算研究记录
 
-日期：2026-10-15。状态：工程修复附录已提交，独立wrapper及作者/独立测试仍在开发，新研究目录尚未prepare。此预注册核实点的正式训练、评价、确认步骤均为0；它不是未来worker启动后的实时计数。未填测试通过数、收益、模型索引或候选，不读取原目录任何未封口ROI。
+日期：2026-10-15。状态：独立wrapper及联合工程验收已完成，新研究目录尚未prepare。此预注册核实点的正式训练、评价、确认步骤均为0；它不是未来worker启动后的实时计数。尚无本轮收益、模型索引或候选，不读取原目录任何未封口ROI。
 
 本报告独立于原尝试，可变的人类进度不回写冻结协议或正式叶文件。设计依据[工程修复附录](../ppo_timing_phase_state_repair_protocol_20261015.md)，原方法遵循[架构与预算协议](../ppo_timing_phase_budget_protocol_20261015.md)。原事故与进度见[原研究记录](ppo_timing_phase_budget_20261015.md)；本轮从头执行，不能将原已有模型或32K经历作为新样本。
 
@@ -65,18 +65,32 @@ due_phase_residual只给REBALANCE logit增加 `phase_0 * (u_due · context)`，c
 
 ## 原工程事故与保留成本
 
-原2023 worker50482实际exit1、输出chunk984001；linear已经32,768 RL步、1,280次Adam，最终capture因 `_json_state`→strict `json_digest` 的非有限scalar失败。final_model未save、无completed；8K模型、64个buffer、64个sidecar及双book各32K trace存在。原2024 worker90201的linear已completed/final32K，随后due仍活跃。仅记录根代理已确认事实，不读取未封口收益或推断原完整矩阵绩效。
+原2023 worker50482实际exit1、输出chunk984001；linear已经32,768 RL步、1,280次Adam，最终capture因 `_json_state`→strict `json_digest` 的非有限scalar失败。final_model未save、无completed；8K模型、64个buffer、64个sidecar及双book各32K trace存在。原2024 worker90201已实际exit0、退出结果81fbdc，linear/due均completed并保存32K。仅记录已确认事实，不读取未封口收益或推断原完整矩阵绩效。
 
 合法拒单history可含 `price=NaN`、`filled=0`。工程修复仅增加状态哈希scalar的typed NaN/+Inf/-Inf bit编码，不补行情、不将NaN换成0、不改变财务奖励，也不放宽模型finite检查。通过新显式CLI context临时安装codec与增强guard，结束或异常必须恢复原函数，原bytes不改。
 
-旧失败manifest固定318份文件，SHA `8b2c1948e89094ab22267c8dff96e2caef27a8fd2cd89815b5e70e8f3eb39b2b`，不含仍写入的2024运行。它是工程证据清单，不是完整绩效签章。原已付RL、训练基线、Adam与耗时在旧worker结束后单独结算，不抹掉、不借入新四run，不补保存旧最终模型，不重放梯度。
+旧失败manifest固定318份文件，SHA `8b2c1948e89094ab22267c8dff96e2caef27a8fd2cd89815b5e70e8f3eb39b2b`，不含当时仍写入的2024运行。它是工程证据清单，不是完整绩效签章。旧三次物理尝试实际Agent RL与训练基线各98,304步、记录Adam3,840次；最高持久化端点合计只证明2,880次，失败尾部960次未落盘。各book评价1,652步、现存模型归档CRC通过；详见原报告和工程成本记录。不抹掉、不借入新四run，不补保存旧最终模型，不重放梯度。
 
 ## 注册与当前进度
 
-修复附录与原失败人类记录已提交 `65d40e1`，新driver为 `tools/research_timing_phase_budget_repaired.py`，配套 `tests/test_timing_phase_state_repair.py` 与 `tests/test_timing_phase_state_repair_review.py` 仍在开发。当前未宣称验收通过，正式root `reports/runs/ppo_timing_phase_state_repair_20261015` 尚未prepare，无本轮正式训练、评价、确认模型或收益。
+修复附录与原失败人类记录先行提交 `65d40e1`，新driver为 `tools/research_timing_phase_budget_repaired.py`，配套 `tests/test_timing_phase_state_repair.py` 与 `tests/test_timing_phase_state_repair_review.py` 已完成。根代理十份新旧框架及辅助测试实际session35708、exit0（d17d2c）：237 passed、63.98秒。作者/独审另一次61项、51.39秒不与该运行相加；均非金融经历。正式root `reports/runs/ppo_timing_phase_state_repair_20261015` 尚未prepare，无本轮正式训练、评价、确认模型或收益。
 
 拟登记的 `engineering_repair` 将绑定新driver、两测试、冻结附录、原辅助审计/分析/封存工具及测试、失败manifest和原core身份。原机器协议SHA `f8fba8ec1616f5f23dfc15ba18153ccacce3bc108c772f0d019a7f1a10e717c3`，原core runner SHA `9c54115cff7a88e4b0c668fff073d7aaaa3c3336c6e40ae5cc80b42c3db7826a`，父Credit终审 `fd3449e3d0fcb2df87fa9cd3d87274fa3d93290bb77a3b8d111c5c04751e8955`；原96源码与4,676父签输入保持不变。
 
 新协议顶层使用新driver SHA，旧普通入口应拒绝。只有显式context以不写文件/不传模型的只读core视图验证旧runner身份，随后验证完整repair扩展；真实配置和模型绑定完整新协议及新driver，不把两身份混用。实际协议文件SHA、Git、测试退出与新root身份须在正式prepare成功后填入，不从草案推定。
 
 最终报告待四physical/八paired snapshot全部封口后写架构×预算经济表、逐账户净ROI/成本/回撤、原生行为、模型路径、RL/基线/Adam/评价去重计数、资源、控制复现和条件确认实际次数。独立冷审核对全Box/账本/macro概率/HOLD/CRC/GAE，decoder首末固定抽样另披露，不冒称全量重解码；最终唯一签章尚不存在。本批尚无候选，不改变默认模型或自动部署，后续配对Q/额外动作不纳入。
+
+## 对外部数据建议的吸收
+
+用户提供[日期关联说明](../training_data_linkage.md)，同目录另有[训练数据改进设计稿](../training_data_improvement_plan.md)。已结合本地实现阅读，未修改用户稿件、未联网复测接口、未采集或接入新数据。设计稿的接口探测属于单机单时点证据，不能据此证明其他历史数据普遍不可得。
+
+优先考虑独立的数据审计分支：区分无源行、指标预热、字段缺失、确定上市状态与未知状态；核查训练期有效覆盖和股票选择偏差，再设计仅用训练期规则的股票留出。`raw_start/raw_end`只是已观测报价边界，不能冒充权威上市/退市日；无源行也不能直接确认为停牌，未知成交量或换手率不能擅自置零。
+
+“填0等于普通行情”的判断不适用于完整现有输入：MarketDataProvider同时输出valid/buy/sell掩码，SharedStockNetwork显式输入标记并排除invalid市场池；本轮macro摘要也只汇总有效行情。近期缺失率、上市年龄等仍可作为增量假设，但须用消融证明其价值，不把已有掩码说成不存在。
+
+截面rank/zscore、广度和离散度值得另行比较，必须限定于当日已知且合格股票、处理样本数与零方差，并明确留出股票是否参与截面统计。现有全局Z-score本身并非错误，它保留长期绝对风险差异；截面量应先作为补充信息做消融，而非认定替换必然更优。新增或替换特征需独立版本、scaler、特征顺序、模型契约和重训；不能原位修改F20或把旧129维模型宣称兼容新语义。新特征不能为了保留原维数而暗中替换输入。
+
+不复权价格与公司行为账本优先服务执行保真，双口径应按同源、同日、同股票和单位校验；事件数量、到账日和基准须独立对账。HFQ/不复权收盘比值不作为权威事件反推，日内触及价格限制也不等于下一次开盘必定不能成交。当前名单加退市名单仍不能自动证明完整PIT宇宙；股票池、执行口径或数据源变化均须重新比较同口径基线，不能将与旧HFQ不同的收益直接视为学习进步。
+
+这些改进可能提高测评可信度，也可能降低原有表观收益，不能承诺因此战胜M20。与原工程修复矩阵分开登记，暂不混入当前科学协议或放宽跨年份、多种子及风险门槛。

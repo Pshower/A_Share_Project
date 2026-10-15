@@ -1,6 +1,6 @@
 # 项目文档索引
 
-工程修复中：[结构与训练预算协议](ppo_timing_phase_budget_protocol_20261015.md)及[原记录](reports/ppo_timing_phase_budget_20261015.md)保持冻结口径。2023 linear完成32,768步后最终状态摘要保存失败，exit1、无最终模型/完成标记；2024 linear已封口，due仍运行。318份失败证据已固定；[隔离修复附录](ppo_timing_phase_state_repair_protocol_20261015.md)仅修状态哈希标量编码，新目录四次32K重新训练，新增131,072 RL、旧成本另计。新driver和独审验收进行中，不读未封口收益或改选模/风险标准。配对Q仍是另文候选。
+工程修复已验收、待登记：[原记录](reports/ppo_timing_phase_budget_20261015.md)保留2023保存失败与2024两run完成，原三次尝试98,304 RL步及旧成本另计、不选模。[修复附录](ppo_timing_phase_state_repair_protocol_20261015.md)及[新记录](reports/ppo_timing_phase_state_repair_20261015.md)只修状态哈希标量，新旧框架237项联合离线通过；独立新目录尚未prepare或正式重跑，不借旧样本，不变更数据/奖励/选模及风险门槛。用户数据建议已纳入后续分支评审，不自动采集或改旧输入。
 
 已完成：[多步收益归因协议](ppo_timing_credit_protocol_20261015.md)、[详细报告](reports/ppo_timing_credit_20261015.md)与[摘要](reports/ppo_timing_credit_20261015_summary.md)。八trial、65,536 RL步、2,560次Adam；relative_log/lambda1在2023比M20高0.977594pp、2024持平，其余三配置两折持平。局部增量未达到跨折准入，确认0、不晋升。四个短trace控制重新训练精确复现；128实际GAE全量重建误差0，终审通过并签4,676文件，旧96源码和前轮输入未改。
 

@@ -1,6 +1,6 @@
 # 调仓结构与训练预算研究记录
 
-日期：2026-10-15。状态：已正式登记并运行，2023 linear在完成32K训练后发生最终状态哈希工程失败，worker实际exit1；2024 linear已封口，due训练仍活跃。原四run/八快照矩阵尚未完成，不作收益结论或固定选择，不将已付预算抹成0。首次登记点真实金融步骤为0仅是起点记录，不是实时计数。
+日期：2026-10-15。状态：原两个worker均已退出，2023 linear最终保存失败、exit1，2024两架构完成、exit0；原四run/八快照矩阵未完成，不作收益结论或固定选择。已实际消耗98,304 Agent RL步与同量独立训练基线步，不将失败成本抹成0。首次登记点0仅是历史起点记录。
 
 依据：[Credit详细报告](ppo_timing_credit_20261015.md)及[摘要](ppo_timing_credit_20261015_summary.md)。上一轮relative_log/lambda1在2023比基线高0.977594pp、2024持平，未达准入，确认0。本轮不改判该结果，另行检验架构与预算，规则见[训练前协议](../ppo_timing_phase_budget_protocol_20261015.md)。
 
@@ -67,6 +67,10 @@
 
 2023 worker session50482实际exit1，输出chunk984001：linear已达到32,768个Agent RL步、1,280次Adam，但最终capture在 `_json_state`→严格 `json_digest` 的nonfinite标量路径失败，final_model未保存、completed marker未生成。8K short模型、64个PPO buffer、64个bootstrap sidecar和Agent/基线各32K trace完整存在；文件存在不冒充完整审计通过或已封口正式样本。Broker合法拒单记录的 `price=NaN`、`filled=0` 可以进入history，原数组摘要已编码dtype/shape/SHA，scalar未编码是本次工程缺口；不因此补值或放宽模型finite检查。
 
-2024 worker session90201的linear已经completed并保存32K终点，已进入due训练且仍活跃。其状态与2023失败分别保留，尚不判原完整矩阵收益成功/失败，不读取任何未封口ROI。原尝试最终真实成本将在旧worker结束后另记，正式final_audit尚未生成，不伪造完成或补写旧最终模型。
+2024 worker session90201已实际exit0，退出结果81fbdc；linear与due均保存32K终点并生成完成标记。2023没有进入due。原完整矩阵仍缺2023两终点，不据此选模或判收益成功/失败，不读取任何未封口ROI；正式final_audit尚未生成，不伪造完成或补写旧最终模型。
 
-[状态哈希工程修复附录](../ppo_timing_phase_state_repair_protocol_20261015.md)提出新explicit driver及独立目录 `reports/runs/ppo_timing_phase_state_repair_20261015`，只对状态哈希scalar作typed NaN/+Inf/-Inf bit编码；原源码、冻结协议、模型/行情输入、动作、奖励、GAE和全部gate不变。修复正式样本须从头四次32K，新增131,072 RL及同量训练基线，原已付成本另计，不能借旧run充样本。附录尚待driver/验收/提交/prepare，不预填测试通过数、正式新步骤或ROI。尚无本轮候选模型或实盘建议。
+[状态哈希工程修复附录](../ppo_timing_phase_state_repair_protocol_20261015.md)新增explicit driver及独立目录 `reports/runs/ppo_timing_phase_state_repair_20261015`，只对状态哈希scalar作typed NaN/+Inf/-Inf bit编码；原源码、冻结协议、模型/行情输入、动作、奖励、GAE和全部gate不变。修复正式样本须从头四次32K，新增131,072 RL及同量训练基线，不能借旧run充样本。根代理十份测试联合237项通过、63.98秒、exit0；新目录尚未prepare，未执行新正式训练。见[独立修复研究记录](ppo_timing_phase_state_repair_20261015.md)。
+
+### 原尝试实际成本
+
+只读独审结构核验exit0（cf923a），根代理据实际退出与计数保存 [engineering_attempt_costs.json](../../reports/runs/ppo_timing_phase_budget_20261015/engineering_attempt_costs.json)：三次物理尝试，2封口/1失败，Agent RL与训练基线各98,304步；记录的Adam消耗3,840次，而各physical最高持久化端点合计只证明2,880次，失败2023尾部960次更新未落盘。每book初始化12路径、训练后16路径、评价共1,652步；192个原buffer、192个bootstrap sidecar和各book192个native chunk。initial/short/final归档分别3/3/2，现存归档CRC通过；1,159份物理文件库存摘要已记录。该核验不读取或计算ROI，不代表完整科学矩阵或最终独审通过。
