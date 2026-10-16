@@ -1,6 +1,6 @@
 # 项目文档索引
 
-修复版正式筛选训练已启动：[协议](ppo_timing_phase_state_repair_protocol_20261015.md)及[运行记录](reports/ppo_timing_phase_state_repair_20261015.md)已登记并通过独审，237项联合离线验收通过。2023/2024两个AShareGPU后台worker实际采样和Adam更新，日志及真实退出回执持续保存；计划新增四次32K，不借旧样本、不预填收益。原98,304步失败成本另列，数据/奖励/选模及风险门槛不改；新数据建议为后续独立分支，不自动采集或修改旧输入。
+已完成但未准入：[修复研究摘要](reports/ppo_timing_phase_state_repair_20261015_summary.md)及[详细报告](reports/ppo_timing_phase_state_repair_20261015.md)。四次训练、131,072新增RL步、5,120 Adam和八快照回测完成；linear8K在2023Q2较基线+0.977594pp、2024持平，长训练均退化。额外调仓增多不等于收益提高；确认0、无合格候选、不部署。最终独审和唯一签章通过，签6,712文件，原96源码及旧成本不变。下一研究为独立train-only配对动作诊断，不改旧协议或保护期。
 
 已完成：[多步收益归因协议](ppo_timing_credit_protocol_20261015.md)、[详细报告](reports/ppo_timing_credit_20261015.md)与[摘要](reports/ppo_timing_credit_20261015_summary.md)。八trial、65,536 RL步、2,560次Adam；relative_log/lambda1在2023比M20高0.977594pp、2024持平，其余三配置两折持平。局部增量未达到跨折准入，确认0、不晋升。四个短trace控制重新训练精确复现；128实际GAE全量重建误差0，终审通过并签4,676文件，旧96源码和前轮输入未改。
 
@@ -40,7 +40,7 @@
 
 该轮已完成：[新浪沪深300报告摘要](reports/sina_hs300_20260927_summary.md) 与 [详细报告](reports/sina_hs300_20260927.md)。模型训练成功但未证明策略优势，未晋升默认。
 
-更新日期：2026-10-15
+更新日期：2026-10-16
 
 建议先读 [项目 Pipeline](../pipeline.md)，再看 [实施进度与验收记录](implementation_plan.md)。阶段四已完成框架及 32 只股票的轻量训练和冻结测试，但尚未证明策略优势。最新结果见 [报告摘要](reports/ppo_lightweight_20260925_summary.md) 和 [详细报告](reports/ppo_lightweight_20260925.md)。
 

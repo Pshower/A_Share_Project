@@ -1,6 +1,6 @@
 # A 股日频强化学习交易 Pipeline
 
-修复版正式筛选训练已启动：[修复协议](doc/ppo_timing_phase_state_repair_protocol_20261015.md)及[运行记录](doc/reports/ppo_timing_phase_state_repair_20261015.md)已登记独立目录，237项联合离线验收和登记独审通过。2023/2024两个AShareGPU后台worker实际采样与优化，监督器保存日志及真实退出回执；先linear再due，共计划四次32K、131,072新增RL步，未完成不预填结果。原尝试98,304步与失败成本另计，不借旧样本；数据、Actor、奖励和全部选模/风险门槛不变。新数据建议仍为独立分支，不自动采集、换版或声称已战胜基线。
+已完成但未准入：[修复研究摘要](doc/reports/ppo_timing_phase_state_repair_20261015_summary.md)与[详细报告](doc/reports/ppo_timing_phase_state_repair_20261015.md)。四次训练完成131,072新增RL步、同量独立基线及5,120次Adam；8K/32K八快照全部回测。linear8K在2023Q2比M20高0.977594pp、2024Q2持平；两架构长训练均比自身短快照更差，非日历额外调仓与成本增加。固定筛选失败、确认0、无合格候选、不部署；最终独审及唯一签章通过，签6,712文件，原96源码和旧成本独立保留。下一方向是训练期同状态HOLD/REBALANCE配对动作信用，另行登记，不修改旧结果或使用保护期。
 
 已完成：[多步收益归因协议](doc/ppo_timing_credit_protocol_20261015.md)、[详细报告](doc/reports/ppo_timing_credit_20261015.md)与[摘要](doc/reports/ppo_timing_credit_20261015_summary.md)。八trial完成65,536 RL步、同量独立基线步及2,560次Adam；relative_log/lambda1在2023比M20基线高0.977594pp，2024持平，其他三配置两折持平。出现真实局部学习增量，但两折准入未达，确认0、不部署。四个lambda0.95控制重新训练精确复现，128实际GAE缓冲区全量重算误差0；唯一终审通过并签4,676文件，旧96源码不变，完整账本核验与调仓decoder抽样范围分别披露。
 
@@ -32,7 +32,7 @@
 
 最新：[新浪300股、多初始持仓研究](doc/reports/sina_hs300_20260927_summary.md) 已完成真实下载、三种子训练和验证。来源写入数据/模型契约，推理拒绝混源；训练支持四种初始账户和随机历史起点。仍为 HFQ 研究执行，尚未证明策略优势。
 
-更新日期：2026-10-15
+更新日期：2026-10-16
 
 本文描述当前实现的架构、数据流及后续扩展边界，不再混用早期候选方案与已完成功能。文档入口见 [文档索引](doc/README.md)，任务状态和验收证据统一维护在 [实施进度](doc/implementation_plan.md)。
 
