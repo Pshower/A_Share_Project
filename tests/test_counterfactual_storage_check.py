@@ -155,3 +155,13 @@ def test_many_independent_arrays_do_not_mutate_during_either_check():
     assert candidate.assert_independent_storage(left, right) is None
     assert candidate.original._independent(left, right) is None
     assert before == [value.tobytes() for value in left + right]
+@pytest.mark.parametrize("shared_cell", [False, True])
+def test_structured_object_fields_are_explicitly_unsupported(shared_cell):
+    left = np.empty(1, dtype=[("cell", object), ("number", "i8")])
+    right = np.empty_like(left)
+    left["cell"][0] = {"items": [1]}
+    right["cell"][0] = left["cell"][0] if shared_cell else {"items": [1]}
+    left["number"] = right["number"] = 7
+    with pytest.raises(TypeError, match="Structured arrays with object fields"):
+        candidate.assert_independent_storage(left, right)
+

@@ -1,7 +1,8 @@
 """Unused performance candidate; the running label pilot does not import this.
 
 Only a new registered batch may adopt this storage checker. The frozen helper
-still supplies the complete mutable-object traversal, including object cells.
+supplies its existing mutable-object traversal, including plain object cells.
+Structured arrays containing object fields are unsupported and rejected here.
 """
 
 import numpy as np
@@ -60,7 +61,7 @@ def array_bounds_prove_disjoint(left_arrays, right_arrays):
 
 
 def assert_independent_storage(left, right):
-    """Match frozen `_independent` without relaxing any mutable isolation rule.
+    """Preserve frozen isolation checks within the supported state types.
 
     Interval unions only avoid exact calls when no byte ranges can intersect.
     Overlapping bounds, including harmless strided holes, use the original full
@@ -68,6 +69,9 @@ def assert_independent_storage(left, right):
     """
     left_ids, left_arrays = original._objects(left)
     right_ids, right_arrays = original._objects(right)
+    for array in left_arrays + right_arrays:
+        if array.dtype.hasobject and array.dtype.fields is not None:
+            raise TypeError("Structured arrays with object fields are unsupported")
     if left_ids.intersection(right_ids):
         raise RuntimeError("Execution books share mutable objects")
     if array_bounds_prove_disjoint(left_arrays, right_arrays):
