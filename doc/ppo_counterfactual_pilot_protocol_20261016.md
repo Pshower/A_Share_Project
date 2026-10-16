@@ -1,6 +1,6 @@
 # 训练期经济配对诊断预注册草案
 
-日期：2026-10-16。状态：先行设计与验收要求，代码、验收和prepare尚未完成；本阶段不预写actual passed、真实标签统计或收益。候选输出为 `reports/runs/ppo_counterfactual_pilot_20261016`。本轮仅做train-only历史动作配对诊断，不进行Actor预热、PPO正式训练、模型拟合或参数搜索。
+日期：2026-10-16。状态：实现及本地合成验收完成，待冻结提交与prepare；本阶段不预写真实标签统计或收益。候选输出为 `reports/runs/ppo_counterfactual_pilot_20261016`。本轮仅做train-only历史动作配对诊断，不进行Actor预热、PPO正式训练、模型拟合或参数搜索。
 
 ## 依据与冻结边界
 
@@ -88,10 +88,25 @@ oracle机会相对原日历首动作计算：phase0原动作R，非phase0原动�
 
 ## 工程验收与后续准入
 
-预计新增 `tools/timing_counterfactual.py`、`tests/test_timing_counterfactual.py`、独立 `tests/test_timing_counterfactual_review.py`，以及 `tools/research_timing_counterfactual_pilot.py`、`tests/test_counterfactual_pilot.py`。prepare前须显式登记这五份代码/测试与本协议共六份新输入及父身份，不以import旧模块替代依赖冻结，也不把尚未完成的driver写成已实现。父参考配置仅用于继承经济数据；派生配置明确登记诊断episode从240改80、输出独立目录，不覆盖父配置或冒称运行父PPO预算。
+已新增 `tools/timing_counterfactual.py`、`tests/test_timing_counterfactual.py`、独立 `tests/test_timing_counterfactual_review.py`，以及 `tools/research_timing_counterfactual_pilot.py`、`tests/test_counterfactual_pilot.py`。prepare显式登记这五份代码/测试与本协议共六份新输入及父身份，不以import旧模块替代依赖冻结。父参考配置仅用于继承经济数据；派生配置明确登记诊断episode从240改80、输出独立目录，不覆盖父配置或冒称运行父PPO预算。
 
 合成验收至少覆盖：完整状态深复制及mutable alias负例、源RNG/缓存不变、首步H/R与原phase连续、shadow逐步一致、T1/应收/事件/冻结/整手/费用保持、H前终止拒绝与H末终止标记、训练日期物理裁剪、未来量只在label、奖励/终值恒等式、48层与96状态清单、零/负/小Δ不筛除，以及实际book步计数/失败成本。验收不得通过额外NN预测、GAE或模型更新实现本轮标签。
 
 只有新代码、作者/独立验收和冻结提交完成，才允许新目录prepare及正式诊断；结果另写详细报告/摘要与实际命令/退出/身份，不回改本协议挑选信号。
+
+冻结前最终联合验收使用 `AShareGPU` 环境，命令如下；root原生session `72488`，最终chunk `bc9296`，exit `0`，`127 passed in 27.97s`。其中标签作者76项、独立复核25项、驱动26项。测试均为合成数据或隔离临时目录，不能替代真实数据诊断，也不证明策略可预测动作收益。
+
+```powershell
+& 'D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe' -B -m pytest tests/test_timing_counterfactual.py tests/test_timing_counterfactual_review.py tests/test_counterfactual_pilot.py -q -p no:cacheprovider
+```
+
+正式诊断依次执行以下命令。`prepare`冻结输入身份；两个`run`分别生成各自完整96状态采样清单后重演配对；`report`只能读取已完成且通过哈希与数值恒等式复核的两折，不采新状态、不补标签。任何失败保留实际成本并停止，不覆盖残缺折目录。
+
+```powershell
+& 'D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe' -B -u -m tools.research_timing_counterfactual_pilot --stage prepare
+& 'D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe' -B -u -m tools.research_timing_counterfactual_pilot --stage run --fold 2023
+& 'D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe' -B -u -m tools.research_timing_counterfactual_pilot --stage run --fold 2024
+& 'D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe' -B -u -m tools.research_timing_counterfactual_pilot --stage report
+```
 
 Actor预热、监督/Q辅助与PPO训练只是候选后续，须另立协议，保留θ0→θaux→θPPO及同参数/同预算PPO-only对照，监督曝光与真实RL增量分开。固定continuation标签不冒充Qπ，拟合和验证要处理重叠/泄漏/目标冲突。本轮不改变原跨折、多seed、至少+0.5pp及风险最终门槛，不promote、不承诺胜基线。
