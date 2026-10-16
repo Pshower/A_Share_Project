@@ -1,5 +1,7 @@
 # A 股日频强化学习交易 Pipeline
 
+进行中：[训练期配对动作诊断](doc/ppo_counterfactual_pilot_protocol_20261016.md)。隔离实现已提交989f3ef、127项合成验收通过，真实prepare已exit0；2023/2024训练期按固定48层及offset0/60采样，各96状态先冻结清单再真实重演。比较同一完整账户先HOLD或先REBALANCE后按原日历推进20步的扣费差异，不更改M20基线、不拟合模型、不做PPO更新、不使用验证/保护期。完成状态和实际统计将另写报告；oracle机会不是可预测收益或合格候选。
+
 已完成但未准入：[修复研究摘要](doc/reports/ppo_timing_phase_state_repair_20261015_summary.md)与[详细报告](doc/reports/ppo_timing_phase_state_repair_20261015.md)。四次训练完成131,072新增RL步、同量独立基线及5,120次Adam；8K/32K八快照全部回测。linear8K在2023Q2比M20高0.977594pp、2024Q2持平；两架构长训练均比自身短快照更差，非日历额外调仓与成本增加。固定筛选失败、确认0、无合格候选、不部署；最终独审及唯一签章通过，签6,712文件，原96源码和旧成本独立保留。下一方向是训练期同状态HOLD/REBALANCE配对动作信用，另行登记，不修改旧结果或使用保护期。
 
 已完成：[多步收益归因协议](doc/ppo_timing_credit_protocol_20261015.md)、[详细报告](doc/reports/ppo_timing_credit_20261015.md)与[摘要](doc/reports/ppo_timing_credit_20261015_summary.md)。八trial完成65,536 RL步、同量独立基线步及2,560次Adam；relative_log/lambda1在2023比M20基线高0.977594pp，2024持平，其他三配置两折持平。出现真实局部学习增量，但两折准入未达，确认0、不部署。四个lambda0.95控制重新训练精确复现，128实际GAE缓冲区全量重算误差0；唯一终审通过并签4,676文件，旧96源码不变，完整账本核验与调仓decoder抽样范围分别披露。

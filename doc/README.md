@@ -1,5 +1,7 @@
 # 项目文档索引
 
+进行中：[训练期配对动作诊断协议](ppo_counterfactual_pilot_protocol_20261016.md)。实现989f3ef、127项合成验收通过，真实prepare exit0、两折训练期诊断正在运行；不训练网络或改基线，不把事后oracle机会当成可预测收益。真实结果待全部192状态和冷账本复核完成后另出报告。
+
 已完成但未准入：[修复研究摘要](reports/ppo_timing_phase_state_repair_20261015_summary.md)及[详细报告](reports/ppo_timing_phase_state_repair_20261015.md)。四次训练、131,072新增RL步、5,120 Adam和八快照回测完成；linear8K在2023Q2较基线+0.977594pp、2024持平，长训练均退化。额外调仓增多不等于收益提高；确认0、无合格候选、不部署。最终独审和唯一签章通过，签6,712文件，原96源码及旧成本不变。下一研究为独立train-only配对动作诊断，不改旧协议或保护期。
 
 已完成：[多步收益归因协议](ppo_timing_credit_protocol_20261015.md)、[详细报告](reports/ppo_timing_credit_20261015.md)与[摘要](reports/ppo_timing_credit_20261015_summary.md)。八trial、65,536 RL步、2,560次Adam；relative_log/lambda1在2023比M20高0.977594pp、2024持平，其余三配置两折持平。局部增量未达到跨折准入，确认0、不晋升。四个短trace控制重新训练精确复现；128实际GAE全量重建误差0，终审通过并签4,676文件，旧96源码和前轮输入未改。
