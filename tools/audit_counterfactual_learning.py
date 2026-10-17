@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT))
 from tools import research_counterfactual_learning as runner
 from tools import timing_action_value_learning as value_learning
 from src.backtest.metrics import performance
+from src.training.freeze import json_digest as frozen_json_digest
 
 VERSION = "closed_causal_teacher_native_ppo_cold_v1"
 OWN_FILES = ("tools/audit_counterfactual_learning.py", "tests/test_audit_counterfactual_learning.py")
@@ -419,7 +420,7 @@ def verify_case(directory, row_metrics, reference_metrics, contract, reader, exp
             require([str(value)[:10] for value in daily.date] == expected_dates, "Evaluation does not cover the complete saved Q2 calendar")
     require(result["metrics"] == row_metrics and result["benchmark_metrics"] == reference_metrics, "Result/record metrics differ")
     runner.original.verify_timing_trace(directory / "trace", result["trace"], steps=result["evaluation_steps"],
-                                       expected_contract_sha256=runner.digest(contract))
+                                       expected_contract_sha256=frozen_json_digest(contract))
     return result, arrays, shadows
 
 
@@ -490,7 +491,7 @@ def verify_trial(directory, protocol, fold, method, seed, phase, budget, fit, re
         require(audit["experience"]["total_steps"] == audit["experience"]["benchmark_steps"] == steps,
                 "Snapshot actual native experience clock changed")
         runner.original.verify_timing_trace(directory / "training_trace", audit["training_trace_prefix"], steps=steps,
-                                           expected_contract_sha256=runner.digest(contract))
+                                           expected_contract_sha256=frozen_json_digest(contract))
         runner.original.verify_rollouts(directory, audit["rollout_buffers"], steps, audit["training_trace_prefix"])
         runner.credit.verify_estimator_buffers(directory, audit, config)
         gae = [verify_gae(reader.arrays(directory / rollout["path"]), reader.arrays(directory / side["path"]))
