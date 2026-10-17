@@ -139,3 +139,13 @@ root只读计数核验 `2908f6`、exit0：每段collection为28,800 Agent及同�
 独立冷审计首次真实运行先暴露工具缺陷：审计工具两处 `verify_timing_trace` 期望值误用紧凑分隔符的 `runner.digest`，而冻结评估/训练 trace 由 `src.training.freeze.json_digest`（默认分隔符）签署；实测存盘 SHA `01f6191b…` 等于 freeze 摘要、紧凑摘要 `98ab6eb4…` 不等，全部 32 个 role 用例误报。审计工具不在冻结 INVENTORY 内，修复仅把这两处期望值改为与冻结 writer 完全相同的签署函数（修复前工具 SHA `36bd6bac…`，修复后 `bca56e50…`）；工具自身 67 项合成测试前/后均通过，其未覆盖签署路径是本缺陷逃逸原因，作为覆盖缺口记录。第二遍通过：status=`verified_saved_evidence`，计数器 teacher 1,920 配对标签/384,000 book-step、Ridge fit 2、物理 RL 131,072+同量 shadow、Adam 5,120、评价 3,776/3,776，审计自身 environment/neural/optimizer/fit 全 0（cold 性质成立）；独立重算 outcome 与已保存 `selection.json` 完全一致。sidecar：`diagnostics/cold_audit/screen/audit.json`（SHA `5c04ab80…`）与 `manifest.json`（SHA `acfe1595…`，status=`passed_cold_artifact_audit`、version=`closed_causal_teacher_native_ppo_cold_v1`）；图表 `diagnostics/figures_screen/learning_comparison.png`（SHA `2a442392…`）及 manifest（SHA `7c448e66…`）于 19:19 写出。
 
 下一步（协议、门槛、保护期不变）：按冻结选择显式启动 2025/2026 两折 `--stage confirm`，每折新建数据产物与两段 teacher（各 480 标签/96,000 book-step），3 seeds × 2 臂 × 8,192 步共 12 条确认记录、合计 98,304 RL 步；不挑 seed、不换臂、不重训任何已封口开发 run。确认完成并冷审计通过后才按原门槛判定最终资格。
+
+## 12:30 UTC confirm 首启被窗口关闭中止、无窗口重入
+
+以下登记操作事故与重入事实，保留前文历史快照；不改变协议、选择、阈值与保护期。时间均为北京时间。
+
+19:25:12 以附着控制台窗口的方式启动两折 confirm worker（PID 31156/43108）。两折先把 `data/2025`、`data/2026` 产物落盘并封口，随后进入 `teacher/inner_train` 采集；运行至 20:19–20:24 被控制台窗口关闭中止，stderr 记录 `forrtl: error (200): program aborting due to window-CLOSE event`（MKL/Fortran 运行时对窗口关闭事件的响应），无正常退出码可记，非金融或数值失败。
+
+中止时的实际状态：两折 data 产物完整可复用；`teacher/2025/inner_train` 完成 139/480 标签、`teacher/2026/inner_train` 完成 129/480 标签，均未封口（无 `completed.json`）。按冻结规则 `Never resume a partial teacher segment`，20:26 删除这两个未封口部分目录（2025：143 文件/66.1MB；2026：133 文件/61.5MB），旧日志改名 `counterfactual_confirm_*.failed_window_close.*` 保留；被作废的部分采集不计入研究计数。
+
+20:27:46 以 `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`（无控制台窗口、stdin 置空、stdout/stderr 重定向）分离方式重入两折 worker：PID 40028/2025、23180/2026，日志重新写回 `.workbench/counterfactual_confirm_{2025,2026}.{out,err}.log`。data 产物按原身份复用，两段 teacher 从零重采；本次速度与既有 inner-holdout 段（约 2.5 小时/段，96,000 book-step）同量级，属登记预算内。后续长任务的启动方式统一改为无窗口分离，避免窗口关闭误杀；确认完成前不碰冻结件、不预填确认结果。
