@@ -16,3 +16,14 @@
 ```
 
 本文件记录操作安排，不预写进程已成功、实际训练步数或收益；实际退出与复用成本在最终报告列明。
+
+## 对照完成后复用空闲槽
+
+某fold的提前PPO-only取得实际exit0及完整case封口后，可将这个CPU槽交给该fold已登记的 `inner_holdout` teacher片段。`tools/run_counterfactual_holdout.py` 先验证控制case已完整32K，再调用同一个冻结 `teacher_segment`，使用同一个原目录、480状态、两遍重演、固定scaler/行为流及48,000 Agent+同量shadow预算。它不拟合模型或执行PPO，不新增标签或使用保护期。
+
+```powershell
+& 'D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe' -B -u -m tools.run_counterfactual_holdout --fold 2023
+& 'D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe' -B -u -m tools.run_counterfactual_holdout --fold 2024
+```
+
+这一并行片段若比原worker更晚完成，原worker会在已封口inner-train之后、进入正在执行的inner-holdout前明确拒绝partial并退出，尚未执行该片段的任何步。保持其实际退出回执；不得因此重启仍活着的holdout进程。待独立holdout实际exit0并封口后，再显式重入原worker，它只读复用两个完整teacher、拟合唯一Ridge、只读复用控制case、执行唯一预热PPO。若片段已由原worker启动而未封口，新入口同样拒绝，不重复采集。整个调度始终最多四个正式计算进程，case和片段各一个实际执行者；最终按全部唯一封口及失败证据核对成本，而非把重入次数算成独立经历。
