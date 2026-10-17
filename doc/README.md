@@ -1,5 +1,7 @@
 # 项目文档索引
 
+进行中：[因果动作价值预热与PPO正式对照](ppo_counterfactual_learning_protocol_20261017.md)。实现95a27b0、326项合成联合通过，真实prepare exit0，2023/2024开发worker已启动；先构造精确phase teacher，再真实比较原PPO与Ridge预热后PPO，不以监督或oracle收益冒充RL增量。训练与收益待实际完成后报告，多种子确认仍受冻结选择及原风险门槛约束。
+
 已完成：[训练期配对动作诊断协议](ppo_counterfactual_pilot_protocol_20261016.md)、[摘要](reports/ppo_counterfactual_pilot_20261016_summary.md)及[详细报告](reports/ppo_counterfactual_pilot_20261016.md)。192个配对、38,400 book-step、0新增训练；186项合成回归与原生净值/订单冷重算通过。额外调仓的平均动作差跨折异号，不能据此增加调仓频率；phase0每折仅2个相关状态。未证明可预测性、未形成新策略ROI或合格候选，后续先验证动作价值信号能否学习。
 
 已完成但未准入：[修复研究摘要](reports/ppo_timing_phase_state_repair_20261015_summary.md)及[详细报告](reports/ppo_timing_phase_state_repair_20261015.md)。四次训练、131,072新增RL步、5,120 Adam和八快照回测完成；linear8K在2023Q2较基线+0.977594pp、2024持平，长训练均退化。额外调仓增多不等于收益提高；确认0、无合格候选、不部署。最终独审和唯一签章通过，签6,712文件，原96源码及旧成本不变。下一研究为独立train-only配对动作诊断，不改旧协议或保护期。

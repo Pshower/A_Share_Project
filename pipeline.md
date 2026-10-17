@@ -1,5 +1,7 @@
 # A 股日频强化学习交易 Pipeline
 
+进行中：[因果动作价值预热与PPO正式对照](doc/ppo_counterfactual_learning_protocol_20261017.md)。框架95a27b0、326项合成联合验收通过；真实prepare22776 exit0，两开发折worker已启动。精确20 phase、四初始账户与独立随机源行为构造teacher，inner-train scaler固定贯穿holdout/outer PPO/Q2；原12,805参数两臂比较PPO-only与Ridge预热后PPO。固定计划1,920标签、131,072真实Agent RL步及同量shadow，不把计划写成已完成；θ0、θaux和8K/32K分别评价，只有完整开发增量达标才授权冻结多种子时间确认，不使用保护期或改M20。
+
 已完成：[训练期配对动作诊断协议](doc/ppo_counterfactual_pilot_protocol_20261016.md)、[摘要](doc/reports/ppo_counterfactual_pilot_20261016_summary.md)及[详细报告](doc/reports/ppo_counterfactual_pilot_20261016.md)。192个同账户HOLD/REBALANCE配对全部完成，实际38,400 book-step、PPO/NN/拟合均0；186项合成回归及全量原生净值/订单冷重算通过。非到期日额外调仓的平均折扣收益差在两折分别为+28.1072/-19.4889 log-bp，正负机会并存，不能盲目增加调仓。每折phase0仅2个同episode状态、窗口存在重叠；oracle不等于预测能力或策略ROI，无新合格模型。后续须另登记phase均衡及严格内层时序可学性验证，不改M20基线或访问保护期。
 
 已完成但未准入：[修复研究摘要](doc/reports/ppo_timing_phase_state_repair_20261015_summary.md)与[详细报告](doc/reports/ppo_timing_phase_state_repair_20261015.md)。四次训练完成131,072新增RL步、同量独立基线及5,120次Adam；8K/32K八快照全部回测。linear8K在2023Q2比M20高0.977594pp、2024Q2持平；两架构长训练均比自身短快照更差，非日历额外调仓与成本增加。固定筛选失败、确认0、无合格候选、不部署；最终独审及唯一签章通过，签6,712文件，原96源码和旧成本独立保留。下一方向是训练期同状态HOLD/REBALANCE配对动作信用，另行登记，不修改旧结果或使用保护期。
