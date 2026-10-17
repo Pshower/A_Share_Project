@@ -1,3 +1,4 @@
+# Known-good AShareGPU pins (incl. CUDA torch): requirements-gpu-constraints.txt
 -r requirements-ppo.txt
 fastapi==0.115.12
 uvicorn==0.34.2
