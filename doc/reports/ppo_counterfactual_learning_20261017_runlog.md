@@ -77,6 +77,23 @@ root只读两个 `runs/screen_<fold>_ppo_only_42/snapshots/8192/training_audit.j
 
 ## 待完成工作
 
+## 04:44 UTC 训练段封口与依赖守卫
+
+两个原 worker 均已完成其唯一 inner-train 片段，各480配对标签。随后在进入另进程正在执行的 inner-holdout 之前，按登记规则抛出 `ValueError: Never resume a partial teacher segment`，不是观察超时或静默重训：
+
+| 原 worker | 实际退出码 | 工具 chunk | 训练段完成 marker SHA256 |
+| --- | ---: | --- | --- |
+| 2023 / session48055 | 1 | `066743` | `f96bab2f3825292789e739926082d0dd1861a2716b1bfc4c6ea1df234c57b0b1` |
+| 2024 / session55789 | 1 | `b33533` | `5bf62bba84965e19d7c7499bf14b02af9505e3078584bbd329a2dd2dd42a845e` |
+
+root只读计数核验 `2908f6`、exit0：每段collection为28,800 Agent及同量shadow，branch为19,200 Agent及同量shadow，合96,000 book-step/段。两个训练段共960标签、192,000 book-step；没有RL、NN或拟合。canonical协议SHA均为 `9a2a66336e4a2a472566f492d14e3ba9daada10051209fd7411d57f25d743968`，与原protocol文件SHA属于不同计算口径，不应互相替代。
+
+该非零退出发生在holdout目录存在检查处、该worker进入holdout金融执行前，故没有额外采样、RL或失败尾部金融步骤。留出session46351/32212保持原进程继续，不因主worker退出而重启。仍需等待它们各自实际exit0及封口，再显式重入；Ridge/预热PPO此时尚未执行。
+
+等待期间可开发下一轮候选的独立合成验收工具，但不更改本轮任何冻结输入，不运行新金融实验，不用未闭合B结果调整本轮方法。独立工具的代码/测试成本不算新增市场经历。
+
+## 后续收尾
+
 先取得两个控制进程实际退出及完成清单，再按内存/CPU情况复用其空闲槽；继续所有teacher、唯一Ridge fit和预热PPO，不因offline诊断不好取消任一方法。全过程源模型/数据/训练代码不改，重入及失败成本另列。
 
 全部四个物理run和八个开发快照封口后，运行冻结report与独立cold audit，并把原生NAV/费用/股数、GAE、archive参数/Adam、真实收益增量和选择重新核对。只有开发已登记资格成立才固定唯一方法/预算并执行2025/2026两折、三seed、两臂共12条确认记录。原+0.5pp和风险条件不变、不碰保护期、不挑幸运seed。目标未证明前不标记complete。
