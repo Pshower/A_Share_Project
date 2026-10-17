@@ -21,6 +21,8 @@
 
 ### 最新验收快照
 
+2026-10-17 阶段性补充：[实际运行回执](reports/ppo_counterfactual_learning_20261017_runlog.md)、[已完成对照诊断](reports/ppo_counterfactual_learning_20261017_control_diagnostic.md)。A两折32768步均actual exit0，共65,536 Agent RL、同量shadow及2,560 Adam。8K部署与M20相同，32K两折较基线-7.009290/-2.895338pp；有随机探索和参数更新但没有正收益增量。原训练段与提前留出段四进程继续，预热PPO未完成，尚不能判定整轮或确认资格；协议、门槛和保护期不变。
+
 2026-10-17 因果动作价值学习正式开发研究已启动：[预注册](ppo_counterfactual_learning_protocol_20261017.md)，框架95a27b0。326 passed/44.21s（root66504/4f9620 exit0），含真实SB3合成callback/TimeLimit/GAE/保存加载；真实两个派生矩阵只读排序预检15617/b63032 exit0，无金融步。prepare22776/c593e5 exit0，协议文件2d0685eb...786d58；2023/2024 worker分别48055/55789已启动，尚无完成或收益结论。计划每段480精确phase teacher、两段两折1,920标签/384,000 book-step；四次32K PPO合131,072 Agent+同量shadow，短快照不重复计经历。inner scaler固定贯穿teacher/hold/outer PPO/Q2，源为解析θ0随机行为但shadow保持M20；θ0、θaux、8K/32K各真实评价，要求正PPO增量。开发完成才固定唯一方法预算，确认只选中预算两折三seed两臂共12条，拒绝重复seed或确认后换臂；原+0.5pp/10%回撤等最终风险门槛不改。当前仅启动记录，不预填计划步数、teacher fit或候选，不下载/不访问保护期。
 
 2026-10-16 训练期配对诊断已完成：[独立协议](ppo_counterfactual_pilot_protocol_20261016.md)、[摘要](reports/ppo_counterfactual_pilot_20261016_summary.md)与[详细报告](reports/ppo_counterfactual_pilot_20261016.md)。实现989f3ef，prepare73614及两折58083/70477均actualexit0；每折96状态先封口后全状态重演，失败/补采0。实际采集11,520 Agent+11,520基线步、分支7,680+7,680步，共38,400 book-step；PPO/NN/梯度/拟合均0。全源合成回归186 passed/59.93s（root79709 exit0），report36823、cold95383均exit0，全192标签独立重算原生NAV、费用、滑点和现金/股数；图表已生成并目视核验。2023正/负/中性51/45/0，2024为49/46/1；非到期额外调仓平均差+28.1072/-19.4889 log-bp，不是新策略ROI。phase0仅2个同episode状态/折，192状态并非独立市场试验；无可学性证明、无新合格模型或部署。机器协议14ea3e38...50e451、冷审manifest6b8e812b...438a9及[根运行凭据](../reports/runs/ppo_counterfactual_pilot_20261016/execution_receipts.json)保留；父6,712签输入/96源码及本轮六输入未变，不下载、不用Q2或保护期。性能候选已实现但本轮未启用；下一轮须另登记精确phase覆盖、inner-train scaler/purge及监督和真实PPO增量的分离对照。
