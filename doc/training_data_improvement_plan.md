@@ -246,4 +246,5 @@ stock_info_sz_delist (208)  ├─ 含终止上市日期
 
 - 版本库本身很小：409 个受控文件，`.git` 5.9 MB，最大受控文件为 `doc/research_record_20261011.pdf`（1.34 MB）。
 - 本地物理大目录（全部在 `.gitignore` 内）：`.workbench` 2.59 GB（torch wheel 安装介质）；`reports/runs` 26.55 GB（研究证据）；`data/clean` 2.16 GB（各版本数据集，报告与文档引用的证据）；`data/raw` 253 MB；`data/online` 203.5 MB；`web/node_modules` 194.7 MB（可由 `npm install` 重建）。
-- 待定清理候选（代码未引用，删除与否待用户决定）：`data/clean/` 下 11 个 UI/e2e 测试版本目录（`feature_ui_*`×3、`web_check_*`×4、`workflow_ui_*`×3，约 23 MB，由 `web/e2e/*.spec.ts` 以时间戳命名生成）；`data/clean/` 根目录旧构建产物（`panel_data.parquet` 128.7 MB、`all_stocks_features.parquet` 104.7 MB、`train/val/test.parquet` 约 117 MB、300 个个股 `{code}_features.parquet` 约 150 MB、`test000001_000002s2017e2024/` 3 MB）。当前配置 `clean_dir` 指向 `data/clean/research_v3`，根目录产物来自版本化之前的构建。
+- 已按用户批准删除（2026-10-17，合计释放 2,615.6 MB）：`data/clean/` 下 11 个 UI/e2e 测试版本目录（`feature_ui_*`×3、`web_check_*`×4、`workflow_ui_*`×3，约 23 MB，由 `web/e2e/*.spec.ts` 以时间戳命名生成，代码未引用）；`.workbench/wheels/torch-2.7.1+cu126-cp311-cp311-win_amd64.whl`（2.59 GB，安装介质，需要时重新下载）。
+- 保留候选（用户决定暂不删除）：`data/clean/` 根目录旧构建产物（`panel_data.parquet` 128.7 MB、`all_stocks_features.parquet` 104.7 MB、`train/val/test.parquet` 约 117 MB、300 个个股 `{code}_features.parquet` 约 150 MB、`test000001_000002s2017e2024/` 3 MB）；`web/node_modules`（194.7 MB，可由 `npm install` 重建）。当前配置 `clean_dir` 指向 `data/clean/research_v3`，根目录产物来自版本化之前的构建。
