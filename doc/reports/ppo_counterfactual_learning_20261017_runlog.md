@@ -114,3 +114,28 @@ root只读计数核验 `2908f6`、exit0：每段collection为28,800 Agent及同�
 17:57 北京时间以 Win32_Process 逐项核验：无任何 python 进程，无未完金融执行、无失败尾部。
 
 当前四项物理 run 中：A 臂两折 PPO-only 已封口（03:38 UTC 节）、teacher 两折 inner-train 已封口（04:44 UTC 节）、teacher 两折 inner-holdout 本节封口。唯一 Ridge fit 的输入前提（sealed teacher segments）已满足；下一步为显式重入冻结 runner：唯一 Ridge fit + 两折 value_warmup 臂，补全全部八个开发快照后再评估筛选资格。协议、门槛、保护期不变，本节不预填收益或筛选结论。
+
+## 11:21 UTC 开发筛选完成、冷审计通过（首次准入）
+
+以下只登记本节新增事实，保留前文历史快照；前文"预热臂待显式重入、八个开发快照未闭合"以本节取代。数字来自已封口封存物、冻结 report 与独立冷审计；本节不预填确认结果。
+
+重入执行（18:11–18:36 北京时间）：预检 FROZEN_OK 后显式重入两折 `--stage screen`，唯一 Ridge fit 于 18:11:21 落盘（`fits/{2023,2024}/fit.json`），两折 value_warmup 训练与 8K/32K 快照回测分别于 18:35:45 / 18:36:07 封口；此前 A 臂 ppo_only run 未被重训（mtime 保持 11:31/11:32）。两折 worker 回执 `worker_screen_2023.json`（SHA `03755152…`，18:36:22）、`worker_screen_2024.json`（SHA `123f51c1…`，18:36:41）status=complete，八个开发快照全部闭合；无失败尾部、无补采，训练期间冻结输入未改。
+
+八个开发快照实际结果（baseline_gap=部署相对 M20；ppo_gain=相对自身辅助起点的 PPO 纯增量；已换算为百分点）：
+
+| 折 | 方法 | 快照 | baseline_gap | ppo_gain | changes / vs_aux（4 账户） |
+| --- | --- | ---: | ---: | ---: | --- |
+| 2023 | ppo_only | 8,192 | 0.000000 | 0.000000 | 全无 / 全无 |
+| 2023 | ppo_only | 32,768 | -7.009290 | -7.009290 | 全有 / 全有 |
+| 2023 | value_warmup | 8,192 | +7.220747 | +13.618915 | 全有 / 全有 |
+| 2023 | value_warmup | 32,768 | +11.698993 | +18.097161 | 全有 / 全有 |
+| 2024 | ppo_only | 8,192 | 0.000000 | 0.000000 | 全无 / 全无 |
+| 2024 | ppo_only | 32,768 | -2.895338 | -2.895338 | 全有 / 全有 |
+| 2024 | value_warmup | 8,192 | +1.383572 | +0.768440 | 全有 / 全有 |
+| 2024 | value_warmup | 32,768 | +1.175065 | +0.559933 | 全有 / 全有 |
+
+8K 与 32K 是同一次物理训练的前缀/终点快照，不重复计 RL 步。冻结 report 于 18:39:04 写出 `selection.json`（SHA `a937e64c…`）、`selection_proof.json`（SHA `66ab692e…`）、`summary.json`：status=`screen_admitted`，admitted=True；候选资格：ppo_only 8K 不达标（000.000000）、ppo_only 32K 不达标（-7.009290）、value_warmup 8K 达标（min +1.383572、mean +4.302160）、value_warmup 32K 达标（min +1.175065、mean +6.437029）。按登记规则取最小 gap 优先，固定唯一方法/预算 `value_warmup/8,192`（minimum_gap 1.383572pp、mean_gap 4.302160pp、worst_drawdown 14.239191%、mean_cost 6,578.007653），确认阶段授权 98,304 RL 步（12×8,192）。本项目首次通过开发准入；最终合格仍取决于 2025/2026 确认与既定风险门槛。
+
+独立冷审计首次真实运行先暴露工具缺陷：审计工具两处 `verify_timing_trace` 期望值误用紧凑分隔符的 `runner.digest`，而冻结评估/训练 trace 由 `src.training.freeze.json_digest`（默认分隔符）签署；实测存盘 SHA `01f6191b…` 等于 freeze 摘要、紧凑摘要 `98ab6eb4…` 不等，全部 32 个 role 用例误报。审计工具不在冻结 INVENTORY 内，修复仅把这两处期望值改为与冻结 writer 完全相同的签署函数（修复前工具 SHA `36bd6bac…`，修复后 `bca56e50…`）；工具自身 67 项合成测试前/后均通过，其未覆盖签署路径是本缺陷逃逸原因，作为覆盖缺口记录。第二遍通过：status=`verified_saved_evidence`，计数器 teacher 1,920 配对标签/384,000 book-step、Ridge fit 2、物理 RL 131,072+同量 shadow、Adam 5,120、评价 3,776/3,776，审计自身 environment/neural/optimizer/fit 全 0（cold 性质成立）；独立重算 outcome 与已保存 `selection.json` 完全一致。sidecar：`diagnostics/cold_audit/screen/audit.json`（SHA `5c04ab80…`）与 `manifest.json`（SHA `acfe1595…`，status=`passed_cold_artifact_audit`、version=`closed_causal_teacher_native_ppo_cold_v1`）；图表 `diagnostics/figures_screen/learning_comparison.png`（SHA `2a442392…`）及 manifest（SHA `7c448e66…`）于 19:19 写出。
+
+下一步（协议、门槛、保护期不变）：按冻结选择显式启动 2025/2026 两折 `--stage confirm`，每折新建数据产物与两段 teacher（各 480 标签/96,000 book-step），3 seeds × 2 臂 × 8,192 步共 12 条确认记录、合计 98,304 RL 步；不挑 seed、不换臂、不重训任何已封口开发 run。确认完成并冷审计通过后才按原门槛判定最终资格。
