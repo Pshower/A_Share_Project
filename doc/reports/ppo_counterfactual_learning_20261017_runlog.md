@@ -1,6 +1,6 @@
 # 因果动作价值与 PPO 运行记录
 
-记录更新：2026-10-17 03:11:07 UTC。研究仍在执行，目标保持active；没有本轮完整收益、筛选或确认结论，不把部分训练当作达标。
+记录更新：2026-10-17 10:07 UTC。研究仍在执行，目标保持active；没有本轮完整收益、筛选或确认结论，不把部分训练当作达标。
 
 ## 冻结与工程证据
 
@@ -97,3 +97,20 @@ root只读计数核验 `2908f6`、exit0：每段collection为28,800 Agent及同�
 先取得两个控制进程实际退出及完成清单，再按内存/CPU情况复用其空闲槽；继续所有teacher、唯一Ridge fit和预热PPO，不因offline诊断不好取消任一方法。全过程源模型/数据/训练代码不改，重入及失败成本另列。
 
 全部四个物理run和八个开发快照封口后，运行冻结report与独立cold audit，并把原生NAV/费用/股数、GAE、archive参数/Adam、真实收益增量和选择重新核对。只有开发已登记资格成立才固定唯一方法/预算并执行2025/2026两折、三seed、两臂共12条确认记录。原+0.5pp和风险条件不变、不碰保护期、不挑幸运seed。目标未证明前不标记complete。
+
+## 10:07 UTC inner-holdout 双折封口
+
+以下为新增只读封口登记，保留前文历史快照。两个提前 inner-holdout worker 均已完成其唯一片段，四段 teacher 至此全部封口：
+
+| 片段 | 封口回执 | 回执写入（北京时间） | completed_sha256 | 额外步数 |
+| --- | --- | --- | --- | ---: |
+| 2023 inner-holdout | `early_holdout_2023.json`，status=complete | 14:06:20 | `2f18ee14592995d785e6f3436453b6de340ade6d45a8382b6b0ad6ddc76bb3ca` | 0 |
+| 2024 inner-holdout | `early_holdout_2024.json`，status=complete | 14:18:43 | `80fa15bb1788a556bb11ec54feea9cab81ee192cc21376c6a9ffaf3d188b0084` | 0 |
+
+回执由 `tools/run_counterfactual_holdout.py` 在段关闭核验（`closed()` 要求计数恰等于预登记教师计数）通过后写出，含 `launcher_sha256=8d7e0ffc…`、`protocol_sha256=9a2a6633…786d58`、`scheduling_only=true`；不续接或重采任何 partial。
+
+四段计数器（只读 `counters.json`）完全一致：每段 480 配对标签、collection 28,800 Agent + branch 19,200 Agent 及同量 shadow；合计 1,920 标签、192,000 Agent step + 同量 shadow = 384,000 book-step，与预登记计划 1,920 标签/384,000 book-step 相符。各段目录 `completed.json`/`counters.json`/`progress.json`/`targets.npz` 落盘（mtime 14:05:42 / 14:18:06 北京时间），480 个标签文件齐全。
+
+17:57 北京时间以 Win32_Process 逐项核验：无任何 python 进程，无未完金融执行、无失败尾部。
+
+当前四项物理 run 中：A 臂两折 PPO-only 已封口（03:38 UTC 节）、teacher 两折 inner-train 已封口（04:44 UTC 节）、teacher 两折 inner-holdout 本节封口。唯一 Ridge fit 的输入前提（sealed teacher segments）已满足；下一步为显式重入冻结 runner：唯一 Ridge fit + 两折 value_warmup 臂，补全全部八个开发快照后再评估筛选资格。协议、门槛、保护期不变，本节不预填收益或筛选结论。

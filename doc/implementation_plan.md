@@ -1,6 +1,6 @@
 # A 股日频强化学习交易项目实施安排
 
-更新日期：2026-10-16
+更新日期：2026-10-17
 
 行情整合增量：新浪为默认日线源；“行情与模型”已接入最多三模型单日研究意图、K线日期联动、完整配置及已有验证表现。审查后已统一无持仓股票的特征掩码，并完成真实300股单日推理一致性验收；缺指定日线、已有缺失持仓仍阻断。连续账户回放与真实股数建议未实现。见 [审查修复](repository_audit_fixes.md)、[设计及进度](market_model_prediction_plan.md) 和 [首版历史验收](reports/market_model_integration_20260927.md)。
 
@@ -21,7 +21,7 @@
 
 ### 最新验收快照
 
-2026-10-17 阶段性补充：[实际运行回执](reports/ppo_counterfactual_learning_20261017_runlog.md)、[已完成对照诊断](reports/ppo_counterfactual_learning_20261017_control_diagnostic.md)。A两折32768步均actual exit0，共65,536 Agent RL、同量shadow及2,560 Adam。8K部署与M20相同，32K两折较基线-7.009290/-2.895338pp；有随机探索和参数更新但没有正收益增量。原训练段与提前留出段四进程继续，预热PPO未完成，尚不能判定整轮或确认资格；协议、门槛和保护期不变。
+2026-10-17 阶段性补充：[实际运行回执](reports/ppo_counterfactual_learning_20261017_runlog.md)、[已完成对照诊断](reports/ppo_counterfactual_learning_20261017_control_diagnostic.md)。A两折32768步均actual exit0，共65,536 Agent RL、同量shadow及2,560 Adam。8K部署与M20相同，32K两折较基线-7.009290/-2.895338pp；有随机探索和参数更新但没有正收益增量。四段teacher全部封口：两折inner-train与inner-holdout各480配对标签、合1,920及384,000 book-step，extra_steps均为0（`early_holdout_2023/2024.json` status=complete，14:06/14:18北京时间）。当前无进程运行，唯一Ridge fit与两折预热臂待显式重入，八个开发快照未闭合，尚不能判定整轮或确认资格；协议、门槛和保护期不变。
 
 2026-10-17 因果动作价值学习正式开发研究已启动：[预注册](ppo_counterfactual_learning_protocol_20261017.md)，框架95a27b0。326 passed/44.21s（root66504/4f9620 exit0），含真实SB3合成callback/TimeLimit/GAE/保存加载；真实两个派生矩阵只读排序预检15617/b63032 exit0，无金融步。prepare22776/c593e5 exit0，协议文件2d0685eb...786d58；2023/2024 worker分别48055/55789已启动，尚无完成或收益结论。计划每段480精确phase teacher、两段两折1,920标签/384,000 book-step；四次32K PPO合131,072 Agent+同量shadow，短快照不重复计经历。inner scaler固定贯穿teacher/hold/outer PPO/Q2，源为解析θ0随机行为但shadow保持M20；θ0、θaux、8K/32K各真实评价，要求正PPO增量。开发完成才固定唯一方法预算，确认只选中预算两折三seed两臂共12条，拒绝重复seed或确认后换臂；原+0.5pp/10%回撤等最终风险门槛不改。当前仅启动记录，不预填计划步数、teacher fit或候选，不下载/不访问保护期。
 
