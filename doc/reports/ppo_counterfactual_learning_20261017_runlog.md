@@ -75,8 +75,6 @@ root只读两个 `runs/screen_<fold>_ppo_only_42/snapshots/8192/training_audit.j
 
 此时四个正式计算进程为两个原 inner-train worker 加两个提前 inner-holdout worker，Win32_Process 已核对 PID 与完整命令行。Ridge 和预热 PPO 尚未启动，全部八个开发快照未闭合，故不执行筛选或确认，也不根据提前对照结果修改方案。
 
-## 待完成工作
-
 ## 04:44 UTC 训练段封口与依赖守卫
 
 两个原 worker 均已完成其唯一 inner-train 片段，各480配对标签。随后在进入另进程正在执行的 inner-holdout 之前，按登记规则抛出 `ValueError: Never resume a partial teacher segment`，不是观察超时或静默重训：
@@ -91,6 +89,8 @@ root只读计数核验 `2908f6`、exit0：每段collection为28,800 Agent及同�
 该非零退出发生在holdout目录存在检查处、该worker进入holdout金融执行前，故没有额外采样、RL或失败尾部金融步骤。留出session46351/32212保持原进程继续，不因主worker退出而重启。仍需等待它们各自实际exit0及封口，再显式重入；Ridge/预热PPO此时尚未执行。
 
 等待期间可开发下一轮候选的独立合成验收工具，但不更改本轮任何冻结输入，不运行新金融实验，不用未闭合B结果调整本轮方法。独立工具的代码/测试成本不算新增市场经历。
+
+04:52 UTC：[Critic初始化/裁剪探针](../critic_initialization_probe_20261017.md)仅完成独立工程准备，root session25703/f0835c实际exit0，58 passed/24.20s。当前冻结runner及调度入口没有导入该工具，正式金融研究仍只有本轮原任务。
 
 ## 后续收尾
 
