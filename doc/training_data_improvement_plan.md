@@ -219,3 +219,31 @@ stock_info_sz_delist (208)  ├─ 含终止上市日期
 | [交易环境](trading_environment.md) | 账户、成交与约束契约；本文 6.4 的字段映射以其 `corporate_actions` 契约为准 |
 | [本地研究流程](research_workflow.md) | 数据产物重建与基线复现命令 |
 | [实施进度](implementation_plan.md) | 唯一的阶段状态与验收证据入口 |
+
+## 10. 执行记录与仓库大文件核查（2026-10-17）
+
+### 10.1 清理执行
+
+- 删除失败残留 `data/clean/.failed_agent_improvement_20260927_walk_01/all_stocks_features.parquet`（90,584,368 字节），已获用户确认。失败原因与处置记录见 [agent_improvement 报告](reports/agent_improvement_20260927.md)；完成版数据集 `agent_improvement_20260927_walk`（457 MB）保留。
+- confirm 首启被窗口关闭中止后，两个未封口的 teacher `inner_train` 部分目录（2025/2026 折）已按协议删除并重采，`data/2025`、`data/2026` 产物未受影响。过程见研究 runlog。
+
+### 10.2 raw 文件命名说明
+
+`configs/research.json` 的 `raw_pattern` 为 `{code}_data_2017_2024_hfq.csv`，但实测该批文件实际覆盖至 2026-06-26（`000001`、`600519` 与新浪 hfq 共同最后交易日 2026-06-26，共同 2,300 个交易日）。文件名为冻结约定保持不改，实际区间以内容为准。
+
+### 10.3 双源后复权口径差（实测）
+
+对 `000001`、`600519` 抽检新浪 hfq（`data/online/history/h_5cd4a2e818924259`）与东财 hfq（`data/raw`）收盘价：
+
+| 股票 | sina/EM 收盘比 min–max | 比值均值 | 日收益相关系数 |
+| --- | --- | --- | --- |
+| `000001` | 0.8643 – 0.9384 | 0.9032 | 0.998724 |
+| `600519` | 1.3216 – 1.4700 | 1.4228 | 0.999277 |
+
+比值在全期不是常数（`000001` 波动约 8%、`600519` 约 10%），说明两源复权基准与分红处理不同，不只是整体缩放；日收益高度一致但非完全相同。结论：单个数据集只能绑定一个源，禁止混用；跨源比较收益分布前必须先统一复权口径。
+
+### 10.4 仓库大文件核查（只读）
+
+- 版本库本身很小：409 个受控文件，`.git` 5.9 MB，最大受控文件为 `doc/research_record_20261011.pdf`（1.34 MB）。
+- 本地物理大目录（全部在 `.gitignore` 内）：`.workbench` 2.59 GB（torch wheel 安装介质）；`reports/runs` 26.55 GB（研究证据）；`data/clean` 2.16 GB（各版本数据集，报告与文档引用的证据）；`data/raw` 253 MB；`data/online` 203.5 MB；`web/node_modules` 194.7 MB（可由 `npm install` 重建）。
+- 待定清理候选（代码未引用，删除与否待用户决定）：`data/clean/` 下 11 个 UI/e2e 测试版本目录（`feature_ui_*`×3、`web_check_*`×4、`workflow_ui_*`×3，约 23 MB，由 `web/e2e/*.spec.ts` 以时间戳命名生成）；`data/clean/` 根目录旧构建产物（`panel_data.parquet` 128.7 MB、`all_stocks_features.parquet` 104.7 MB、`train/val/test.parquet` 约 117 MB、300 个个股 `{code}_features.parquet` 约 150 MB、`test000001_000002s2017e2024/` 3 MB）。当前配置 `clean_dir` 指向 `data/clean/research_v3`，根目录产物来自版本化之前的构建。
