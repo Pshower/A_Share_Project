@@ -149,3 +149,22 @@ root只读计数核验 `2908f6`、exit0：每段collection为28,800 Agent及同�
 中止时的实际状态：两折 data 产物完整可复用；`teacher/2025/inner_train` 完成 139/480 标签、`teacher/2026/inner_train` 完成 129/480 标签，均未封口（无 `completed.json`）。按冻结规则 `Never resume a partial teacher segment`，20:26 删除这两个未封口部分目录（2025：143 文件/66.1MB；2026：133 文件/61.5MB），旧日志改名 `counterfactual_confirm_*.failed_window_close.*` 保留；被作废的部分采集不计入研究计数。
 
 20:27:46 以 `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`（无控制台窗口、stdin 置空、stdout/stderr 重定向）分离方式重入两折 worker：PID 40028/2025、23180/2026，日志重新写回 `.workbench/counterfactual_confirm_{2025,2026}.{out,err}.log`。data 产物按原身份复用，两段 teacher 从零重采；本次速度与既有 inner-holdout 段（约 2.5 小时/段，96,000 book-step）同量级，属登记预算内。后续长任务的启动方式统一改为无窗口分离，避免窗口关闭误杀；确认完成前不碰冻结件、不预填确认结果。
+
+## 01:41 UTC 确认 12 条完成、未通过资格判定
+
+以下只登记本节新增事实，保留前文历史快照；不改变协议、选择、阈值与保护期。时间除注明外均为北京时间，数字来自已封口封存物、冻结 report、独立冷审计与 confirm 图表。
+
+两折 confirm worker 自 20:27:46 运行至 01:32:53（2025）/01:36:09（2026）全部完成，实际耗时 5h08m，stderr 全程为空、无补采或失败尾部。`worker_confirm_2025.json`（SHA `625f8191…`）与 `worker_confirm_2026.json`（SHA `05d74827…`）status=complete，各登记 6 条 8,192 步 run 摘要，protocol_sha256=`9a2a6633…786d58`。逐折物量：teacher 两段（inner_train、inner_holdout）各 480 配对标签/96,000 book-step，两折合 1,920 标签/384,000 book-step；RL 为 12×8,192=98,304 步及同量 shadow，Adam 3,840 次；无重复 seed、无换臂、无重训已封口 run。
+
+冻结 report 于 09:06:55 写出 `summary.json`（SHA `c4ec160e…`）与 `status.json`（SHA `abc3f0ad…`）：status=`confirmation_complete`，`qualified=false`、`candidate=null`、`actionable=false`。选中臂 value_warmup 逐折结果（已换算为百分点）：
+
+| 折 | 3 seed baseline_gap（seed 123/2026/42） | 折均值 | 折均值 ppo_gain | gap 正 seed | ppo_gain 正 seed |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 2025 | -10.325240 / -12.819130 / -10.102257 | -11.082209 | +0.302606 | 0/3 | 2/3 |
+| 2026 | +1.748240 / +1.890205 / +2.174060 | +1.937502 | -0.118966 | 3/3 | 1/3 |
+
+同轮 ppo_only 参照：2025 三种子 baseline_gap 均 0.000000（8K 部署与 M20 相同）；2026 seed 42/123 为 0.000000、seed 2026 为 -5.654236pp，不参与选中臂资格判定。两折合并选中臂 mean_baseline_gap=-4.572354pp；最坏账户回撤 6.821253%（2025/seed 2026），对基线最大回撤恶化 0.914352pp。门槛核对：跨折均值≥+0.5pp 失败（-4.572354）；每折均值>0 失败（2025）；每折≥2/3 gap seed 为正失败（2025 为 0/3）；每折自身初始化增量为正失败（2025 为 -11.082209）；实现层每折 mean_ppo_gain>0 与≥2/3 ppo seed 为正失败（2026）；最坏回撤≤10% 与相对基线恶化≤2pp 两项通过。按预登记 fallback：不换臂、不追加预算、无候选、不部署。
+
+confirm 冷审计（仅重放已保存证据）通过：status=`verified_saved_evidence`；计数 teacher 1,920 配对标签/384,000 book-step、Ridge fit 2、物理 RL 98,304+同量 shadow、Adam 3,840、评估 8,640/8,640；审计自身 environment/neural/optimizer/fit 全 0。sidecar：`diagnostics/cold_audit/confirm/audit.json`（SHA `0e3241f3…`）与 `manifest.json`（SHA `783e825e…`，status=`passed_cold_artifact_audit`、version=`closed_causal_teacher_native_ppo_cold_v1`）。图表 `diagnostics/figures_confirm/learning_comparison.png`（SHA `c7ebb544…`）与 manifest（SHA `6e4376a1…`、phase_record_digest `75ce505e…`）于 09:40 写出。
+
+本轮研究至此全部闭合：开发准入→固定唯一选择→确认执行→独立冷审计均完成，最终结论为未通过确认资格（negative result），无候选、不部署；不重训、不挑 seed、不改写任何冻结输入与阈值，保护期未触碰。确认阶段为最终状态，后续新方向须另立协议。

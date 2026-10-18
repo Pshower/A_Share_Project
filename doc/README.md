@@ -1,8 +1,8 @@
 # 项目文档索引
 
-阶段性更新：[运行记录](reports/ppo_counterfactual_learning_20261017_runlog.md)、[已完成对照诊断](reports/ppo_counterfactual_learning_20261017_control_diagnostic.md)。八个开发快照闭合：ppo_only两折32K仍无正增量（8K等于M20，32K落后7.009290/2.895338pp）；value_warmup两折8K/32K全为正增量。冻结report首次screen_admitted，固定value_warmup/8,192并授权确认98,304 RL步；冷审计（修复工具摘要函数缺陷后）以0环境步/0神经前向复现该结论。确认与最终门槛待完成，不改本轮冻结方案。
+阶段性更新：[运行记录](reports/ppo_counterfactual_learning_20261017_runlog.md)、[已完成对照诊断](reports/ppo_counterfactual_learning_20261017_control_diagnostic.md)。八个开发快照闭合：ppo_only两折32K仍无正增量（8K等于M20，32K落后7.009290/2.895338pp）；value_warmup两折8K/32K全为正增量。冻结report首次screen_admitted，固定value_warmup/8,192并授权确认98,304 RL步；冷审计（修复工具摘要函数缺陷后）以0环境步/0神经前向复现该结论。确认阶段已于10-18实际完成并判定未合格（status=`confirmation_complete`、qualified=false）：2025折value_warmup三种子gap全负、2026折PPO增量为负，跨折-4.572354pp未达+0.5pp，仅回撤条件通过；confirm冷审计通过。按预登记fallback无候选、不部署，本轮研究闭合为negative result，见运行记录。
 
-进行中：[因果动作价值预热与PPO正式对照](ppo_counterfactual_learning_protocol_20261017.md)。开发阶段已完成并首次通过准入（详见运行记录）；下一步按冻结选择执行2025/2026两折×3seed×2臂共12条确认记录，不换臂、不挑seed、不重训已封口run。最终资格仍受原风险门槛约束，确认完成并冷审计通过前不宣布结果。
+已完成（确认未合格）：[因果动作价值预热与PPO正式对照](ppo_counterfactual_learning_protocol_20261017.md)。开发准入与12条确认记录均完成（98,304 RL步、5h08m），confirm冷审计通过（verified_saved_evidence）；但2025折三种子gap全负、2026折PPO增量为负，跨折-4.572354pp未达+0.5pp门槛，仅回撤条件通过。按冻结fallback无候选、不部署；negative result，无后续训练授权，新方向须另立协议。
 
 已完成：[训练期配对动作诊断协议](ppo_counterfactual_pilot_protocol_20261016.md)、[摘要](reports/ppo_counterfactual_pilot_20261016_summary.md)及[详细报告](reports/ppo_counterfactual_pilot_20261016.md)。192个配对、38,400 book-step、0新增训练；186项合成回归与原生净值/订单冷重算通过。额外调仓的平均动作差跨折异号，不能据此增加调仓频率；phase0每折仅2个相关状态。未证明可预测性、未形成新策略ROI或合格候选，后续先验证动作价值信号能否学习。
 
