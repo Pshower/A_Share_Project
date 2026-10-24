@@ -25,7 +25,7 @@ python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda
 python -B -m src.web.serve --port 8765
 ```
 
-环境已存在时不重复创建。`requirements-cuda.txt` 必须单独安装，避免将所有应用依赖都交给 PyTorch 专用索引解析。安装工作台依赖时的约束防止把 GPU torch 换回其他构建。
+环境已存在时不重复创建。`requirements-cuda.txt` 必须单独安装，避免将所有应用依赖都交给 PyTorch 专用索引解析。安装工作台依赖时的约束防止把 GPU torch 换回其他构建。完整环境快照见 `requirements-lock.txt`（含 CUDA torch，仅作为 AShareGPU 的精确冻结记录，不直接用于 CPU CI）。
 
 工作台子任务继承服务进程的 Python 解释器，因此启动服务前须激活正确环境。页面动态显示环境名和 CUDA 可用性，不再写死 Graduate / CPU。
 
@@ -52,6 +52,6 @@ CPU 与 GPU 之间不承诺逐位相同的数值结果。需要严格复现旧 C
 - 原 Graduate 回归：96 passed，1 项 CUDA 硬件测试跳过，13 项联网测试排除；再次确认旧 torch 仍为 2.7.1+cpu。
 - 前端生产构建通过；2 项浏览器测试通过，覆盖 CUDA 配置检查和桌面 / 手机行情图表。ECharts 公共包仍有原有的 500 kB 体积提示。
 - GPU 工作台检查任务：`j_538b660e1c684476`，32 股、40,901 参数、`actual_device=cuda`、1 步环境检查、保存加载一致、参数未更新、未训练、未评估测试集。产物：`reports/runs/workbench/j_538b660e1c684476/check.json`。
-- 工作台已改用 `D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe`，地址保持 `http://127.0.0.1:8765`。截图：`web/test-results/gpu-device-desktop.png`。
+- 工作台已改用 `D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe`，地址保持 `http://127.0.0.1:8765`。截图曾输出到 `web/test-results/gpu-device-desktop.png`，该目录不入 Git。
 
 结论：当前 566.36 驱动通过本项目实际 CUDA 验证，本次无需升级驱动。不代表已经验证 GPU 长时间训练性能或收益；本次没有进行正式训练。

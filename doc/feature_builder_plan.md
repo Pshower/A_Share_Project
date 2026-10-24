@@ -80,5 +80,5 @@
 - 浏览器验收：新特征闭环 1 项通过，已有日期 / CUDA / 批量 / 行情回归 8 项通过，合计 9 个不同用例。最后单独重跑特征用例更新截图，results.json 因而只含该次 1 项结果。
 - 最终实际构建任务 `j_7771fa5750924e8f`，新版本 `feature_ui_1790419712842`，2 股、22 列，追加 `custom_atr_14` 和 `custom_dd_20`，原 `research_v3` 产物哈希保持不变。
 - 新版本的 PPO 无训练检查通过，观察形状为 `[2, 1, 22]`，模型参数未更新，未运行正式训练；新增指标尚无收益或泛化提升证据。
-- 桌面与手机截图：`web/test-results/feature-editor-desktop.png`、`feature-editor-mobile.png`。前端构建通过，原有 ECharts 公共包体积提示仍保留。
-- 工作台保持 `http://127.0.0.1:8766`，使用 AShareGPU。本轮没有行情下载。
+- 桌面与手机截图曾输出到 `web/test-results/feature-editor-{desktop,mobile}.png`；该目录不入 Git。前端构建通过，原有 ECharts 公共包体积提示仍保留。
+- 验收时工作台使用 `http://127.0.0.1:8766` 和 AShareGPU；当前默认端口为 8765，占用时以终端输出为准。本轮没有行情下载。

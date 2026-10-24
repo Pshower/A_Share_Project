@@ -1,12 +1,10 @@
 # PPO 训练框架：实现与运行说明
 
-更新日期：2026-09-25
+更新日期：2026-10-24
 
-## 当前状态
+## 文档范围
 
-阶段四框架及无训练验收已完成，并已运行 32 只股票、8,192 步轻量训练及一次冻结测试。PPO 收益略高但风险指标不及等权，不能宣称策略优势或跨股票泛化；见 [摘要](reports/ppo_lightweight_20260925_summary.md) 和 [详细报告](reports/ppo_lightweight_20260925.md)。
-
-规划文档已先行提交：`66dbe26`，`docs: specify PPO agent and training framework plan`。本文负责实际运行方式；智能体行为与网络原理见 [PPO 设计](ppo_implementation_plan.md)，任务状态和验收证据统一见 [实施进度](implementation_plan.md)，其余文档见 [文档索引](README.md)。
+PPO 框架、显式预算、验证选模、保存加载和冻结测试流程已实现，随后完成了轻量、300 股、多种子、动作/表示及因果动作价值等多轮研究；目前没有经确认门槛认定可部署的候选。本文只维护运行命令、产物契约和框架边界，最新状态与结论见 [实施进度](implementation_plan.md)，智能体行为与网络原理见 [PPO 设计](ppo_implementation_plan.md)，其余文档见 [文档索引](README.md)。
 
 ## 已实现的调用链
 
@@ -32,7 +30,7 @@ ResearchData：校验本地产物哈希、scaler、日期边界与特征顺序
                       已有 broker：买入/卖出、费用、T+1、整手
 ```
 
-网络输入为标准化相对特征、持仓/现金比例、应收比例和有效/买卖掩码。当前数据的输入形状为 `[298, 1, 20]`；股票数由数据或 `stock_codes` 配置决定，不硬编码进网络。
+网络输入为标准化相对特征、持仓/现金比例、应收比例和有效/买卖掩码。默认 `configs/ppo.json` 配 `research_v3` 时为 `[298, 1, 20]`；近期 300 股研究使用各自 fold manifest。股票数由数据或 `stock_codes` 配置决定，不硬编码进网络。
 
 动作是目标权重，不是直接买卖标签。目标高于当前持仓时尝试买入，低于当前持仓时尝试卖出，目标为零时尝试清仓；无法成交的订单保留拒绝原因。首版没有独立的“不下单”动作。
 
@@ -45,8 +43,8 @@ PPO 的 rollout 保留原始潜在动作和对应 log probability；环境只执
 新增依赖清单为 `requirements-ppo.txt`，复用现有数据和回测依赖。在其他环境复现时，从仓库根目录执行：
 
 ```powershell
-conda activate Graduate
-python -m pip install -r requirements-ppo.txt
+conda activate AShareGPU
+python -m pip install -r requirements-ppo.txt -c requirements-gpu-constraints.txt
 ```
 
 安装依赖会访问软件包源；本次没有下载行情，也没有执行联网测试。
@@ -64,7 +62,7 @@ python -B -m pytest -q -p no:cacheprovider
 
 检查过程校验现有数据、初始化模型、在训练日期内执行一次无梯度推理及环境步进，并验证模型保存加载一致性、参数不变和 `num_timesteps=0`。不调用 `learn()`，不做验证集选模或真实测试集评估。
 
-每次检查生成 `check.json` 和 `initialized_model/`。报告记录观测/动作维度、参数量、训练区间、保存加载一致性和参数是否改变；当前本地报告路径和实测结果见 [实施进度的最新验收快照](implementation_plan.md#最新验收快照)。
+每次检查生成 `check.json` 和 `initialized_model/`。报告记录观测/动作维度、参数量、训练区间、保存加载一致性和参数是否改变；当前状态见[实施进度](implementation_plan.md)。
 
 初始化模型仅用于连通性检查，独立评估 CLI 会拒绝把它当成已训练的候选模型。
 
@@ -130,7 +128,7 @@ python -B -m src.training.evaluate --config configs/ppo_lightweight.json --model
 
 同一训练实例仍固定观测和动作空间。已有 `PPOAgent.transfer_to(env, config, new_contract)` 接口：创建匹配新股票数的实例、严格迁移共享参数、重置优化器与 rollout，并记录来源。普通 `load()` 不接受股票池契约变化。
 
-迁移必须沿用相同特征、窗口、scaler、价格和执行口径。当前数据仅有 298 只股票，代码验收用小型合成股票池验证迁移，没有生成 500 只股票的数据，也没有验证扩池后的收益。跨股票留出实验仍需另建训练股票专用 scaler；共享参数不等于泛化有效。
+迁移必须沿用相同特征、窗口、scaler、价格和执行口径。默认 `research_v3` 为 298 股，近期研究使用独立的 300 股 fold 数据；代码验收用小股票池验证迁移，扩池后的收益和跨股票留出仍需独立研究。跨股票实验必须另建训练专用 scaler；共享参数不等于泛化有效。
 
 ## 验收与未完成项
 
@@ -140,4 +138,4 @@ python -B -m src.training.evaluate --config configs/ppo_lightweight.json --model
 
 覆盖动作约束与买卖执行、冻结持仓、股票置换、参数量不依赖股票数、保存加载和显式迁移、未来数据隔离、元数据边界防护、原始潜在动作概率一致性、截断终止观测与 bootstrap、检查 CLI 防误训练，以及共享基线回测。
 
-轻量实验已完成真实更新、选模和一次冻结日期留出测试；后续仍需更充分的训练、多种子、滚动及跨股票验证。现有 HFQ 研究报价、固定股票名单、交易状态和公司行为数据缺口继续保留，不能用框架验收替代策略有效性验证。
+轻量及后续多种子研究已完成真实更新、选模和相应验证，但未形成合格候选；仍需滚动窗口、跨股票留出和成本/容量验证。现有 HFQ 研究报价、固定股票名单、交易状态和公司行为数据缺口继续保留，不能用框架验收替代策略有效性验证。

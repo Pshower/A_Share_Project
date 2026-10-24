@@ -129,4 +129,4 @@ npm --prefix web run test:e2e
 
 用户下载的 `h_18d10fc14d534e33` 已确认有两种口径各 2,364 条记录，2017-01-03 至 2026-09-24；不再将之前请求失败描述为当前所有下载均失败。此批次不等同于完整模型股票池推理验收。
 
-本次验证：13 项离线行情 Python 测试通过；浏览器检查实际本地快照的 K 线、曲线、口径、范围及桌面 / 手机画布像素，不访问外部行情。截图见 `web/test-results/market-chart-desktop.png` 与 `market-chart-mobile.png`。
+本次验证：13 项离线行情 Python 测试通过；浏览器检查实际本地快照的 K 线、曲线、口径、范围及桌面 / 手机画布像素，不访问外部行情。截图曾输出到 `web/test-results/market-chart-{desktop,mobile}.png`，该目录不入 Git。

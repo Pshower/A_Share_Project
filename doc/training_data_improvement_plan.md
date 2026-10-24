@@ -378,6 +378,6 @@ P1 首版已按固定超参完成探索性实现与验证，结果见 11.9，不
 
 - 一个**未经调参**的 20 特征 Ridge 排序组合在两折都被 20 日动量支配（两折均值 -5.76pp），2024 折绝对收益为负。这确立了"最朴素的学习型因子模型不足以替代规则基线"，但不能推断"因子模型整体无效"——本轮只有一组固定超参（horizon 20、alpha 1.0、每 20 日调仓、top 20），按仓库纪律不做事后调参。
 - 该结果**不改变**既有 PPO 结论的方向，但补上了此前缺失的对照：动量基线在这两个窗口本身是强基线（+6.54% / +3.36%），因此"PPO 未能超越动量"不能再被解释为"对照太弱"。
-- 12 项合成测试（`tests/test_factor_baseline.py`）覆盖 purge 因果性、未来价格扰动不变性、排序与代码 tie-break、`max_weight` 上限、无可选标的、特征序与股票池契约，全部通过。完整离线回归 `2461 passed, 13 deselected, 11 warnings in 1059.95s`，exit0。
+- 12 项合成测试（`tests/test_factor_baseline.py`）覆盖 purge 因果性、未来价格扰动不变性、排序与代码 tie-break、`max_weight` 上限、无可选标的、特征序与股票池契约，全部通过；完整回归状态只在[实施进度](implementation_plan.md)维护。
 - 门禁需在**完全权限**下执行：当前工作区沙箱禁止进程列出其新建的临时目录，`pytest` 的 `tmp_path` 因此在默认策略下于 setup 阶段批量报 `PermissionError`（本次 983 项）。这不是代码缺陷——同一测试在完全权限下全部通过；`tmp_path` 无关的用例在默认策略下照常通过。
 - 产物在 `reports/runs/factor_baseline/`（gitignore 内），含 `factor_model.json`、逐决策 `decisions.json` 与四基线配对对比。

@@ -4,10 +4,10 @@
 
 ## 1. 启动与依赖
 
-从仓库根目录执行，后端及任务工作进程均使用启动服务的 Python 解释器。原 CPU 环境为 Conda `Graduate`；新增 GPU 环境的安装和实际验收状态见 [AShareGPU 配置](gpu_environment.md)。下列命令保留 CPU 启动方式。
+从仓库根目录执行，后端及任务工作进程均使用启动服务的 Python 解释器。当前主环境为 Conda `AShareGPU`，原 CPU 基线为 `Graduate`；安装和验收状态见 [AShareGPU 配置](gpu_environment.md)。
 
 ```powershell
-conda activate Graduate
+conda activate AShareGPU
 python -m pip install -r requirements-web.txt
 npm --prefix web ci
 npm --prefix web run build
@@ -16,7 +16,7 @@ python -B -m src.web.serve --port 8765
 
 正常情况下打开 `http://127.0.0.1:8765`。端口被占用时依次尝试后续 19 个端口，以终端打印的实际地址为准。页面与 API 同源，只监听本机，不提供公网/局域网访问。
 
-`web/dist`、`node_modules` 不纳入 Git，其他机器需先安装依赖并构建静态资源。服务是否运行以本机进程和终端输出为准，不要把历史验收时的端口或后台状态当作当前事实。源码开发可使用 Vite，但最终验收和日常使用采用后端托管的已构建页面。
+`web/dist`、`node_modules` 不纳入 Git，其他机器需先安装依赖并构建静态资源。服务是否运行以本机进程和终端输出为准，不要把历史验收时的端口或后台状态当作当前事实。源码开发可使用 Vite；后端不在 8765 时设置 `VITE_API_TARGET`，例如 `$env:VITE_API_TARGET='http://127.0.0.1:8766'`。最终验收和日常使用采用后端托管的已构建页面。
 
 前端版本由 `web/package-lock.json` 固定：React、TypeScript、Vite、ECharts、Lucide 与 Playwright。后端新增 FastAPI/Uvicorn，研究依赖仍复用原清单。本次只安装软件依赖，没有下载市场行情。原有 SHAP/slicer 环境冲突不由 Web 功能自动调整。
 

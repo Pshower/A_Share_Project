@@ -63,6 +63,6 @@ code,name
 - 全项目离线测试 102 passed、13 项外部联网测试排除，使用 AShareGPU；保留 3 个非失败警告。
 - 新增测试覆盖标准 CSV、补零 / 去重、无效代码、500 股上限、121 股模拟下载、最终进度计数、取消发布及只重试失败项。
 - 本轮 6 项浏览器用例通过：批量导入、既有联网页面及行情图表；不包含本轮重新执行真实训练。批量请求被明确拦截，示例代码不会发给供应商。
-- 截图位于 `web/test-results/bulk-download-desktop.png` 和 `bulk-download-mobile.png`；前端生产构建通过。
+- 本地测试截图曾输出到 `web/test-results/bulk-download-{desktop,mobile}.png`；该目录不入 Git；前端生产构建通过。
 
 该次验收使用 AShareGPU。历史验收端口不代表当前服务状态，后续启动以终端输出的可用地址为准。

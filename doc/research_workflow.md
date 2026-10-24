@@ -4,7 +4,7 @@
 
 ## 一条命令运行
 
-在仓库根目录、Conda `Graduate` 中执行：
+在仓库根目录执行；当前主环境为 Conda `AShareGPU`，需要复现旧 CPU 结果时使用 `Graduate`。环境安装见 [GPU 配置](gpu_environment.md)。
 
 ```powershell
 python -B -m src.backtest.run --config configs/research.json

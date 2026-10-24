@@ -9,7 +9,7 @@
 3. [本地研究流程](research_workflow.md)或相应 runbook：实际复现命令。
 4. 下表中的协议与报告：核对某一轮研究的预定规则、实际结果和失败原因。
 
-索引只负责导航，不复制各研究的逐步结果。当前没有经确认门槛认定可部署的新模型，最新结论见[实施进度](implementation_plan.md)。
+索引只保留一句话状态，不复制研究的逐步数字。当前没有经确认门槛认定可部署的新模型，最新结论见[实施进度](implementation_plan.md)。
 
 ## 核心文档与运行手册
 
@@ -57,7 +57,7 @@
 
 | 日期 | 研究 | 协议/设计 | 结果与证据 | 结论 |
 | --- | --- | --- | --- | --- |
-| 2026-10-23 | 独立 Ridge 因子基线 | 固定超参探索，无独立预注册 | [实现与两折结果](training_data_improvement_plan.md)；`tools/factor_baseline.py` | 两折弱于动量，不产生候选 |
+| 2026-10-23 | 独立 Ridge 因子基线 | 固定超参探索，无独立预注册 | [第 11.9 节实现与两折结果](training_data_improvement_plan.md#119-p1-首版实现与两折实测)；`tools/factor_baseline.py` | 两折弱于动量，不产生候选 |
 | 2026-10-17/18 | 因果动作价值预热与 PPO | [协议](ppo_counterfactual_learning_protocol_20261017.md) | [runlog](reports/ppo_counterfactual_learning_20261017_runlog.md)、[A 臂诊断](reports/ppo_counterfactual_learning_20261017_control_diagnostic.md) | 确认未合格，无候选 |
 | 2026-10-16 | 训练期配对动作诊断 | [协议](ppo_counterfactual_pilot_protocol_20261016.md) | [摘要](reports/ppo_counterfactual_pilot_20261016_summary.md)、[详细报告](reports/ppo_counterfactual_pilot_20261016.md) | 诊断完成，不证明可学性或 ROI |
 | 2026-10-15/16 | 调仓 phase 状态修复 | [协议](ppo_timing_phase_state_repair_protocol_20261015.md) | [摘要](reports/ppo_timing_phase_state_repair_20261015_summary.md)、[详细报告](reports/ppo_timing_phase_state_repair_20261015.md) | 筛选失败，无候选 |
@@ -76,37 +76,14 @@
 | 2026-09-27 | 稀疏与先验残差 Agent | [协议](agent_improvement_protocol_20260927.md) | [摘要](reports/agent_improvement_20260927_summary.md)、[详细报告](reports/agent_improvement_20260927.md) | 增益主要来自先验，未发布 |
 | 2026-09-27 | 新浪 300 股与多初始持仓 | [协议](sina_hs300_protocol_20260927.md) | [摘要](reports/sina_hs300_20260927_summary.md)、[详细报告](reports/sina_hs300_20260927.md) | 训练完成，未证明优势 |
 | 2026-09-27 | 大网络 CPU/GPU 容量对照 | — | [报告](reports/ppo_capacity_20260927.md) | 历史容量证据 |
-| 2026-09-26 | 19 股多种子实验 | [协议](ppo_multiseed_protocol_20260926.md) | [摘要](reports/ppo_multiseed_20260926_summary.md)、[详细报告](reports/ppo_multiseed_20260926.md) | 工程完成，未胜等权 |
 | 2026-09-27 | 联网行情与模型整合 | [设计](market_model_prediction_plan.md) | [验收报告](reports/market_model_integration_20260927.md) | 首版整合验收 |
+| 2026-09-26 | 19 股多种子实验 | [协议](ppo_multiseed_protocol_20260926.md) | [摘要](reports/ppo_multiseed_20260926_summary.md)、[详细报告](reports/ppo_multiseed_20260926.md) | 工程完成，未胜等权 |
 | 2026-09-26 | 联网工作区 | [设计](online_data_live_decision_plan.md) | [验收报告](reports/online_market_acceptance_20260926.md) | 离线/页面通过，真实连接受限 |
 | 2026-09-25 | 轻量 PPO 与冻结测试 | [协议](ppo_lightweight_protocol.md) | [摘要](reports/ppo_lightweight_20260925_summary.md)、[详细报告](reports/ppo_lightweight_20260925.md) | 流程完成，未优于等权 |
 | 2026-09-25 | 本地工作台 | [设计](frontend_workbench_design.md) | [验收报告](reports/workbench_acceptance_20260925.md) | 首版浏览器闭环验收 |
 
-## 统一维护规则
+## 维护与运行
 
-- 当前状态只改[实施进度](implementation_plan.md)，架构只改[Pipeline](../pipeline.md)；索引不维护另一份研究编年史。
-- 协议、摘要、详细报告、失败记录和 runlog 不因过时或 negative result 而删除；需要补充时追加新记录，不改写冻结正文。
-- 设计文档中的“当前”“待实施”按文档日期理解；若与现行手册冲突，以代码契约、现行手册和实施进度为准，并修正误导性表述。
-- 配置值以 `configs/research.json`、`configs/ppo.json` 及各运行 manifest 为准。改变配置或行为时同步更新对应文档和验收记录。
-- 原始数据、清洗产物、模型和回测报告保留在本地，不纳入 Git。`reports/runs/...`、`data/...`、`web/test-results/...` 是本地证据路径，其他机器须自行复现。
-- 历史测试数量属于各自提交时点，不相加；当前回归数量只在实施进度维护。
-
-## 运行入口
-
-所有命令从仓库根目录执行。环境安装见[研究流程](research_workflow.md)、[PPO 运行说明](ppo_training_framework.md)和[GPU 配置](gpu_environment.md)。
-
-```powershell
-# 默认只运行离线测试
-python -B -m pytest -q -p no:cacheprovider
-
-# 复现验证集固定规则基线，不训练 PPO
-python -B -m src.backtest.run --config configs/research.json
-
-# 检查 PPO 接口、保存加载与参数不变，不训练
-python -B -m src.training.train --config configs/ppo.json --check-only
-
-# 前端已构建且 Web 依赖齐备时启动本地工作台
-python -B -m src.web.serve --port 8765
-```
-
-训练必须显式启动，联网必须单独授权，最终测试必须绑定冻结选择。当前 `hfq_research` 结果不能等同于现实交易收益。
+- 当前阶段、结论、下一步和完整维护规则只在[实施进度](implementation_plan.md)；架构只在[Pipeline](../pipeline.md)。历史协议、失败报告和 runlog 不因过时或 negative result 而删除。
+- 复现、检查、训练和工作台命令分别见[本地研究流程](research_workflow.md)、[PPO 运行说明](ppo_training_framework.md)和[工作台说明](workbench_runbook.md)；环境见[GPU 配置](gpu_environment.md)。
+- 原始数据、模型和报告留在本地，`reports/runs/...`、`data/...`、`web/test-results/...` 不随 Git 分发，其他机器须按运行说明复现。历史报告中的截图路径若不存在，属于未入库的本地测试产物，不表示报告结论或验收记录缺失。
