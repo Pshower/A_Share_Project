@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Plus, Save, RefreshCw, Download, Database, Check, Play, Copy, Square } from 'lucide-react'
 import { api, post, number, percent, statusName } from './api'
+import { parseCodes } from './codes'
 import FeatureEditor, { type FeatureDefinition } from './FeatureEditor'
 import PpoSettings, { advancedDefaults } from './PpoSettings'
 
@@ -65,7 +66,7 @@ export default function ExperimentsPage({
   const refreshedDatasets = useRef(new Set<string>())
   const refreshing = useRef(new Set<string>())
   currentId.current = id
-  const pool = [...new Set(codes.split(/[\s,，]+/).filter(Boolean))]
+  const pool = [...new Set(parseCodes(codes))]
   async function refresh() {
     if (refreshing.current.has(id)) return
     refreshing.current.add(id)

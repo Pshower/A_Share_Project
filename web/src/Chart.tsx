@@ -68,7 +68,7 @@ export default function Chart({
         connectNulls: false,
         lineStyle: { width: 2 },
       })),
-    })
+    }, { replaceMerge: ['series'] })
   }, [signature])
   return <div className="chart" ref={element} style={{ height }} data-testid="chart" />
 }

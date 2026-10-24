@@ -10,6 +10,7 @@ import {
   Layers,
 } from 'lucide-react'
 import { api, post, percent, number, dateTime } from './api'
+import { parseCodes } from './codes'
 import MarketChart from './MarketChart'
 import MarketResearch from './MarketResearch'
 import { weightsFrom } from './researchWeights'
@@ -46,12 +47,6 @@ const intent: Record<string, string> = {
   sell: '减仓参考',
   exit: '清仓参考',
   unchanged: '维持参考',
-}
-function codesFrom(text: string) {
-  return text
-    .split(/[\s,，;；]+/)
-    .map((v) => v.trim())
-    .filter(Boolean)
 }
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -227,12 +222,12 @@ export default function MarketPage(p: Props) {
   }, [monitorId, monitoring, p.fail])
 
   const selectedHistory = histories.find((h) => h.id === historyId)
-  const downloadCodes = [...new Set(codesFrom(codes))]
+  const downloadCodes = [...new Set(parseCodes(codes))]
   const invalidCodes = downloadCodes.filter((c) => !/^[0-9]{6}$/.test(c))
   const validDownload =
     downloadCodes.length > 0 && downloadCodes.length <= 500 && !invalidCodes.length
   const selectedPlan = plans.find((v) => v.id === planId)
-  const pool = selectedPlan ? selectedPlan.stock_codes : codesFrom(codes)
+  const pool = selectedPlan ? selectedPlan.stock_codes : parseCodes(codes)
   const covered =
     requirements &&
     selectedHistory?.status === 'ready' &&
@@ -251,7 +246,7 @@ export default function MarketPage(p: Props) {
   }
   function applyCodes(incoming: string[]) {
     setCodes((previous) =>
-      [...new Set(importMode === 'append' ? [...codesFrom(previous), ...incoming] : incoming)].join(
+      [...new Set(importMode === 'append' ? [...parseCodes(previous), ...incoming] : incoming)].join(
         '\n'
       )
     )
@@ -497,7 +492,7 @@ export default function MarketPage(p: Props) {
               )}
               <p className="subtle-note" data-testid="batch-code-summary">
                 待下载 {downloadCodes.length} / 500 只 · 重复{' '}
-                {codesFrom(codes).length - downloadCodes.length} 项
+                {parseCodes(codes).length - downloadCodes.length} 项
               </p>
               {invalidCodes.length > 0 && (
                 <p role="alert">无效代码：{invalidCodes.slice(0, 10).join('、')}</p>

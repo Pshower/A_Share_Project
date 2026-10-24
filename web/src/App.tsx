@@ -37,6 +37,7 @@ import {
   X,
 } from 'lucide-react'
 import { api, post, percent, number, dateTime, statusName, kindName, phaseName } from './api'
+import { terminal } from './modelPolling'
 import FeatureEditor, { type FeatureDefinition } from './FeatureEditor'
 import PpoSettings, { advancedDefaults } from './PpoSettings'
 import TrainingDiagnostics from './TrainingDiagnostics'
@@ -78,7 +79,6 @@ const strategyNames: Record<string, string> = {
   equal_weight_daily: '每日等权',
   momentum_daily: '每日动量',
 }
-const terminal = new Set(['succeeded', 'failed', 'cancelled', 'interrupted'])
 const parseRoute = (): Route => {
   const [path, query] = location.hash.slice(1).split('?')
   return { view: path || 'training', query: new URLSearchParams(query) }
@@ -521,7 +521,9 @@ function Dashboard(p: Shared & { active: number }) {
         <Stat
           label="最新研究收益"
           value={percent(primary?.cumulative_return)}
-          detail={report ? '32 股历史实验 · 测试区间已查看' : '暂无报告'}
+          detail={
+            report ? `${report.split === 'test' ? '最终测试' : '验证集'} · ${report.run}` : '暂无报告'
+          }
         />
       </div>
       <div className="dashboard-grid">

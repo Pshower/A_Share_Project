@@ -9,6 +9,10 @@ export async function api<T = any>(
     session = fetch('/api/session')
       .then((r) => r.json())
       .then((v) => v.token)
+      .catch((error) => {
+        session = undefined
+        throw error
+      })
   const token = await session
   const response = await fetch('/api' + path, {
     ...options,
