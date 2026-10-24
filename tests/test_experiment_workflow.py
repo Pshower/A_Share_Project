@@ -7,7 +7,7 @@ from src.web.schemas import Training, ExperimentRecipe, ExperimentApproval
 from src.web.store import Store
 from src.web.catalog import Catalog
 from src.web.app import create_app
-from src.web.experiments import preflight, stage_jobs
+from src.web.experiments import preflight, stage_jobs, summaries
 from src.data.source_bundle import compose_bundle, inspect_bundle
 from src.data.online import download_history
 from src.data.snapshots import Snapshots
@@ -46,6 +46,17 @@ def test_recipe_stages_require_approval_and_current_checks(web_root):
     assert store.experiment(exp['id'])['recipe'] == original
     copy = store.create_experiment({**original, 'name': 'revision', 'parent_id': exp['id']})
     assert copy['id'] != exp['id']
+
+
+def test_summaries_keep_latest_success_when_newer_attempt_fails(tmp_path):
+    state = {"jobs": [
+        {"id": "download", "kind": "online_history", "status": "succeeded", "payload": {}},
+        {"id": "new_failed", "kind": "training", "status": "failed", "payload": {"seed": 42}},
+        {"id": "latest_ok", "kind": "training", "status": "succeeded", "payload": {"seed": 42}},
+        {"id": "older_ok", "kind": "training", "status": "succeeded", "payload": {"seed": 42}},
+    ]}
+    rows = summaries(state, tmp_path)
+    assert [row["job_id"] for row in rows] == ["latest_ok"]
 
 
 def test_partial_download_is_retryable_with_explicit_new_action(tmp_path):

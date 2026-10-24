@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 import pandas as pd
 
 from src.data.preprocess import ROOT, read_config
-from .catalog import Catalog, inside
+from .catalog import Catalog, DAILY_PLAN_ACTION_MODES, PREDICTION_ACTION_MODES, WEB_ACTION_MODES, inside, require_action_mode
 from .jobs import JobManager, TERMINAL, read_events
 from .store import Store
 from .schemas import Training, Build, Evaluation, ModelRequest, Prediction, Transfer, Label, Coverage, FeaturePreview, ExperimentRecipe, ExperimentApproval
@@ -288,6 +288,7 @@ def create_app(root=ROOT, start_workers=True):
         history, _ = snapshots.get("history", body.history_id)
         if not record["trained"] or history["status"] != "ready":
             raise ValueError("A trained model and complete download are required")
+        require_action_mode(record, DAILY_PLAN_ACTION_MODES, "Daily research plan")
         return submit("daily_plan", body.model_dump(mode="json"), idempotency_key)
 
     @app.post("/api/market/build")
@@ -495,11 +496,13 @@ def create_app(root=ROOT, start_workers=True):
         _, record, _ = catalog.model_config(model_id)
         if not record["trained"]:
             raise ValueError("Select a trained model")
+        require_action_mode(record, WEB_ACTION_MODES, "Stock-pool transfer")
         return submit("transfer", body.model_dump(mode="json"), idempotency_key)
 
     @app.post("/api/freezes")
     def freeze(body: ModelRequest, idempotency_key: str | None = Header(default=None)):
-        catalog.model(body.model_id)
+        record, _ = catalog.model(body.model_id)
+        require_action_mode(record, WEB_ACTION_MODES, "Model freezing")
         return submit("freeze", body.model_dump(mode="json"), idempotency_key)
 
     @app.post("/api/evaluations")
@@ -507,6 +510,7 @@ def create_app(root=ROOT, start_workers=True):
         record, _ = catalog.model(body.model_id)
         if not record["trained"]:
             raise ValueError("Select a trained model")
+        require_action_mode(record, WEB_ACTION_MODES, "Backtesting")
         if body.split == "test":
             freeze_job = store.get(body.frozen_job_id)
             if freeze_job["kind"] != "freeze" or freeze_job["status"] != "succeeded" or freeze_job["payload"]["model_id"] != body.model_id:
@@ -519,6 +523,7 @@ def create_app(root=ROOT, start_workers=True):
         record, _ = catalog.model(body.model_id)
         if not record["trained"]:
             raise ValueError("Select a trained or explicitly transferred model")
+        require_action_mode(record, PREDICTION_ACTION_MODES, "Action prediction")
         if not set(body.display_codes) <= set(record["metadata"]["contract"]["stock_codes"]):
             raise ValueError("Display filter does not change the model pool; transfer explicitly for a new pool")
         return submit("prediction", body.model_dump(mode="json"), idempotency_key)

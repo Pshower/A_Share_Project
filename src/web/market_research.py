@@ -8,6 +8,7 @@ import pandas as pd
 from src.data.preprocess import read_config, file_hash
 from src.data.snapshots import Snapshots
 from src.inference.eod import require_close_capture
+from .catalog import contract_action_mode
 
 
 def capabilities():
@@ -25,13 +26,14 @@ def model_requirements(catalog, model_id):
     research = read_config(path if path.is_absolute() else catalog.root / path)
     origin, _ = feature_history_origin(research)
     contract = record["metadata"]["contract"]
+    mode = contract_action_mode(contract)
     return dict(model_id=model_id, model_sha256=record["metadata"]["model_sha256"],
                 codes=contract["stock_codes"], history_origin=str(origin.date()),
-                price_basis=record["price_basis"], trained=record["trained"],
+                price_basis=record["price_basis"], action_mode=mode, trained=record["trained"],
                 source=contract.get("data_source"), train_end=research["dataset"]["train_end"],
                 val_end=research["dataset"]["val_end"],
-                policy_type="stock_trade_ppo" if contract.get("action_mode") == "stock_trade" else
-                            "stock_delta_ppo" if contract.get("action_mode") == "stock_delta" else
+                policy_type="stock_trade_ppo" if mode == "stock_trade" else
+                            "stock_delta_ppo" if mode == "stock_delta" else
                             "momentum_residual" if contract.get("prior") else "sparse_ppo" if contract.get("action_top_k") else "dense_ppo",
                 scaler_sha256=contract["artifacts"]["scaler_params.json"])
 
@@ -48,6 +50,8 @@ def comparison_preflight(catalog, body, now=None):
             requirement = model_requirements(catalog, model_id)
             if not requirement["trained"]:
                 errors.append("模型尚未训练")
+            if requirement.get("action_mode", "target") != "target":
+                errors.append("当前日线对比仅支持 target 权重模型")
             if not requirement["source"]:
                 errors.append("模型来源未认证")
             elif requirement["source"] != snapshot["request"]["provider"]:

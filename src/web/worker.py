@@ -3,13 +3,14 @@
 import argparse
 from copy import deepcopy
 import re
+import shutil
 import threading
 import traceback
 import time
 
 from src.data.preprocess import ROOT, read_config, write_json
 from src.runtime import events
-from .catalog import Catalog, identifier, inside
+from .catalog import Catalog, DAILY_PLAN_ACTION_MODES, PREDICTION_ACTION_MODES, WEB_ACTION_MODES, identifier, inside, require_action_mode
 from .store import Store
 
 
@@ -119,11 +120,15 @@ def execute(job, directory):
         cfg["dataset"].update(version=payload["version"], clean_dir=str(staging), stock_list_path=str(stock_path),
                               train_codes=payload["codes"], **{k: payload[k] for k in ["start_date", "train_end", "val_end", "end_date"]})
         events.phase("building")
-        build_from_config(cfg)
-        events.check_cancel()
-        cfg["dataset"]["clean_dir"] = str(final)
-        write_json(staging / "research_config.json", cfg)
-        staging.rename(final)
+        try:
+            build_from_config(cfg)
+            events.check_cancel()
+            cfg["dataset"]["clean_dir"] = str(final)
+            write_json(staging / "research_config.json", cfg)
+            staging.rename(final)
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
         return dict(dataset_id=identifier(final, ROOT), output=str(final.relative_to(ROOT)))
     import torch
     from src.agents.ppo_agent import PPOAgent
@@ -133,6 +138,9 @@ def execute(job, directory):
     from src.inference.predict import predict_action
 
     cfg, record, model_path = catalog.model_config(payload["model_id"])
+    allowed = (DAILY_PLAN_ACTION_MODES if kind == "daily_plan" else
+               PREDICTION_ACTION_MODES if kind == "prediction" else WEB_ACTION_MODES)
+    require_action_mode(record, allowed, kind)
     if payload.get("expected_model_sha256") and record["metadata"]["model_sha256"] != payload["expected_model_sha256"]:
         raise ValueError("Model changed after comparison preflight")
     torch.set_num_threads(cfg.get("torch_threads", 1))

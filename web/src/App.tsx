@@ -37,6 +37,7 @@ import {
   X,
 } from 'lucide-react'
 import { api, post, percent, number, dateTime, statusName, kindName, phaseName } from './api'
+import { actionMode, actionModeNames, predictionActionModes, supportsAction, webActionModes } from './modelActions'
 import { terminal } from './modelPolling'
 import FeatureEditor, { type FeatureDefinition } from './FeatureEditor'
 import PpoSettings, { advancedDefaults } from './PpoSettings'
@@ -1300,6 +1301,8 @@ function ModelsPage(p: Shared & { initial: string }) {
               </b>
               <span>价格口径</span>
               <b>{model.price_basis}</b>
+              <span>动作类型</span>
+              <b>{actionModeNames[actionMode(model)] || actionMode(model)}</b>
               <span>模型文件</span>
               <b>{model.valid ? '哈希一致' : '校验失败'}</b>
               <span>保存时间</span>
@@ -1316,14 +1319,14 @@ function ModelsPage(p: Shared & { initial: string }) {
             <div className="model-actions">
               <button
                 className="primary"
-                disabled={!model.valid || !model.trained}
+                disabled={!supportsAction(model, webActionModes)}
                 onClick={() => navigate('backtest', { model: model.id })}
               >
                 <FlaskConical size={16} />
                 回测
               </button>
               <button
-                disabled={!model.valid || !model.trained}
+                disabled={!supportsAction(model, predictionActionModes)}
                 onClick={() => navigate('predict', { model: model.id })}
               >
                 <Target size={16} />
@@ -1332,7 +1335,7 @@ function ModelsPage(p: Shared & { initial: string }) {
             </div>
             <button
               className="text-button"
-              disabled={!model.trained}
+              disabled={!supportsAction(model, webActionModes)}
               onClick={() => setTransfer(!transfer)}
             >
               显式迁移股票池 <ArrowUpRight size={14} />
@@ -1368,8 +1371,11 @@ function ModelsPage(p: Shared & { initial: string }) {
 }
 
 function BacktestPage(p: Shared & { initial: string; reportId: string }) {
-  const eligible = p.models.filter((m) => m.trained && m.valid)
-  const [modelId, setModelId] = useState(p.initial || eligible[0]?.id || '')
+  const eligible = p.models.filter((m) => supportsAction(m, webActionModes))
+  const initial = supportsAction(p.models.find((m) => m.id === p.initial), webActionModes)
+    ? p.initial
+    : eligible[0]?.id || ''
+  const [modelId, setModelId] = useState(initial)
   const [split, setSplit] = useState('val')
   const [ack, setAck] = useState(false)
   const [frozen, setFrozen] = useState('')
@@ -1382,8 +1388,9 @@ function BacktestPage(p: Shared & { initial: string; reportId: string }) {
     if (p.reportId) setReportId(p.reportId)
   }, [p.reportId])
   useEffect(() => {
-    if (p.initial) setModelId(p.initial)
-  }, [p.initial])
+    if (supportsAction(p.models.find((m) => m.id === p.initial), webActionModes))
+      setModelId(p.initial)
+  }, [p.initial, p.models])
   async function run(freeze = false) {
     setBusy(true)
     try {
@@ -1794,8 +1801,11 @@ function ReportView({ id, fail }: { id: string; fail: (e: unknown) => void }) {
 }
 
 function PredictionPage(p: Shared & { initial: string; resultJob: string }) {
-  const eligible = p.models.filter((m) => m.trained && m.valid)
-  const [modelId, setModelId] = useState(p.initial || eligible[0]?.id || '')
+  const eligible = p.models.filter((m) => supportsAction(m, predictionActionModes))
+  const initial = supportsAction(p.models.find((m) => m.id === p.initial), predictionActionModes)
+    ? p.initial
+    : eligible[0]?.id || ''
+  const [modelId, setModelId] = useState(initial)
   const [date, setDate] = useState('2024-12-31')
   const [manual, setManual] = useState(false)
   const [savedAccount, setSavedAccount] = useState<Row | null>(null)
@@ -1813,8 +1823,9 @@ function PredictionPage(p: Shared & { initial: string; resultJob: string }) {
   const model = p.models.find((m) => m.id === modelId)
   const allCodes: string[] = model?.metadata.contract.stock_codes || []
   useEffect(() => {
-    if (p.initial) setModelId(p.initial)
-  }, [p.initial])
+    if (supportsAction(p.models.find((m) => m.id === p.initial), predictionActionModes))
+      setModelId(p.initial)
+  }, [p.initial, p.models])
   useEffect(() => {
     setCodes(allCodes)
     setPositions([])

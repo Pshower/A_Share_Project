@@ -140,11 +140,12 @@ def summaries(state, root=ROOT):
     rows = []
     seen = set()
     for job in state["jobs"]:
-        if job["kind"] != "training" or job["payload"]["seed"] in seen:
+        if job["kind"] != "training" or job["status"] != "succeeded":
             continue
-        seen.add(job["payload"]["seed"])
-        if job["status"] != "succeeded":
+        seed = job["payload"]["seed"]
+        if seed in seen:
             continue
+        seen.add(seed)
         directory = Path(root) / "reports/runs/workbench" / job["id"]
         selection = read_config(directory / "selection.json") if (directory / "selection.json").exists() else {}
         comparison = directory / "selected_comparison/metrics.json"

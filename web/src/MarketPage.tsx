@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { api, post, percent, number, dateTime } from './api'
 import { parseCodes } from './codes'
+import { dailyPlanActionModes, supportsAction } from './modelActions'
 import MarketChart from './MarketChart'
 import MarketResearch from './MarketResearch'
 import { weightsFrom } from './researchWeights'
@@ -75,7 +76,9 @@ export default function MarketPage(p: Props) {
   const [quotes, setQuotes] = useState<Row[]>([])
   const [sessions, setSessions] = useState<Row[]>([])
   const [modelId, setModelId] = useState(
-    p.initialModel || p.models.find((m) => m.trained)?.id || ''
+    p.models.find((m) => m.id === p.initialModel && supportsAction(m, dailyPlanActionModes))?.id ||
+      p.models.find((m) => supportsAction(m, dailyPlanActionModes))?.id ||
+      ''
   )
   const [requirements, setRequirements] = useState<Row | null>(null)
   const [codes, setCodes] = useState('000001')
@@ -506,7 +509,7 @@ export default function MarketPage(p: Props) {
                     onChange={(e) => setModelId(e.target.value)}
                   >
                     {p.models
-                      .filter((m) => m.trained)
+                      .filter((m) => supportsAction(m, dailyPlanActionModes))
                       .map((m) => (
                         <option key={m.id} value={m.id}>
                           {m.run} / {m.label} · {m.pool_size} 股
@@ -839,7 +842,7 @@ export default function MarketPage(p: Props) {
                 onChange={(e) => setModelId(e.target.value)}
               >
                 {p.models
-                  .filter((m) => m.trained)
+                  .filter((m) => supportsAction(m, dailyPlanActionModes))
                   .map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.run} / {m.label} · {m.pool_size} 股

@@ -10,13 +10,14 @@ import pandas as pd
 import pytest
 
 from src.agents.ppo_agent import PPOAgent, make_model
-from src.data.preprocess import read_config, write_json, ROOT
+from src.data.preprocess import file_hash, read_config, write_json, ROOT
 from src.inference.predict import predict_action
 from src.runtime import events
 from src.web.app import create_app
 from src.web.catalog import Catalog, inside, identifier
 from src.web.jobs import JobManager
 from src.web.store import Store
+from src.web import worker
 from tests.test_ppo_framework import local_data, no_parameter_updates
 
 pytestmark = pytest.mark.usefixtures("no_parameter_updates")
@@ -69,6 +70,58 @@ def test_api_security_idempotency_and_readonly_catalog(web_root):
         assert client.post("/api/predictions", json=dict(model_id=models[0]["id"], as_of="2020-01-01", display_codes=["999999"]), headers={"X-CSRF-Token": token}).status_code == 409
         assert client.patch(f"/api/models/{models[0]['id']}/labels", json=dict(label="research checkpoint"), headers={"X-CSRF-Token": token}).status_code == 200
         assert client.get("/api/models").json()[0]["label"] == "research checkpoint"
+
+
+@pytest.mark.local_ipc
+def test_api_blocks_models_whose_action_mode_is_not_supported(web_root):
+    source = web_root / "reports/runs/fixture/best_8"
+    metadata = read_config(source / "metadata.json")
+    metadata["contract"]["action_mode"] = "stock_priority"
+    directory = source.parent / "priority_8"
+    directory.mkdir()
+    shutil.copy2(source / "model.zip", directory / "model.zip")
+    metadata["model_sha256"] = file_hash(directory / "model.zip")
+    write_json(directory / "metadata.json", metadata)
+    app = create_app(web_root, start_workers=False)
+    with TestClient(app) as client:
+        model = next(row for row in client.get("/api/models").json() if row["name"] == "priority_8")
+        assert model["action_mode"] == "stock_priority"
+        token = client.get("/api/session").json()["token"]
+        headers = {"X-CSRF-Token": token}
+        assert client.post("/api/freezes", json=dict(model_id=model["id"]), headers=headers).status_code == 409
+        assert client.post("/api/evaluations", json=dict(model_id=model["id"]), headers=headers).status_code == 409
+        prediction = client.post("/api/predictions", json=dict(
+            model_id=model["id"], as_of="2020-01-01", display_codes=["000001"]), headers=headers)
+        assert prediction.status_code == 409
+        assert "stock_priority" in prediction.json()["error"]
+
+
+def test_failed_dataset_build_removes_staging_directory(web_root, monkeypatch):
+    dataset = Catalog(web_root).datasets()[0]
+    manifest = dataset["manifest"]
+    job_id = "j_0123456789abcdef"
+    job = dict(id=job_id, kind="build", payload=dict(
+        dataset_id=dataset["id"], version="failed_build_fixture", codes=manifest["stock_codes"][:2],
+        start_date=manifest["start_date"], train_end=manifest["train_end"],
+        val_end=manifest["val_end"], end_date=manifest["end_date"]))
+    directory = web_root / ".workbench/jobs" / job_id
+    directory.mkdir(parents=True)
+
+    def fail(cfg):
+        Path(cfg["dataset"]["clean_dir"]).mkdir(parents=True)
+        raise RuntimeError("synthetic build failure")
+
+    monkeypatch.setattr("src.data.preprocess.build_from_config", fail)
+    monkeypatch.setattr(worker, "ROOT", web_root)
+    monkeypatch.setattr(worker, "Catalog", lambda: Catalog(web_root))
+    events.configure(directory)
+    try:
+        with pytest.raises(RuntimeError, match="synthetic build failure"):
+            worker.execute(job, directory)
+    finally:
+        events.configure(None)
+    assert not (web_root / "data/clean" / (".building_" + job_id)).exists()
+    assert not (web_root / "data/clean/failed_build_fixture").exists()
 
 
 def test_real_path_containment_rejects_parent_and_absolute_escape(tmp_path):

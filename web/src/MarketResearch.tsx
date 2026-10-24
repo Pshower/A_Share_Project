@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Play, Plus, X, Square, Check, ArrowUpRight } from 'lucide-react'
 import MarketChart, { type ChartContext, type ModelSignal } from './MarketChart'
 import { api, post, percent, number, statusName } from './api'
+import { dailyPlanActionModes, supportsAction } from './modelActions'
 import { weightsFrom } from './researchWeights'
 import { pollModels, terminal } from './modelPolling'
 
@@ -39,7 +40,9 @@ export default function MarketResearch({
   fail: (e: unknown) => void
 }) {
   const [context, setContext] = useState<ChartContext | null>(null)
-  const [modelIds, setModelIds] = useState<string[]>([initialModel])
+  const [modelIds, setModelIds] = useState<string[]>([
+    models.find((m) => m.id === initialModel && supportsAction(m, dailyPlanActionModes))?.id || '',
+  ])
   const [asOf, setAsOf] = useState('')
   const [accountMode, setAccountMode] = useState('')
   const [weights, setWeights] = useState('')
@@ -60,7 +63,7 @@ export default function MarketResearch({
   const selection = ids.join(',')
   const historyId = datasetId ? batch.source_history_id : batch.id
   const provider = batch.request?.provider || batch.manifest?.data_source
-  const trained = models.filter((m) => m.trained && m.valid)
+  const trained = models.filter((m) => supportsAction(m, dailyPlanActionModes))
 
   useEffect(() => {
     if (context) setAsOf((date) => date || context.lastDate)

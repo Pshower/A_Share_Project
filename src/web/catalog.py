@@ -10,6 +10,25 @@ import pandas as pd
 
 from src.data.preprocess import ROOT, file_hash, read_config
 
+WEB_ACTION_MODES = frozenset({"target", "stock_delta", "stock_trade"})
+PREDICTION_ACTION_MODES = frozenset({"target", "stock_delta"})
+DAILY_PLAN_ACTION_MODES = frozenset({"target"})
+
+
+def contract_action_mode(contract):
+    return contract.get("action_mode") or "target"
+
+
+def record_action_mode(record):
+    return record.get("action_mode") or contract_action_mode(record.get("metadata", {}).get("contract", {}))
+
+
+def require_action_mode(record, allowed, operation):
+    mode = record_action_mode(record)
+    if mode not in allowed:
+        raise ValueError(f"{operation} does not support {mode} models")
+    return mode
+
 
 def identifier(path, root):
     return hashlib.sha256(str(Path(path).relative_to(root)).replace("\\", "/").encode()).hexdigest()[:20]
@@ -149,7 +168,8 @@ class Catalog:
                 records.append(dict(id=identifier(path.parent, self.root), name=path.parent.name,
                                     run=path.parent.parent.name, timesteps=metadata["num_timesteps"],
                                     pool_size=len(c["stock_codes"]), dataset=c.get("dataset_version", "unknown"),
-                                    price_basis=c["price_basis"], trained=metadata["num_timesteps"] > 0 or bool(metadata.get("provenance", {}).get("source_num_timesteps")),
+                                    price_basis=c["price_basis"], action_mode=contract_action_mode(c),
+                                    trained=metadata["num_timesteps"] > 0 or bool(metadata.get("provenance", {}).get("source_num_timesteps")),
                                     valid=valid, relative_path=str(path.parent.relative_to(self.root)),
                                     modified=datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(),
                                     metadata=metadata))
