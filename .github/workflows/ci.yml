@@ -15,7 +15,7 @@ jobs:
       - name: Install CPU torch
         run: pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.1
       - name: Install project dependencies
-        run: pip install -r requirements-web.txt
+        run: pip install -r requirements-web.txt -c requirements-ci-constraints.txt
       - name: Offline test suite
         run: python -B -m pytest -q -p no:cacheprovider
 

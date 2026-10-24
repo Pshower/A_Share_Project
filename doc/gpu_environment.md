@@ -25,7 +25,7 @@ python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda
 python -B -m src.web.serve --port 8765
 ```
 
-环境已存在时不重复创建。`requirements-cuda.txt` 必须单独安装，避免将所有应用依赖都交给 PyTorch 专用索引解析。安装工作台依赖时的约束防止把 GPU torch 换回其他构建。完整环境快照见 `requirements-lock.txt`（含 CUDA torch，仅作为 AShareGPU 的精确冻结记录，不直接用于 CPU CI）。
+环境已存在时不重复创建。`requirements-cuda.txt` 必须单独安装，避免将所有应用依赖都交给 PyTorch 专用索引解析。安装工作台依赖时的约束防止把 GPU torch 换回其他构建。完整环境快照见 `requirements-lock.txt`（含 CUDA torch，仅作为 AShareGPU 的精确冻结记录）。CI 使用 `requirements-ci-constraints.txt` 固定除 torch 外的同一组版本，并在安装前单独安装 CPU torch。
 
 工作台子任务继承服务进程的 Python 解释器，因此启动服务前须激活正确环境。页面动态显示环境名和 CUDA 可用性，不再写死 Graduate / CPU。
 
