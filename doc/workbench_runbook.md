@@ -1,6 +1,6 @@
 # 本地研究工作台运行说明
 
-更新日期：2026-09-25。首版前后端已实现并启动，设计提交为 `039e04c`。设计契约见 [工作台设计](frontend_workbench_design.md)，实现进度和最新验收见 [实施进度](implementation_plan.md)。
+更新日期：2026-10-24。首版前后端已实现，设计提交为 `039e04c`。设计契约见[工作台设计](frontend_workbench_design.md)，当前进度和验收结论见[实施进度](implementation_plan.md)。
 
 ## 1. 启动与依赖
 
@@ -16,7 +16,7 @@ python -B -m src.web.serve --port 8765
 
 正常情况下打开 `http://127.0.0.1:8765`。端口被占用时依次尝试后续 19 个端口，以终端打印的实际地址为准。页面与 API 同源，只监听本机，不提供公网/局域网访问。
 
-当前机器已完成安装与构建，服务正在后台运行；无需为了查看页面重复启动。`web/dist`、`node_modules` 不纳入 Git，其他机器需先构建静态资源。源码开发可使用 Vite，但最终验收和日常使用采用后端托管的已构建页面。
+`web/dist`、`node_modules` 不纳入 Git，其他机器需先安装依赖并构建静态资源。服务是否运行以本机进程和终端输出为准，不要把历史验收时的端口或后台状态当作当前事实。源码开发可使用 Vite，但最终验收和日常使用采用后端托管的已构建页面。
 
 前端版本由 `web/package-lock.json` 固定：React、TypeScript、Vite、ECharts、Lucide 与 Playwright。后端新增 FastAPI/Uvicorn，研究依赖仍复用原清单。本次只安装软件依赖，没有下载市场行情。原有 SHAP/slicer 环境冲突不由 Web 功能自动调整。
 
@@ -36,7 +36,7 @@ python -B -m src.web.serve --port 8765
 
 初始 298 股与轻量 32 股配置均可选择。更改训练股票不会偷偷重拟合原版本的 scaler；若修改日期划分或拟合股票，需要构建新版本。构建表单中所选股票同时作为新数据版本与 scaler 拟合股票池，现有版本不受影响。
 
-当前 Web 表单继承已有资金、费用及其余 PPO 默认配置，共享 MLP 固定 128/64，CPU 线程数为 1。训练设备可选 auto / cuda / cpu，自动模式优先 GPU；显式 CUDA 不可用时报错，不静默降级。未提供所有 CLI 参数的编辑器，也不允许任意命令或文件路径输入。
+当前 Web 表单继承已有资金、费用及其余 PPO 默认配置。共享 MLP 默认 128/64，高级设置可编辑隐藏层、PPO 参数和学习率日程；实际值以冻结配置快照为准。CPU 线程数默认为 1，训练设备可选 auto / cuda / cpu，自动模式优先 GPU；显式 CUDA 不可用时报错，不静默降级。未提供所有 CLI 参数的编辑器，也不允许任意命令或文件路径输入。
 
 ## 3. 训练、监控与停止
 
@@ -100,7 +100,7 @@ npm --prefix web run test:e2e
 
 Python 测试仍默认排除外部网络。Windows 的 asyncio 内部 wakeup pipe 使用本机回环连接，仅标记 `local_ipc` 的 API 测试允许数值 loopback 地址，外部地址和一般 `create_connection` 仍被阻止。
 
-最新测试数量、浏览器截图与问题修复记录见 [工作台验收报告](reports/workbench_acceptance_20260925.md)。浏览器功能验收不用于选择更盈利的策略。
+首版浏览器截图与问题修复记录见[工作台验收报告](reports/workbench_acceptance_20260925.md)，当前回归数量见[实施进度](implementation_plan.md)。浏览器功能验收不用于选择更盈利的策略。
 
 ## 8. 已知边界与后续优化
 
