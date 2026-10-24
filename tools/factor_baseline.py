@@ -10,7 +10,8 @@ cross-sectional factor model, traded with no learning, beat PPO? It is a
 baseline, not a candidate model: it performs no PPO update, no gradient step and
 no parameter search, and it never evaluates the protected period.
 
-Validation only. Fitting and scoring never touch dates after ``train_end``.
+Validation only. Fitting never uses rows or labels after ``train_end``;
+scoring and trading are produced only on the validation split.
 """
 
 import argparse
@@ -122,17 +123,20 @@ def fit_factor(panel, prices, codes, feature_cols, train_end, *, horizon=20, alp
     return model
 
 
-def _paired(daily_a, daily_b):
+def _paired(daily_a, daily_b, metrics_a, metrics_b):
     paired = pd.concat([daily_a.set_index("date").equity.pct_change().rename("a"),
                         daily_b.set_index("date").equity.pct_change().rename("b")], axis=1).dropna()
     active = paired.a - paired.b
     tracking = float(active.std(ddof=1)) if len(active) > 1 else 0.0
     return dict(matched_steps=int(len(paired)),
-                return_gap=None,
+                return_gap=metrics_a["cumulative_return"] - metrics_b["cumulative_return"],
                 daily_return_correlation=float(paired.a.corr(paired.b)) if len(paired) > 1
                 and paired.a.std() > 1e-15 and paired.b.std() > 1e-15 else None,
                 tracking_error=tracking * np.sqrt(252),
-                information_ratio=float(active.mean() / tracking * np.sqrt(252)) if tracking > 1e-15 else None)
+                information_ratio=float(active.mean() / tracking * np.sqrt(252)) if tracking > 1e-15 else None,
+                drawdown_magnitude_gap=abs(metrics_a["max_drawdown"]) - abs(metrics_b["max_drawdown"]),
+                cost_gap=(metrics_a["total_fees"] + metrics_a["total_slippage_cost"]
+                          - metrics_b["total_fees"] - metrics_b["total_slippage_cost"]))
 
 
 def evaluate(config, output, *, horizon=20, alpha=RIDGE_ALPHA, rebalance_every=20, top_k=20):
@@ -150,32 +154,24 @@ def evaluate(config, output, *, horizon=20, alpha=RIDGE_ALPHA, rebalance_every=2
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     results, metrics, assumptions = {}, {}, {}
-    market = data.market("val")
-    daily, holdings, orders, assumptions["factor"] = run_policy(market, strategy, settings)
-    folder = output / "factor_ridge"
-    folder.mkdir()
-    daily.to_csv(folder / "daily.csv", index=False)
-    holdings.to_parquet(folder / "positions.parquet")
-    orders.to_csv(folder / "orders.csv", index=False)
-    results["factor_ridge"], metrics["factor_ridge"] = daily, performance(daily)
-    for name in BASELINE_NAMES:
-        daily_b, holdings_b, orders_b, assumptions[name] = run_strategy(data.market("val"), name, settings)
+
+    def record(name, daily, holdings, orders, assumption):
         folder = output / name
         folder.mkdir()
-        daily_b.to_csv(folder / "daily.csv", index=False)
-        holdings_b.to_parquet(folder / "positions.parquet")
-        orders_b.to_csv(folder / "orders.csv", index=False)
-        results[name], metrics[name] = daily_b, performance(daily_b)
-    comparisons = {name: _paired(results["factor_ridge"], results[name])
-                   for name in BASELINE_NAMES}
+        daily.to_csv(folder / "daily.csv", index=False)
+        holdings.to_parquet(folder / "positions.parquet")
+        orders.to_csv(folder / "orders.csv", index=False)
+        results[name], metrics[name], assumptions[name] = daily, performance(daily), assumption
+
+    market = data.market("val")
+    daily, holdings, orders, assumption = run_policy(market, strategy, settings)
+    record("factor_ridge", daily, holdings, orders, assumption)
     for name in BASELINE_NAMES:
-        comparisons[name]["return_gap"] = (metrics["factor_ridge"]["cumulative_return"]
-                                           - metrics[name]["cumulative_return"])
-        comparisons[name]["drawdown_magnitude_gap"] = (abs(metrics["factor_ridge"]["max_drawdown"])
-                                                       - abs(metrics[name]["max_drawdown"]))
-        comparisons[name]["cost_gap"] = (metrics["factor_ridge"]["total_fees"]
-                                         + metrics["factor_ridge"]["total_slippage_cost"]
-                                         - metrics[name]["total_fees"] - metrics[name]["total_slippage_cost"])
+        daily, holdings, orders, assumption = run_strategy(data.market("val"), name, settings)
+        record(name, daily, holdings, orders, assumption)
+    comparisons = {name: _paired(results["factor_ridge"], results[name],
+                                 metrics["factor_ridge"], metrics[name])
+                   for name in BASELINE_NAMES}
     write_json(output / "metrics.json", metrics)
     write_json(output / "comparisons.json", comparisons)
     write_json(output / "factor_model.json", model)
