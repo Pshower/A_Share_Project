@@ -35,6 +35,7 @@ def no_updates(monkeypatch):
     torch.set_num_threads(previous)
 
 
+@pytest.mark.historical_source
 def test_real_old_91_reference_reads_the_actual_signed_file_schema_without_prepare():
     reference = study._trusted_reference(study.DEFAULT_REFERENCE)
     assert len(reference["source_hashes"]) == 91

@@ -115,8 +115,12 @@
 python -B -m pytest -q -p no:cacheprovider
 python -B -m src.backtest.run --config configs/research.json
 python -B -m src.training.train --config configs/ppo.json --check-only
+
+# 仅在匹配 2026-10-11 源码的旧提交上复核历史参考
+python -B -m pytest tests/test_timing_review.py::test_real_old_91_reference_reads_the_actual_signed_file_schema_without_prepare -m historical_source -q -p no:cacheprovider
 ```
 
 - 训练必须显式启动；联网下载必须单独授权；最终测试必须显式冻结并确认曝光。
 - `reports/runs/`、`data/` 和 `.workbench/` 中的本地产物不纳入 Git。文档中的这些路径是本地证据位置，其他机器需按运行说明复现。
-- 最近一次完整离线回归记录为 `2461 passed, 13 deselected, 11 warnings in 1059.95s`（2026-10-23）。历史报告中的测试数量属于各自提交时点，不相加、不冒充当前总数。
+- 2026-10-25 默认离线套件为 `2464 passed, 14 deselected, 11 warnings`，排除 13 项联网测试和 1 项历史源码基线检查。历史报告中的测试数量属于各自提交时点，不相加、不冒充当前总数。
+- `historical_source` 检查要求当前源码与 2026-10-11 的 91 文件参考完全一致。当前工作树已有意推进源码，因此该检查只能在匹配的旧提交复核，不在默认套件中运行；不得通过修改旧参考或冻结正文来消除差异。
