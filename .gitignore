@@ -1,12 +1,23 @@
 # 数据文件
 data/raw/*.csv
 data/raw/*.parquet
+data/raw/**/*.csv
+data/raw/**/*.parquet
 data/clean/*.csv
 data/clean/*.parquet
+data/clean/*.json
 
-# 缓存文件
+# 本地环境与缓存
+.env
+.env.*
+.venv/
+venv/
 __pycache__
 .pytest_cache
+*.log
+*.tsbuildinfo
+web/.vite/
+web/coverage/
 
 # Versioned research artifacts and detailed local experiment outputs
 data/clean/*/

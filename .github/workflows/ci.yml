@@ -18,3 +18,22 @@ jobs:
         run: pip install -r requirements-web.txt
       - name: Offline test suite
         run: python -B -m pytest -q -p no:cacheprovider
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dependencies
+        run: npm ci
+      - name: Web unit tests
+        run: npm run test:unit
+      - name: Typecheck and build
+        run: npm run build
