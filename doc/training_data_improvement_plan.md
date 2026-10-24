@@ -248,3 +248,136 @@ stock_info_sz_delist (208)  ├─ 含终止上市日期
 - 本地物理大目录（全部在 `.gitignore` 内）：`.workbench` 2.59 GB（torch wheel 安装介质）；`reports/runs` 26.55 GB（研究证据）；`data/clean` 2.16 GB（各版本数据集，报告与文档引用的证据）；`data/raw` 253 MB；`data/online` 203.5 MB；`web/node_modules` 194.7 MB（可由 `npm install` 重建）。
 - 已按用户批准删除（2026-10-17，合计释放 2,615.6 MB）：`data/clean/` 下 11 个 UI/e2e 测试版本目录（`feature_ui_*`×3、`web_check_*`×4、`workflow_ui_*`×3，约 23 MB，由 `web/e2e/*.spec.ts` 以时间戳命名生成，代码未引用）；`.workbench/wheels/torch-2.7.1+cu126-cp311-cp311-win_amd64.whl`（2.59 GB，安装介质，需要时重新下载）。
 - 保留候选（用户决定暂不删除）：`data/clean/` 根目录旧构建产物（`panel_data.parquet` 128.7 MB、`all_stocks_features.parquet` 104.7 MB、`train/val/test.parquet` 约 117 MB、300 个个股 `{code}_features.parquet` 约 150 MB、`test000001_000002s2017e2024/` 3 MB）；`web/node_modules`（194.7 MB，可由 `npm install` 重建）。当前配置 `clean_dir` 指向 `data/clean/research_v3`，根目录产物来自版本化之前的构建。
+
+## 11. 模型侧与信息侧待办（2026-10-23）
+
+本节记录模型与信息两个维度的现状核查结果，与第 2 至 6 节的价格/交易状态数据相互独立。全部为只读核查与建议，**未新增训练、未改源码、未进入保护期**。
+
+### 11.1 模型侧现状：8 个策略类，全部是 PPO
+
+| 策略类 | 动作语义 | 参数规模 |
+| --- | --- | --- |
+| `SharedStockPolicy` | N+1 潜在分数 → 目标权重（含可选先验残差） | 约 125k |
+| `SharedDeltaPolicy` | N 维股票交易增量 | 124,547 |
+| `SharedTradePolicy` | HOLD/BUY/REDUCE/EXIT + 条件整手数量 | 126,343 |
+| `PriorityTradePolicy` | 3N：数量与优先级解耦 | 125,322 |
+| `MarketSummaryPolicy` | attention / dispersion 池化 | 141,575 |
+| `AttributionTradePolicy` | 纯行情与融合摘要、Critic 梯度截断 | 125,063 |
+| `ExplorationTradePolicy` | 七方向探索 | 变体 |
+| `CalendarTimingPolicy` | 线性 categorical，HOLD/REBALANCE_M20 | 12,805 |
+
+全部继承 Stable-Baselines3 的 `ActorCriticPolicy`，全部是 on-policy PPO。`src/agents/` 与 `src/training/` 中不含任何非 PPO 算法入口。
+
+### 11.2 已闭合的因果动作价值线（negative result）
+
+[协定](ppo_counterfactual_learning_protocol_20261017.md)与[运行记录](reports/ppo_counterfactual_learning_20261017_runlog.md)：首次把监督模型接进策略而非仅作诊断。480 配对标签 → Ridge 闭式解 → 映射到 Actor 两个 tensor（`logit_R - logit_H = 8*(q_hat + 0.25*(2*phase_0-1))`），与纯 PPO 两臂真实对照。
+
+| 阶段 | 结果 |
+| --- | --- |
+| 开发筛选 | 通过。`value_warmup` 两折 8K/32K 均为正增量（baseline_gap +7.220747/+11.698993 与 +1.383572/+1.175065pp）；`ppo_only` 32K 两折 **-7.009290/-2.895338pp** |
+| 确认 2025 折 | 三种子 baseline_gap 全负，折均值 **-11.082209pp**，0/3 seed 为正 |
+| 确认 2026 折 | 折均值 +1.937502pp，但 `ppo_gain` **-0.118966pp**（1/3 seed 正） |
+| 跨折均值 | **-4.572354pp**，门槛要求 ≥ +0.5pp |
+| 回撤门槛 | 唯一通过项（最坏 6.821253% ≤ 10%，对基线恶化 0.914352pp ≤ 2pp） |
+
+`qualified=false`、`candidate=null`、`actionable=false`，按预登记 fallback 不换臂、不补训练。该结果的实证价值在于：**开发期 +11.7pp 在确认期翻转为 -11.1pp**，是本仓库"两折开发 × 3 seed"筛选机制稳定性的直接警告。
+
+### 11.3 可用但从未使用的能力
+
+**算法**：Stable-Baselines3 2.7.1 实际提供 A2C / PPO / DQN / SAC / TD3 / DDPG，仓库只 import 了 PPO。DQN 不适用（动作空间连续）；**SAC/TD3 是唯一未试过的样本效率杠杆**——当前预算是 8,192 至 65,536 步，on-policy PPO 每个 rollout 用后即弃，replay buffer 能重复利用经验。
+
+**表示层**：`MarketDataProvider` 支持 `lookback=L`，编码器输入为 `L*F+4`，但**所有生产配置均为 `lookback: 1`**（`configs/ppo.json`、`ppo_lightweight.json`、`multiseed_20260926.json`、`research.json`）。仅七方向探索的 `lookback5` 单 cell 试过且未过门槛。即模型目前只看一个交易日；GRU / TCN / 时间卷积未试。
+
+**依赖约束**：两个 conda 环境的监督学习栈不同。
+
+| 库 | AShareGPU | Graduate |
+| --- | --- | --- |
+| torch | 2.7.1+cu126 | 2.7.1 (CPU) |
+| stable-baselines3 / gymnasium | 2.7.1 / 1.2.3 | 2.7.1 / 1.2.3 |
+| scikit-learn | 缺失 | 1.3.2 |
+| xgboost | 缺失 | 3.2.0 |
+| scipy / statsmodels / shap | 缺失 | 有 |
+| lightgbm / transformers / optuna / mlflow | 缺失 | 缺失 |
+
+结论：**GPU 环境无法运行任何 sklearn 或 xgboost 基线**。现有规避方式是手写 numpy 闭式解（`src/training/exploration_signal.py` 的 `fit_ridge` 使用 `np.linalg.solve`）。若要引入 LightGBM 排序基线，须先修改 `requirements-gpu-constraints.txt` 并重新 pin，不静默安装。
+
+### 11.4 方法论最大缺口：没有独立可交易的因子基线
+
+现有对比基线为现金、买入持有、等权、20 日动量，以及每日等权/动量对照（`src/backtest/strategies.py`）。**从未包含"学习型截面因子模型"作为独立可交易基线**。
+
+`exploration_signal.py` 的 Ridge 只预测 h 日前瞻收益并产出 IC 类诊断，未进入 broker、未在同一账户同一成本下执行。因果动作价值线虽把 Ridge 映射进 Actor，但那是**初始化**而非基线。
+
+因此至今未被回答的问题是：把 Ridge 打分直接取 top-N 下单，能否击败 PPO？若答案是肯定的，此前多轮 PPO 研究的价值判断需要重做。
+
+### 11.5 信息侧新增可回溯来源
+
+| 信息 | 接口 | 实测 |
+| --- | --- | --- |
+| 业绩预告 | `stock_yjyg_em(date=报告期)` | 3,803 行（2021Q1），含变动幅度、原因、预告类型、**公告日期** |
+| 业绩快报 | `stock_yjkb_em(date=报告期)` | 1,654 行 |
+| 盈利预测 | `stock_profit_forecast_em` | 2,867 行，含 2025–2028 预测 EPS 与评级家数分布 |
+| 评级（按日期） | `stock_rank_forecast_cninfo(date)` | 391 行，含研究机构、研究员、**目标价上下限**、评级变化 |
+| 机构推荐明细 | `stock_institute_recommend_detail(symbol)` | 499 行 |
+| 新闻联播全文 | `news_cctv(date)` | 10 行/日，`date`/`title`/`content`，**可按日回溯** |
+| 龙虎榜 | `stock_lhb_detail_em(start, end)` | 1,584 行（2021-01），含上榜原因与上榜后 1/2/5/10 日表现 |
+| 北向资金 | `stock_hsgt_hist_em("北向资金")` | 2,774 行，2014-11-17 起 |
+| 财务指标 | `stock_financial_analysis_indicator(symbol, start_year)` | 38 期 × 约 80 列，2017Q1 至 2026Q2 |
+| 资产负债表 | `stock_zcfz_em(date=报告期)` | 5,191 行 |
+| 宏观 CPI | `macro_china_cpi()` | 225 期，2008-01 起 |
+
+### 11.6 信息侧不可得
+
+- `index_news_sentiment_scope`：`SSLError`（`www.chinascope.com.cn` 证书验证失败）。
+- `news_report_time_baidu`：返回 0 行。
+- `stock_individual_fund_flow`、`stock_board_concept_name_em`、`stock_zh_a_spot_em`：东财 `RemoteDisconnected`，与第 1 节一致。
+
+### 11.7 信息不等于特征：时点对齐才是成本所在
+
+- 财报须按**公告可得日**对齐。`stock_zcfz_em` 的 `最新公告日期` 字段是唯一可用的对齐键；用报告期末会引入数月前视。
+- 评级与目标价是**发布日**事件，且只覆盖被券商研究的股票，缺失非随机，构成幸存者偏差。
+- 新闻联播全文转特征需 NLP，而 AShareGPU 无 transformers。
+- 北向资金 2014 至 2023 逐步扩容、2024 年后披露口径变化，**跨期不可比**。
+- `stock_lhb_detail_em` 自带"上榜后 1/2/5/10 日"表现字段，属**未来信息**，不得进入特征。
+
+### 11.8 按性价比排序的待办
+
+| 优先级 | 待办 | 理由 | 状态 |
+| --- | --- | --- | --- |
+| **P1** | 独立因子基线（截面 Ridge 打分 → top-N 等权 → 同一 broker） | 成本最低：`fit_ridge` 已存在，缺的只是接入 `run_policy`；回答"RL 是否必要" | **已实现首版并完成两折实测**，见 11.9 |
+| **P2** | `lookback > 1`（5 / 20 日） | 一行配置改动，唯一未被否证过的表示层改动 | 未实施 |
+| **P3** | SAC / TD3 + replay buffer | 只改样本效率，不改问题定义；预算 8k 步下最可能有实质差异 | 未实施 |
+| P4 | 信息源接入（业绩预告 / 评级 / 北向） | 时点对齐工作量远大于收益；在筛选稳定性未改善前会引入更多噪声 | 暂缓 |
+| P5 | LightGBM 排序基线 | 需先改 GPU 环境依赖并重新 pin | 暂缓 |
+
+P1 至 P3 不改变既有封存产物、不下载数据、不进入 2026-07-01 之后的保护期；实施前须按仓库约定另立预注册协议。
+
+### 11.9 P1 首版实现与两折实测
+
+新增 `tools/factor_baseline.py`（未改动 `src/**` 任何文件，因此既有冻结选择的 `source_hashes` 不受影响），复用 `src/training/exploration_signal.py` 的 `forward_labels` / `split_examples` / `fit_ridge` / `predict_ridge`，并通过 `src/backtest/run.py` 的 `run_policy` 执行，使费用、滑点、整手、T+1 与账户核算与其他基线完全一致。
+
+因果约束：Ridge 只在 `train_end` 及以前的行上拟合；标签为 `close[t+h]/open[t+1]-1` 且要求完整路径；标签终点晚于 `train_end` 的行被 purge。实测两折的 `max_label_endpoint` 恰为 `train_end`（2023 折 2023-03-31、2024 折 2024-03-29），purge 20 个交易日。
+
+```powershell
+& 'D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe' -B -m tools.factor_baseline `
+    --config configs/ppo.json `
+    --research-config reports/runs/ppo_exploration_20261006/folds/2023/research.json `
+    --run-id fold_2023
+```
+
+两折验证期（Q2，与 PPO 研究使用同一数据集与同一 fold 边界）实测：
+
+| 折 | factor_ridge | momentum | 等权 | 因子 − 动量 | 因子 Sharpe / 动量 Sharpe |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 2023 | +3.1923% | **+6.5411%** | +0.2752% | **-3.3487pp** | 0.848 / 0.864 |
+| 2024 | **-4.8144%** | **+3.3602%** | +0.5310% | **-8.1746pp** | -0.952 / 0.975 |
+| 两折均值 | -0.8111% | +4.9507% | +0.4031% | **-5.7617pp** | — |
+
+回撤方面因子基线更低（2023 折 -6.0479% 对动量 -17.2966%；2024 折 -7.3326% 对 -5.7630%），但夏普在两折都不占优。
+
+结论与边界：
+
+- 一个**未经调参**的 20 特征 Ridge 排序组合在两折都被 20 日动量支配（两折均值 -5.76pp），2024 折绝对收益为负。这确立了"最朴素的学习型因子模型不足以替代规则基线"，但不能推断"因子模型整体无效"——本轮只有一组固定超参（horizon 20、alpha 1.0、每 20 日调仓、top 20），按仓库纪律不做事后调参。
+- 该结果**不改变**既有 PPO 结论的方向，但补上了此前缺失的对照：动量基线在这两个窗口本身是强基线（+6.54% / +3.36%），因此"PPO 未能超越动量"不能再被解释为"对照太弱"。
+- 12 项合成测试（`tests/test_factor_baseline.py`）覆盖 purge 因果性、未来价格扰动不变性、排序与代码 tie-break、`max_weight` 上限、无可选标的、特征序与股票池契约，全部通过。完整离线回归 `2461 passed, 13 deselected, 11 warnings in 1059.95s`，exit0。
+- 门禁需在**完全权限**下执行：当前工作区沙箱禁止进程列出其新建的临时目录，`pytest` 的 `tmp_path` 因此在默认策略下于 setup 阶段批量报 `PermissionError`（本次 983 项）。这不是代码缺陷——同一测试在完全权限下全部通过；`tmp_path` 无关的用例在默认策略下照常通过。
+- 产物在 `reports/runs/factor_baseline/`（gitignore 内），含 `factor_model.json`、逐决策 `decisions.json` 与四基线配对对比。
