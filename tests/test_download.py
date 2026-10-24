@@ -39,6 +39,16 @@ def test_download_aggregates_each_stock_once_with_hfq(tmp_path):
         pd.testing.assert_frame_equal(individual, frame)
 
 
+def test_existing_source_files_are_not_overwritten_or_fetched(tmp_path):
+    target = tmp_path / "000001_data_20170101_20260626_hfq.csv"
+    target.write_text("existing data", encoding="utf-8")
+    fetcher = Mock()
+    with pytest.raises(FileExistsError, match="Refusing to overwrite"):
+        download_stocks(fetcher, ["000001"], tmp_path)
+    fetcher.get_stock_hist.assert_not_called()
+    assert target.read_text(encoding="utf-8") == "existing data"
+
+
 def test_empty_stock_list_does_not_overwrite_aggregate(tmp_path):
     aggregate = tmp_path / "stock_data_hs300_2017_2024_hfq.csv"
     aggregate.write_text("existing data", encoding="utf-8")
