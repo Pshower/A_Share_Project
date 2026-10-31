@@ -1,6 +1,6 @@
 # 项目文档索引
 
-更新日期：2026-10-25。
+更新日期：2026-10-31。
 
 建议按以下顺序阅读：
 
@@ -25,7 +25,7 @@
 | [experiment_workbench_runbook.md](experiment_workbench_runbook.md) | 实验配置、分阶段批准、多种子、风险选模和当前工程边界 |
 | [frontend_workbench_design.md](frontend_workbench_design.md) | 工作台交互与 API 设计基线 |
 | [gpu_environment.md](gpu_environment.md) | AShareGPU/Graduate 环境、设备选择与验证 |
-| [online_market_runbook.md](online_market_runbook.md) | 显式下载、日线研究计划、报价监控和分来源限制 |
+| [online_market_runbook.md](online_market_runbook.md) | 显式历史下载、新浪/东财实时报价、日线研究计划、监控和分来源限制 |
 | [bulk_download_runbook.md](bulk_download_runbook.md) | 批量选取、代码导入、进度、取消、重试和数据集扩充 |
 | [akshare_download_expansion.md](akshare_download_expansion.md) | 资料、资金流、分钟、指数和分红的独立归档；不自动入模 |
 | [training_data_linkage.md](training_data_linkage.md) | 多股日期交集、lookback、原始行情与下载批次关联 |
