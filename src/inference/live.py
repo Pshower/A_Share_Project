@@ -155,8 +155,21 @@ def build_daily_plan(agent, data, history_id, *, model_id, accept_revisions=Fals
                                       "Fresh quotes do not establish suspension, ST, limits or real-account compatibility."]))
 
 
+def market_phase(now=None):
+    local = (now or datetime.now(timezone.utc)).astimezone(CHINA)
+    if local.weekday() >= 5:
+        return "closed"
+    clock = local.hour * 60 + local.minute
+    if 9 * 60 + 15 <= clock < 9 * 60 + 30:
+        return "auction"
+    if 9 * 60 + 30 <= clock < 11 * 60 + 30 or 13 * 60 <= clock < 15 * 60:
+        return "open"
+    return "closed"
+
+
 def judge_quotes(snapshot, plan=None, *, now=None, ttl_seconds=120):
     now = now or datetime.now(timezone.utc)
+    phase = market_phase(now)
     by_code = {row["code"]: row for row in snapshot["rows"]}
     codes = list(plan["stock_codes"]) if plan else snapshot["codes"]
     targets = {row["code"]: row for row in plan["rows"]} if plan else {}
@@ -176,7 +189,12 @@ def judge_quotes(snapshot, plan=None, *, now=None, ttl_seconds=120):
             if age < -5 or received_age < -5:
                 reasons.append("future_timestamp")
             elif age > ttl_seconds or received_age > ttl_seconds:
-                reasons.append("stale_quote")
+                if phase in {"open", "auction"} or age > 4 * 86400 or received_age > 4 * 86400:
+                    reasons.append("stale_quote")
+                else:
+                    reasons.append("market_closed")
+        if phase == "closed" and "market_closed" not in reasons:
+            reasons.append("market_closed")
         if snapshot["status"] != "ready" or set(codes) - set(by_code):
             reasons.append("incomplete_snapshot")
         if plan:
@@ -193,7 +211,7 @@ def judge_quotes(snapshot, plan=None, *, now=None, ttl_seconds=120):
             reasons.append("at_vendor_limit_up")
         if quote and quote.get("limit_down") and quote["last"] <= quote["limit_down"]:
             reasons.append("at_vendor_limit_down")
-        waiting = any(r in reasons for r in ["missing_quote", "unknown_quote_time", "future_timestamp", "stale_quote", "incomplete_snapshot", "stale_daily_plan", "data_source_mismatch"])
+        waiting = any(r in reasons for r in ["missing_quote", "unknown_quote_time", "future_timestamp", "stale_quote", "market_closed", "incomplete_snapshot", "stale_daily_plan", "data_source_mismatch"])
         rows.append(dict(code=code, quote=quote, quote_age_seconds=age,
                          target_weight=targets.get(code, {}).get("target_weight"),
                          research_intent=targets.get(code, {}).get("research_intent"),
@@ -201,5 +219,6 @@ def judge_quotes(snapshot, plan=None, *, now=None, ttl_seconds=120):
                          reasons=list(dict.fromkeys(reasons)), actionable=False))
     return dict(snapshot_id=snapshot["id"], plan_id=plan["id"] if plan else None,
                 feature_as_of=plan["feature_as_of"] if plan else None, evaluated_at=now.isoformat(),
+                market_phase=phase,
                 rows=rows, actionable=False, mode="quote_aware_daily_research",
                 note="No real-account valuation or order execution; raw quotes are not multiplied by HFQ research shares.")

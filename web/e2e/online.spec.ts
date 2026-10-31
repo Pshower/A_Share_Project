@@ -27,9 +27,26 @@ test('online page opens without network jobs and requires explicit download cons
   expect(captured.allow_network).toBe(true)
   expect(captured.source).toBe('sina')
   await page.getByRole('button', { name: '报价与监控', exact: true }).click()
-  await expect(page.getByLabel('允许从东方财富获取这组股票的报价', { exact: true })).not.toBeChecked()
+  await expect(page.getByLabel('允许从新浪获取这组股票的实时报价', { exact: true })).not.toBeChecked()
   await expect(page.getByRole('button', { name: '刷新一次报价', exact: true })).toBeDisabled()
   expect((await (await page.request.get('/api/jobs')).json()).length).toBe(before.length)
+})
+
+test('stale saved quotes are not presented as current on page load', async ({ page }) => {
+  const quotes = await (await page.request.get('/api/market/snapshots/quotes')).json()
+  const stale = quotes.find(
+    (quote: any) =>
+      Date.now() - Date.parse(quote.created_at) > 120_000 && quote.status !== 'ready'
+  )
+  test.skip(!stale, 'No stale failed quote snapshot is registered')
+  await page.goto('/#market?kind=quotes')
+  await expect(page.getByText('未选择或尚无已保存报价', { exact: false })).toBeVisible({
+    timeout: 60_000,
+  })
+  await expect(page.getByRole('heading', { name: '已保存报价检查' })).toHaveCount(0)
+  await page.getByLabel('已保存报价快照', { exact: true }).selectOption(stale.id)
+  await expect(page.getByText('已保存报价快照 ' + stale.id, { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '已保存报价检查' })).toBeVisible()
 })
 
 test('real failed snapshots are visible and cannot create a daily plan', async ({ page }) => {
@@ -91,7 +108,7 @@ test('monitor UI renews and stops a leased mock session without external request
   })
   await page.goto('/#market?kind=quotes')
   await expect(page.getByRole('button', { name: '开启有限监控', exact: true })).toBeDisabled()
-  await page.getByLabel('允许从东方财富获取这组股票的报价', { exact: true }).check()
+  await page.getByLabel('允许从新浪获取这组股票的实时报价', { exact: true }).check()
   await page.getByRole('button', { name: '开启有限监控', exact: true }).click()
   await expect(page.getByRole('button', { name: '停止监控', exact: true })).toBeVisible()
   await expect(page.getByText('等待 / 过期', { exact: true }).first()).toBeVisible()

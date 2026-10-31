@@ -272,8 +272,9 @@ def create_app(root=ROOT, start_workers=True):
     def quote_pool(body):
         if body.plan_id:
             plan, _ = snapshots.get("plans", body.plan_id)
-            if plan.get("training_contract", {}).get("data_source") not in {None, "eastmoney"}:
-                raise ValueError("This model source has no compatible realtime quote adapter; no automatic Eastmoney fallback")
+            trained_source = plan.get("training_contract", {}).get("data_source")
+            if trained_source is not None and trained_source != body.source:
+                raise ValueError("Quote source must match the model training source; no automatic fallback")
             if body.codes != plan["stock_codes"]:
                 raise ValueError("Quote the entire ordered plan pool, not just displayed stocks")
 

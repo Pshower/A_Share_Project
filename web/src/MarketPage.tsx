@@ -15,6 +15,7 @@ import { dailyPlanActionModes, supportsAction } from './modelActions'
 import MarketChart from './MarketChart'
 import MarketResearch from './MarketResearch'
 import { weightsFrom } from './researchWeights'
+import { freshQuote } from './quoteFreshness'
 import SupplementDownloads from './SupplementDownloads'
 
 type Row = Record<string, any>
@@ -33,6 +34,7 @@ const explanations: Record<string, string> = {
   missing_quote: '缺少报价',
   unknown_quote_time: '报价时间未知',
   stale_quote: '报价已过期',
+  market_closed: '当前非连续竞价时段',
   future_timestamp: '报价时间异常',
   incomplete_snapshot: '快照不完整',
   stale_daily_plan: '日线计划过期',
@@ -90,6 +92,7 @@ export default function MarketPage(p: Props) {
   const [source, setSource] = useState('sina')
   const [consent, setConsent] = useState(false)
   const [quoteConsent, setQuoteConsent] = useState(false)
+  const [quoteSource, setQuoteSource] = useState('sina')
   const [researchConsent, setResearchConsent] = useState(false)
   const [revisionConsent, setRevisionConsent] = useState(false)
   const [weights, setWeights] = useState('')
@@ -138,7 +141,7 @@ export default function MarketPage(p: Props) {
         h[0]?.id ||
         ''
     )
-    setQuoteId((v) => v || q[0]?.id || '')
+    setQuoteId((v) => v || freshQuote(q)?.id || '')
   }, [])
   useEffect(() => {
     load().catch(p.fail)
@@ -225,11 +228,16 @@ export default function MarketPage(p: Props) {
   }, [monitorId, monitoring, p.fail])
 
   const selectedHistory = histories.find((h) => h.id === historyId)
+  const selectedQuote = quotes.find((q) => q.id === quoteId)
   const downloadCodes = [...new Set(parseCodes(codes))]
   const invalidCodes = downloadCodes.filter((c) => !/^[0-9]{6}$/.test(c))
   const validDownload =
     downloadCodes.length > 0 && downloadCodes.length <= 500 && !invalidCodes.length
   const selectedPlan = plans.find((v) => v.id === planId)
+  const planSource = selectedPlan?.training_contract?.data_source
+  useEffect(() => {
+    if (planSource === 'sina' || planSource === 'eastmoney') setQuoteSource(planSource)
+  }, [planId, planSource])
   const pool = selectedPlan ? selectedPlan.stock_codes : parseCodes(codes)
   const covered =
     requirements &&
@@ -290,6 +298,7 @@ export default function MarketPage(p: Props) {
     try {
       setMonitor(
         await post('/market/monitors', {
+          source: quoteSource,
           codes: pool,
           allow_network: quoteConsent,
           plan_id: planId || null,
@@ -331,9 +340,12 @@ export default function MarketPage(p: Props) {
     <>
       <div className="online-boundary">
         <Radio size={17} />
-        <span>行情归档 · 日线研究与报价快照</span>
-        <b>不下单 · 真实账户适配未启用</b>
+        <span>行情归档 · 日线研究与实时报价</span>
+        <b>支持新浪/东财实时接口 · 不下单</b>
       </div>
+      <p className="subtle-note">
+        历史日线和报价都保存为快照；实时报价需在“报价与监控”选择来源并显式刷新或开启监控。旧快照不会冒充当前报价。
+      </p>
       <div className="tabs">
         {[
           ['research', '行情与模型'],
@@ -982,6 +994,21 @@ export default function MarketPage(p: Props) {
                   ))}
                 </select>
               </Field>
+              <Field label="报价来源">
+                <select
+                  aria-label="实时报价来源"
+                  disabled={!!monitoring}
+                  value={quoteSource}
+                  onChange={(e) => {
+                    setQuoteSource(e.target.value)
+                    setQuoteConsent(false)
+                    setQuoteId('')
+                  }}
+                >
+                  <option value="sina">新浪实时</option>
+                  <option value="eastmoney">东方财富实时</option>
+                </select>
+              </Field>
               <Field label="报价股票">
                 <input
                   aria-label="报价股票代码"
@@ -1020,13 +1047,16 @@ export default function MarketPage(p: Props) {
                 disabled={!!monitoring}
                 onChange={(e) => setQuoteConsent(e.target.checked)}
               />
-              允许从东方财富获取这组股票的报价
+              {quoteSource === 'sina'
+                ? '允许从新浪获取这组股票的实时报价'
+                : '允许从东方财富获取这组股票的实时报价'}
             </label>
             <div className="form-actions">
               <button
                 disabled={busy || !quoteConsent || monitoring || !pool.length || pool.length > 50}
                 onClick={() =>
                   job('/market/quotes', {
+                    source: quoteSource,
                     codes: pool,
                     allow_network: quoteConsent,
                     plan_id: planId || null,
@@ -1053,8 +1083,8 @@ export default function MarketPage(p: Props) {
               )}
             </div>
             <p className="subtle-note">
-              新浪实时报价适配尚未启用；东方财富需独立授权，不能用于新浪模型的报价判断。报价最多 50
-              股。离开页面会请求停止；断连超过 45 秒租约失效。刷新价格不会重新训练或更换日线计划。
+              新浪和东方财富实时报价均可用，但来源必须与模型训练来源一致，不会自动混源。报价最多 50
+              股；离开页面会请求停止，断连超过 45 秒租约失效。刷新价格不会重新训练或更换日线计划。
             </p>
             {sessions
               .filter((s) => s.status === 'active' && s.id !== monitorId)
@@ -1082,6 +1112,13 @@ export default function MarketPage(p: Props) {
               </select>
             </Field>
           </div>
+          {selectedQuote && (
+            <div className="online-boundary">
+              <span>已保存报价快照 {selectedQuote.id}</span>
+              <span>保存于 {dateTime(selectedQuote.created_at)}</span>
+              <b>{selectedQuote.status === 'ready' ? '完整' : '部分失败'}</b>
+            </div>
+          )}
           {monitor && (
             <div className="online-boundary">
               <span>会话 {monitor.id}</span>
@@ -1130,9 +1167,14 @@ export default function MarketPage(p: Props) {
           {judgment ? (
             <section className="section">
               <div className="section-heading">
-                <h2>当前报价检查</h2>
-                <span>检查于 {dateTime(judgment.evaluated_at)}</span>
+                <h2>已保存报价检查</h2>
+                <span>重新判断于 {dateTime(judgment.evaluated_at)}</span>
               </div>
+              {judgment.market_phase === 'closed' && (
+                <p className="subtle-note">
+                  当前为非交易时段，以下为最近一次可得报价，不是新的盘中 tick。
+                </p>
+              )}
               <div className="table-wrap market-quotes-table">
                 <table>
                   <thead>
@@ -1159,7 +1201,9 @@ export default function MarketPage(p: Props) {
                         <td className="nowrap">{r.quote ? dateTime(r.quote.received_at) : '—'}</td>
                         <td>
                           {r.status === 'waiting'
-                            ? '等待 / 过期'
+                            ? r.reasons.includes('market_closed')
+                              ? '已收盘 / 非交易时段'
+                              : '等待 / 过期'
                             : r.status === 'research_review'
                               ? '仅研究复核'
                               : '仅行情'}
@@ -1177,7 +1221,9 @@ export default function MarketPage(p: Props) {
               </p>
             </section>
           ) : (
-            <div className="empty">尚无可查看报价；不会用模拟值替代网络结果。</div>
+            <div className="empty">
+              未选择或尚无已保存报价。页面不会自动联网，也不会用模拟值替代网络结果。
+            </div>
           )}
         </>
       )}

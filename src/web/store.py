@@ -224,6 +224,7 @@ class Store:
                     continue
                 payload = json.loads(row["payload"])
                 request = {key: payload[key] for key in ["codes", "allow_network", "plan_id"]}
+                request["source"] = payload.get("source", "sina")
                 request["monitor_id"] = row["id"]
                 identifier = "j_" + uuid.uuid4().hex[:16]
                 conn.execute("INSERT INTO jobs(id,kind,status,created,updated,payload,idempotency) VALUES(?,?,?,?,?,?,?)", (identifier, "online_quotes", "queued", now(), now(), json.dumps(request), "monitor:" + row["id"] + ":" + identifier))

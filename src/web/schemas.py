@@ -213,6 +213,7 @@ class Supplement(Request):
 
 
 class OnlineQuotes(Request):
+    source: Literal["sina", "eastmoney"] = "sina"
     codes: list[str] = Field(min_length=1, max_length=50)
     allow_network: Literal[True]
     plan_id: str | None = None

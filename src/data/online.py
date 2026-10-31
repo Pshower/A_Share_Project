@@ -1,4 +1,4 @@
-"""Explicit Eastmoney access with bounded requests and auditable snapshots."""
+"""Explicit daily-history and realtime-quote access with auditable snapshots."""
 
 import argparse
 from datetime import datetime, timezone
@@ -235,16 +235,48 @@ def download_history(codes, start, end, bases, *, allow_network=False, root=ROOT
     return result
 
 
-def normalize_quote(raw, code, received_at):
+def _quote_number(value, positive=True):
+    try:
+        number = float(value)
+    except (ValueError, TypeError):
+        return None
+    return number if np.isfinite(number) and (number > 0 if positive else number >= 0) else None
+
+
+def normalize_sina_quote(raw, code, received_at):
+    """Normalize one Sina hq_str record; volume is shares and price is unadjusted."""
+    if str(raw.get("code")) != code:
+        raise ValueError("Quote stock code mismatch")
+    last = _quote_number(raw.get("last"))
+    if last is None:
+        raise ValueError("Missing or invalid latest price")
+    timestamp = None
+    try:
+        candidate = datetime.strptime(f"{raw['date']} {raw['time']}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=CHINA)
+        age = (datetime.fromisoformat(received_at) - candidate.astimezone(timezone.utc)).total_seconds()
+        if candidate.year >= 2000 and age >= -5:
+            timestamp = candidate.astimezone(timezone.utc).isoformat()
+    except (KeyError, ValueError, TypeError, OverflowError):
+        pass
+    return dict(code=code, name=str(raw.get("name", "")), last=last, previous_close=_quote_number(raw.get("previous_close")),
+                open=_quote_number(raw.get("open")), high=_quote_number(raw.get("high")), low=_quote_number(raw.get("low")),
+                volume=_quote_number(raw.get("volume"), positive=False), amount=_quote_number(raw.get("amount"), positive=False),
+                bid=_quote_number(raw.get("bid")), ask=_quote_number(raw.get("ask")),
+                limit_up=None, limit_down=None, provider_timestamp=timestamp, received_at=received_at,
+                time_field="date/time", timestamp_semantics="Sina quote date/time Asia/Shanghai; vendor time is not exchange-certified",
+                price_basis="unadjusted")
+
+
+def normalize_quote(raw, code, received_at, source="eastmoney"):
+    if source == "sina":
+        return normalize_sina_quote(raw, code, received_at)
+    if source != "eastmoney":
+        raise ValueError("Unsupported quote source")
     if str(raw.get("f57")) != code:
         raise ValueError("Quote stock code mismatch")
 
     def numeric(key, positive=True):
-        try:
-            value = float(raw[key])
-            return value if np.isfinite(value) and (value > 0 if positive else value >= 0) else None
-        except (ValueError, KeyError, TypeError):
-            return None
+        return _quote_number(raw.get(key), positive)
 
     last = numeric("f43")
     if last is None:
@@ -265,15 +297,24 @@ def normalize_quote(raw, code, received_at):
                 timestamp_semantics="unverified_vendor_epoch_field_f86", price_basis="unadjusted")
 
 
-def capture_quotes(codes, *, allow_network=False, root=ROOT, provider=None, permission_check=None):
+def capture_quotes(codes, *, allow_network=False, root=ROOT, provider=None, permission_check=None, source="eastmoney"):
     if not allow_network:
         raise ValueError("Explicit network consent required")
+    if source not in {"sina", "eastmoney"}:
+        raise ValueError("Unsupported quote source")
     valid_codes(codes)
     if len(codes) > 50:
         raise ValueError("Quote snapshots are limited to 50 stocks")
     store = Snapshots(root)
     identifier, directory = store.begin("quotes")
-    provider = provider or Eastmoney(root)
+    if provider is None:
+        if source == "sina":
+            from src.data.sina import Sina
+            provider = Sina(root)
+        else:
+            provider = Eastmoney(root)
+    if getattr(provider, "name", source) != source:
+        raise ValueError("Quote provider differs from declared source")
     rows, errors, raw_results = [], [], {}
     failures = 0
     started = time.monotonic()
@@ -294,7 +335,7 @@ def capture_quotes(codes, *, allow_network=False, root=ROOT, provider=None, perm
                         context=dict(code=code, basis="quote"))
             received = utc_now()
             raw_results[code] = dict(received_at=received, data=raw)
-            rows.append(normalize_quote(raw, code, received))
+            rows.append(normalize_quote(raw, code, received, source=source))
             failures = 0
         except events.Cancelled:
             raise
@@ -306,9 +347,11 @@ def capture_quotes(codes, *, allow_network=False, root=ROOT, provider=None, perm
         permission_check()
     write_json(directory / "quotes.json", rows)
     write_json(directory / "provider_response.json", raw_results)
-    return store.publish("quotes", identifier, directory, dict(provider="eastmoney", codes=codes,
+    return store.publish("quotes", identifier, directory, dict(provider=source, codes=codes,
                          status="ready" if not errors else "partial", errors=errors,
-                         timestamp_source="f86 parsed as Unix seconds; vendor semantics and exchange trade time are not certified",
+                         timestamp_source=("Sina date/time in Asia/Shanghai; vendor time is not exchange-certified"
+                                           if source == "sina" else
+                                           "f86 parsed as Unix seconds; vendor semantics and exchange trade time are not certified"),
                          price_basis="unadjusted", rows=rows))
 
 
@@ -321,8 +364,7 @@ if __name__ == "__main__":
     parser.add_argument("--allow-network", action="store_true", required=True)
     parser.add_argument("--source", choices=["sina", "eastmoney"], default="sina")
     args = parser.parse_args()
-    if args.kind == "quotes" and args.source != "eastmoney":
-        parser.error("Quotes currently require explicit --source eastmoney; no automatic fallback")
     result = (download_history(args.codes, args.start, args.end, ["hfq", "unadjusted"], allow_network=args.allow_network, source=args.source)
-              if args.kind == "history" else capture_quotes(args.codes, allow_network=args.allow_network))
+              if args.kind == "history" else
+              capture_quotes(args.codes, allow_network=args.allow_network, source=args.source))
     print(json.dumps(result, ensure_ascii=True, indent=2))

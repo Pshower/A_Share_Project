@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.agents.ppo_agent import PPOAgent, make_model
-from src.data.online import download_history, capture_quotes, normalize_quote, normalize_history
+from src.data.online import download_history, capture_quotes, normalize_quote, normalize_sina_quote, normalize_history
 from src.data.snapshots import Snapshots
 from src.inference.live import build_daily_plan, judge_quotes
 from src.runtime import events
@@ -99,14 +99,40 @@ def test_bad_schema_duplicate_codes_and_unknown_quote_times(local_data):
     assert quote["provider_timestamp"] is None
 
 
+def test_sina_realtime_quote_parser_and_source_metadata(tmp_path):
+    raw = dict(code="600000", name="浦发银行", open="9.980", previous_close="9.990", last="10.020",
+               high="10.040", low="9.900", bid="10.010", ask="10.020", volume="64886491",
+               amount="647741483.000", date="2026-10-30", time="15:34:59", status="00")
+    quote = normalize_sina_quote(raw, "600000", datetime.now(timezone.utc).isoformat())
+    assert quote["last"] == 10.02 and quote["previous_close"] == 9.99
+    assert quote["volume"] == 64886491 and quote["price_basis"] == "unadjusted"
+    assert quote["provider_timestamp"].startswith("2026-10-30T07:34:59")
+
+    class SinaFixture:
+        name = "sina"
+
+        def quote(self, code, permission_check=None):
+            return raw
+
+    snapshot = capture_quotes(["600000"], allow_network=True, root=tmp_path,
+                              provider=SinaFixture(), source="sina")
+    assert snapshot["provider"] == "sina"
+    assert snapshot["rows"][0]["name"] == "浦发银行"
+    assert "Sina" in snapshot["timestamp_source"]
+
+
 def test_stale_missing_and_fresh_quotes_never_become_orders(tmp_path):
-    now = datetime.now(timezone.utc)
+    now = datetime(2026, 10, 30, 2, 0, tzinfo=timezone.utc)  # Friday 10:00 Asia/Shanghai
     snapshot = capture_quotes(["000001"], allow_network=True, root=tmp_path, provider=FakeProvider(timestamp=now))
+    snapshot["rows"][0]["received_at"] = now.isoformat()
     result = judge_quotes(snapshot, now=now + timedelta(seconds=1))
     assert result["rows"][0]["status"] == "quotes_only" and not result["actionable"]
     old = judge_quotes(snapshot, now=now + timedelta(minutes=5))
     assert old["rows"][0]["status"] == "waiting"
     assert "stale_quote" in old["rows"][0]["reasons"]
+    weekend = judge_quotes(snapshot, now=datetime(2026, 10, 31, 4, 0, tzinfo=timezone.utc))
+    assert "market_closed" in weekend["rows"][0]["reasons"]
+    assert "stale_quote" not in weekend["rows"][0]["reasons"]
     partial = deepcopy(snapshot)
     partial["rows"] = []
     assert judge_quotes(partial)["rows"][0]["status"] == "waiting"
@@ -296,6 +322,22 @@ def test_quote_permission_is_checked_between_network_calls(tmp_path):
     with pytest.raises(events.Cancelled):
         capture_quotes(["000001"], allow_network=True, root=tmp_path, provider=provider, permission_check=stopped)
     assert not provider.calls and calls
+
+
+@pytest.mark.local_ipc
+def test_quote_source_must_match_plan_training_source(web_root):
+    store = Snapshots(web_root)
+    identifier, directory = store.begin("plans")
+    store.publish("plans", identifier, directory, dict(
+        stock_codes=["000001"], feature_as_of="2026-10-30", rows=[],
+        training_contract=dict(data_source="sina")))
+    with TestClient(create_app(web_root, start_workers=False)) as client:
+        token = client.get("/api/session").json()["token"]
+        headers = {"X-CSRF-Token": token}
+        body = dict(source="eastmoney", codes=["000001"], allow_network=True, plan_id=identifier)
+        response = client.post("/api/market/quotes", json=body, headers=headers)
+        assert response.status_code == 409
+        assert "match" in response.json()["error"]
 
 
 def test_lane_isolation_monitor_lease_and_no_duplicate_poll(tmp_path, monkeypatch):

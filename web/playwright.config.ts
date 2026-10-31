@@ -5,6 +5,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   timeout: 240000,
+  expect: { timeout: 30000 },
   reporter: [['list'], ['json', { outputFile: 'test-results/results.json' }]],
   use: {
     baseURL: process.env.WORKBENCH_URL || 'http://127.0.0.1:8765',

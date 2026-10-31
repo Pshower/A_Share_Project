@@ -13,10 +13,10 @@ from .catalog import contract_action_mode
 
 def capabilities():
     return dict(default_history_source="sina", sources=[
-        dict(id="sina", label="新浪", history_bases=["hfq", "unadjusted"], quotes=False, supplements=["dividend"]),
+        dict(id="sina", label="新浪", history_bases=["hfq", "unadjusted"], quotes=True, supplements=["dividend"]),
         dict(id="eastmoney", label="东方财富", history_bases=["hfq", "unadjusted"], quotes=True,
              supplements=["profile", "fund_flow", "minute", "index_daily"]),
-    ], quote_source="eastmoney", market_ui_version="model-comparison-v1")
+    ], quote_source="sina", quote_sources=["sina", "eastmoney"], market_ui_version="model-comparison-v1")
 
 
 def model_requirements(catalog, model_id):

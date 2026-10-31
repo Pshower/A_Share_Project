@@ -88,7 +88,8 @@ def execute(job, directory):
                     record = Store(ROOT / ".workbench").monitor(payload["monitor_id"])
                     if record["status"] != "active" or min(record["lease"], record["expires"]) < time.time():
                         raise events.Cancelled("Monitor stopped or lease expired")
-            result = capture_quotes(payload["codes"], allow_network=True, permission_check=permission)
+            result = capture_quotes(payload["codes"], allow_network=True, permission_check=permission,
+                                    source=payload.get("source", "sina"))
         return dict(snapshot_id=result["id"], snapshot_kind=result["kind"], capture_status=result["status"])
     if kind in {"training", "check"}:
         from src.training.train import main
