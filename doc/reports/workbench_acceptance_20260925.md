@@ -72,11 +72,7 @@
 
 浏览器机器结果：[results.json](../../web/test-results/results.json)。截图为本地测试产物，不纳入 Git；以后重跑会更新该目录。
 
-![桌面工作台](../../web/test-results/desktop-dashboard.png)
-
-![历史预测输入与结果对齐](../../web/test-results/desktop-prediction.png)
-
-窄屏截图见 [手机预测页](../../web/test-results/mobile-predict.png)。
+本地截图路径（未入库）：`web/test-results/desktop-dashboard.png`、`web/test-results/desktop-prediction.png`、`web/test-results/mobile-predict.png`。
 
 浏览器测试使用已有本地行情，训练预算为 128 步；另验证实际运行中的停止和排队取消。回测只用验证集，冻结测试流程验证到成功冻结，不执行新的最终测试绩效筛选。
 

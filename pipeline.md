@@ -1,6 +1,6 @@
 # A 股日频强化学习交易 Pipeline
 
-更新日期：2026-10-24。
+更新日期：2026-10-25。
 
 本文只描述当前实现的架构、数据流和扩展边界。阶段状态、研究结果与下一步统一维护在[实施进度](doc/implementation_plan.md)；协议、报告和运行记录统一由[文档索引](doc/README.md)导航，不在此重复维护研究编年史。
 
@@ -29,7 +29,7 @@
 
 “实验流程”将固定来源、特征版本、配置检查和多种子 PPO 任务关联，各阶段独立批准。数据管理可追加白名单指标；PPO 支持高级参数、学习率日程、风险选模和组合诊断。来源可按股票组合，但不拼接同一股票的日期碎片，也不静默覆盖冲突历史。实现与限制见[实验工作区](doc/experiment_workbench_runbook.md)。
 
-本地工作台已实现数据选择/构建、训练监控、模型选择/迁移、回测与动作预测。设计见[工作台设计](doc/frontend_workbench_design.md)，运行见[启动说明](doc/workbench_runbook.md)，首版证据见[验收记录](doc/reports/workbench_acceptance_20260925.md)。界面完成不等同于策略研究或实盘能力完成。
+本地工作台已实现数据选择/构建、训练监控、模型选择/迁移、回测与动作预测。模型库按 `action_mode` 展示可用动作，API 与 worker 再次拒绝不兼容任务，避免只依赖界面禁用。设计见[工作台设计](doc/frontend_workbench_design.md)，运行见[启动说明](doc/workbench_runbook.md)，首版证据见[验收记录](doc/reports/workbench_acceptance_20260925.md)。界面完成不等同于策略研究或实盘能力完成。
 
 联网工作区支持显式采集、报价监控和新日线研究绑定。日线默认新浪，下载、训练和推理按来源契约锁定，不自动降级到东方财富。单日观察复用训练掩码和 scaler；缺指定日线、已有缺失持仓或全池无效仍阻断。所有结果均不是实际订单。见[联网运行说明](doc/online_market_runbook.md)和[审查修复](doc/repository_audit_fixes.md)。
 

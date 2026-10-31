@@ -1,6 +1,6 @@
 # 项目文档索引
 
-更新日期：2026-10-24。
+更新日期：2026-10-25。
 
 建议按以下顺序阅读：
 
@@ -21,7 +21,7 @@
 | [trading_environment.md](trading_environment.md) | 环境输入、动作、账户、成交、公司行为和约束契约 |
 | [ppo_implementation_plan.md](ppo_implementation_plan.md) | PPO 智能体、动作映射、共享网络、扩池和训练设计 |
 | [ppo_training_framework.md](ppo_training_framework.md) | PPO 依赖、检查/训练/冻结测试命令和产物说明 |
-| [workbench_runbook.md](workbench_runbook.md) | 本地工作台启动、页面、任务、账户和测试方式 |
+| [workbench_runbook.md](workbench_runbook.md) | 本地工作台启动、页面、动作类型准入、任务、账户和测试方式 |
 | [experiment_workbench_runbook.md](experiment_workbench_runbook.md) | 实验配置、分阶段批准、多种子、风险选模和当前工程边界 |
 | [frontend_workbench_design.md](frontend_workbench_design.md) | 工作台交互与 API 设计基线 |
 | [gpu_environment.md](gpu_environment.md) | AShareGPU/Graduate 环境、设备选择与验证 |
@@ -53,7 +53,7 @@
 
 ## 研究协议与证据
 
-摘要/详细报告对是不同阅读层级，不是重复垃圾；失败、部分完成和被修复研究承接的记录同样是证据。冻结协议保留登记时正文，实际完成状态只由报告和[实施进度](implementation_plan.md)表达。
+摘要与详细报告是不同阅读层级，不是重复内容；失败、部分完成和被修复研究承接的记录同样是证据。冻结协议保留登记时正文，实际完成状态只由报告和[实施进度](implementation_plan.md)表达。
 
 | 日期 | 研究 | 协议/设计 | 结果与证据 | 结论 |
 | --- | --- | --- | --- | --- |

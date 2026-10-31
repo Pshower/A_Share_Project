@@ -1,6 +1,6 @@
 # 本地研究工作台运行说明
 
-更新日期：2026-10-24。首版前后端已实现，设计提交为 `039e04c`。设计契约见[工作台设计](frontend_workbench_design.md)，当前进度和验收结论见[实施进度](implementation_plan.md)。
+更新日期：2026-10-25。首版前后端已实现，设计提交为 `039e04c`。设计契约见[工作台设计](frontend_workbench_design.md)，当前进度和验收结论见[实施进度](implementation_plan.md)。
 
 ## 1. 启动与依赖
 
@@ -44,7 +44,7 @@ python -B -m src.web.serve --port 8765
 
 训练详情通过 SSE 观察阶段、步数、价值损失、KL、裁剪比例及验证记录。原始 SB3 日志仍可查看/下载，任务完成后展示参数变化、优化器更新和保存加载审计。网络断开后重新连接，刷新页面不会创建第二个任务。
 
-“请求停止”是协作取消，不是暂停。排队任务立即取消；运行中的任务在安全边界抛出取消信号，跳过后续最终评估与保存。只能保留之前已经完整保存的 checkpoint，不承诺保存正在优化的状态，也不能精确续训。构建期间只发布完成版本，取消留下的 `.building_*` 目录不会登记为可训练版本。
+“请求停止”是协作取消，不是暂停。排队任务立即取消；运行中的任务在安全边界抛出取消信号，跳过后续最终评估与保存。只能保留之前已经完整保存的 checkpoint，不承诺保存正在优化的状态，也不能精确续训。构建期间只发布完成版本；失败或取消会清理 `.building_*` 暂存目录，不会登记为可训练版本。
 
 异常退出不自动重训：工作进程心跳和结果文件用于恢复状态；无法确认存活的任务标记中断。关闭服务时对自己拥有的工作进程请求停止，超时才终止该进程，不操作其他 Python 进程。
 
@@ -94,13 +94,16 @@ Web 的动作类型限制在后端、worker 和前端三层校验：回测、冻
 
 ```powershell
 python -B -m pytest -q -p no:cacheprovider
+npm --prefix web run test:unit
 npm --prefix web run build
 npm --prefix web run test:e2e
 ```
 
+Python 默认套件排除 13 项联网测试和 1 项 `historical_source` 检查；后者只用于在匹配的旧源码提交上复核 2026-10-11 参考，不因当前源码前进而修改旧参考。完整说明见[实施进度](implementation_plan.md)。
+
 浏览器测试要求服务已启动、本机 Chrome 可用；默认访问 8765，其他端口可通过 `WORKBENCH_URL` 指定。测试会真正创建小预算训练、验证回测、预测及两只股票的新数据版本，所有产物留在本地独立目录，不覆盖原研究产物。
 
-Python 测试仍默认排除外部网络。Windows 的 asyncio 内部 wakeup pipe 使用本机回环连接，仅标记 `local_ipc` 的 API 测试允许数值 loopback 地址，外部地址和一般 `create_connection` 仍被阻止。
+Windows 的 asyncio 内部 wakeup pipe 使用本机回环连接，仅标记 `local_ipc` 的 API 测试允许数值 loopback 地址，外部地址和一般 `create_connection` 仍被阻止。
 
 首版浏览器截图与问题修复记录见[工作台验收报告](reports/workbench_acceptance_20260925.md)，当前回归数量见[实施进度](implementation_plan.md)。浏览器功能验收不用于选择更盈利的策略。
 

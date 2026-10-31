@@ -1,6 +1,6 @@
 # 联网行情与日线研究判断运行说明
 
-更新日期：2026-10-24。
+更新日期：2026-10-25。
 
 新增“扩展数据”标签：个股资料、资金流、分钟行情、指数日线和分红记录独立采集，支持本地表格预览和导出。参数、来源与训练准入限制见 [AKShare 下载扩展](akshare_download_expansion.md)。
 
@@ -98,20 +98,21 @@ data/online/plans/p_<id>/
 下面的命令会真实联网，仅在明确需要时执行：
 
 ```powershell
-conda activate Graduate
+conda activate AShareGPU
 python -B -m src.data.online --kind history --codes 000001 --start 2017-01-01 --end 2026-09-25 --allow-network
 python -B -m src.data.online --kind quotes --codes 000001 --allow-network
 ```
 
-默认离线测试不包含真实网络访问：
+默认离线测试不包含真实网络访问，并排除 1 项历史源码基线检查：
 
 ```powershell
 python -B -m pytest -q -p no:cacheprovider
+npm --prefix web run test:unit
 npm --prefix web run build
 npm --prefix web run test:e2e
 ```
 
-联网浏览器用例把请求提交和监控响应显式模拟，另展示本地真实失败快照。mock 值不会发布到正式快照目录，不是实时行情验收证据。
+浏览器测试要求工作台已启动且本机 Chrome 可用；默认访问 8765，其他端口用 `WORKBENCH_URL` 指定。联网浏览器用例把请求提交和监控响应显式模拟，另展示本地真实失败快照。mock 值不会发布到正式快照目录，不是实时行情验收证据。
 
 ## 7. 当前真实连通限制
 

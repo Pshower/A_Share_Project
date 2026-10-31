@@ -1,6 +1,6 @@
 # GPU 环境配置
 
-日期：2026-09-26。目标环境：`AShareGPU`，与原 `Graduate` 分离。
+验收日期：2026-09-26；维护核对：2026-10-25。目标环境：`AShareGPU`，与原 `Graduate` 分离。
 
 ## 硬件与版本
 
@@ -44,6 +44,8 @@ CPU 与 GPU 之间不承诺逐位相同的数值结果。需要严格复现旧 C
 代码或依赖变动可能导致旧冻结记录的源码 / 环境核验不通过，这是预期审计行为，不重写旧冻结记录冒充复现。
 
 ## 验收记录
+
+以下数字是 2026-09-26 的环境验收快照，不是当前全仓回归总数；当前测试数量只在[实施进度](implementation_plan.md)维护。
 
 - 新环境：Python 3.11.16、torch 2.7.1+cu126；`torch.version.cuda=12.6`，`cuda.is_available()=True`，设备计算能力 8.6。
 - 官方 wheel SHA-256 已核对：`f3af23387ac106b5b01dbef0eb021883e0c00ff4073477b7ce1cbade5ef5038d`。大包缓存在被忽略的 `.workbench/wheels/`，未纳入 Git。

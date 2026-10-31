@@ -49,9 +49,7 @@
 
 ## 页面证据
 
-![真实失败批次与不可用状态](../../web/test-results/online-partial-desktop.png)
-
-窄屏布局见 [联网页面截图](../../web/test-results/online-mobile.png)。截图中的失败批次是实际运行产物；测试中的模拟监控数值未写入正式快照。
+本地截图路径（未入库）：`web/test-results/online-partial-desktop.png`、`web/test-results/online-mobile.png`。截图中的失败批次是实际运行产物；测试中的模拟监控数值未写入正式快照。
 
 ## 未完成的验收与能力
 
