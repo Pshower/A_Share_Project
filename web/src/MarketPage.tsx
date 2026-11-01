@@ -1181,7 +1181,8 @@ export default function MarketPage(p: Props) {
                     <tr>
                       <th>股票</th>
                       <th>未复权最新价</th>
-                      <th>供方 f86 时间</th>
+                      <th>盘口 / VWAP</th>
+                      <th>供方时间</th>
                       <th>接收时间</th>
                       <th>状态</th>
                       <th>研究目标</th>
@@ -1193,6 +1194,20 @@ export default function MarketPage(p: Props) {
                       <tr key={r.code}>
                         <td className="mono">{r.code}</td>
                         <td>{number(r.quote?.last, 3)}</td>
+                        <td
+                          title={
+                            r.quote?.bids || r.quote?.asks
+                              ? JSON.stringify({ bids: r.quote.bids, asks: r.quote.asks })
+                              : ''
+                          }
+                        >
+                          {r.quote ? `${number(r.quote.bid, 2)} / ${number(r.quote.ask, 2)}` : '—'}
+                          <small className="subtext">
+                            价差 {number(r.quote?.spread_bps, 1)} bp · 深度{' '}
+                            {percent(r.quote?.depth_imbalance)}
+                          </small>
+                          <small className="subtext">VWAP {number(r.quote?.vwap, 3)}</small>
+                        </td>
                         <td className="nowrap">
                           {r.quote?.provider_timestamp
                             ? dateTime(r.quote.provider_timestamp)

@@ -10,7 +10,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.agents.ppo_agent import PPOAgent, make_model
-from src.data.online import download_history, capture_quotes, normalize_quote, normalize_sina_quote, normalize_history
+from src.data.online import (download_history, capture_quotes, capture_market, normalize_quote,
+                             normalize_sina_quote, normalize_history, normalize_index_history,
+                             normalize_breadth_row)
 from src.data.snapshots import Snapshots
 from src.inference.live import build_daily_plan, judge_quotes
 from src.runtime import events
@@ -43,6 +45,44 @@ class FakeProvider:
         if self.fail:
             raise ConnectionError("fixture unavailable")
         return dict(f57=code, f58="fixture", f43=10.0, f60=9.8, f51=11., f52=9., f86=int(self.timestamp.timestamp()))
+
+
+class FakeMarketProvider:
+    name = "sina"
+
+    def __init__(self, fail_page=False, fail_index=False):
+        self.fail_page, self.fail_index = fail_page, fail_index
+        self.pages, self.indices = [], []
+
+    def index_history(self, code, start, end):
+        self.indices.append(code)
+        if self.fail_index:
+            raise ConnectionError("fixture unavailable")
+        return pd.DataFrame(dict(
+            date=pd.to_datetime(["2020-01-02", "2020-01-03"]),
+            open=[3000.0, 3010.0], high=[3020.0, 3030.0], low=[2990.0, 3000.0],
+            close=[3010.0, 3025.0], volume=[1000000, 1100000], code=code))
+
+    def market_count(self):
+        return 5
+
+    def market_page(self, page):
+        self.pages.append(page)
+        if self.fail_page:
+            raise ValueError("fixture page malformed")
+        rows = [
+            dict(symbol="sz000001", code="000001", name="平安银行", trade="10.00", settlement="9.80",
+                 changepercent=2.04, volume=100000, amount=1000000, ticktime="15:00:00"),
+            dict(symbol="sh600000", code="600000", name="浦发银行", trade="9.00", settlement="10.00",
+                 changepercent=-10.0, volume=200000, amount=1800000, ticktime="15:00:00"),
+            dict(symbol="sz300001", code="300001", name="特锐德", trade="12.00", settlement="10.00",
+                 changepercent=20.0, volume=300000, amount=3600000, ticktime="15:00:00"),
+            dict(symbol="sh688001", code="688001", name="华兴源创", trade="10.50", settlement="10.00",
+                 changepercent=5.0, volume=400000, amount=4200000, ticktime="15:00:00"),
+            dict(symbol="sz000002", code="000002", name="万科A", trade="0.000", settlement="8.00",
+                 changepercent=0.0, volume=0, amount=0, ticktime="15:00:00"),
+        ]
+        return rows if page == 1 else []
 
 
 def history_fixture(data, root):
@@ -102,11 +142,18 @@ def test_bad_schema_duplicate_codes_and_unknown_quote_times(local_data):
 def test_sina_realtime_quote_parser_and_source_metadata(tmp_path):
     raw = dict(code="600000", name="浦发银行", open="9.980", previous_close="9.990", last="10.020",
                high="10.040", low="9.900", bid="10.010", ask="10.020", volume="64886491",
-               amount="647741483.000", date="2026-10-30", time="15:34:59", status="00")
+               amount="647741483.000", date="2026-10-30", time="15:34:59", status="00",
+               bids=[dict(volume=9800, price=10.01), dict(volume=20521, price=10.00)],
+               asks=[dict(volume=37225, price=10.02), dict(volume=58900, price=10.03)])
     quote = normalize_sina_quote(raw, "600000", datetime.now(timezone.utc).isoformat())
     assert quote["last"] == 10.02 and quote["previous_close"] == 9.99
     assert quote["volume"] == 64886491 and quote["price_basis"] == "unadjusted"
     assert quote["provider_timestamp"].startswith("2026-10-30T07:34:59")
+    assert quote["bids"][0] == dict(price=10.01, volume=9800.0)
+    assert quote["asks"][0] == dict(price=10.02, volume=37225.0)
+    assert abs(quote["spread"] - 0.01) < 1e-9 and quote["spread_bps"] > 9
+    assert quote["depth_imbalance"] < 0
+    assert quote["vwap"] == 647741483 / 64886491
 
     class SinaFixture:
         name = "sina"
@@ -119,6 +166,56 @@ def test_sina_realtime_quote_parser_and_source_metadata(tmp_path):
     assert snapshot["provider"] == "sina"
     assert snapshot["rows"][0]["name"] == "浦发银行"
     assert "Sina" in snapshot["timestamp_source"]
+
+
+def test_market_context_snapshot_records_indices_and_breadth(tmp_path):
+    provider = FakeMarketProvider()
+    with pytest.raises(ValueError, match="consent"):
+        capture_market(["000300"], "2020-01-01", "2020-12-31", root=tmp_path, provider=provider)
+    assert not provider.indices and not provider.pages
+    snapshot = capture_market(["000300", "399001"], "2020-01-01", "2020-12-31",
+                              allow_network=True, root=tmp_path, provider=provider)
+    assert snapshot["status"] == "ready"
+    assert snapshot["as_of_date"] == "2020-01-03"
+    assert [entry["code"] for entry in snapshot["entries"]] == ["000300", "399001"]
+    assert provider.indices == ["000300", "399001"] and provider.pages == [1]
+    saved, directory = Snapshots(tmp_path).get("market", snapshot["id"])
+    assert saved["breadth"]["summary"]["total"] == 5
+    assert saved["breadth"]["summary"]["advancers"] == 3
+    assert saved["breadth"]["summary"]["decliners"] == 1
+    assert saved["breadth"]["summary"]["suspended"] == 1
+    assert saved["breadth"]["summary"]["median_change_pct"] == pytest.approx(3.52)
+    assert saved["breadth"]["summary"]["advance_decline_ratio"] == 3
+    assert saved["breadth"]["summary"]["limit_up_approx"] == 1
+    assert saved["breadth"]["summary"]["limit_down_approx"] == 1
+    assert saved["breadth"]["summary"]["total_amount"] == 10_600_000
+    assert saved["breadth"]["summary"]["tick_time_max"] == "15:00:00"
+    bars = pd.read_parquet(directory / "indices/000300.parquet")
+    assert bars.close.tolist() == [3010.0, 3025.0] and bars.volume.iloc[-1] == 1_100_000
+    breadth = pd.read_parquet(directory / "breadth.parquet")
+    assert breadth.set_index("code").loc["000002", "suspended"]
+    assert breadth.set_index("code").loc["300001", "limit_up_approx"]
+    assert breadth.set_index("code").loc["600000", "limit_down_approx"]
+    assert json.loads((directory / "breadth_summary.json").read_text(encoding="utf-8"))["valid"] == 4
+    assert Snapshots(tmp_path).list("market")[0]["id"] == snapshot["id"]
+
+
+def test_market_context_bad_schema_and_partial_breadth(tmp_path):
+    provider = FakeMarketProvider()
+    raw = provider.index_history("000300", "2020-01-01", "2020-12-31")
+    raw.loc[0, "low"] = 9999
+    with pytest.raises(ValueError, match="OHLC"):
+        normalize_index_history(raw, "000300", "2020-01-01", "2020-12-31")
+    with pytest.raises(ValueError, match="stock code"):
+        normalize_breadth_row(dict(code="ABC", name="fixture", trade=1, settlement=1, changepercent=0))
+    partial = capture_market(["000300"], "2020-01-01", "2020-12-31", allow_network=True,
+                             root=tmp_path, provider=FakeMarketProvider(fail_page=True))
+    assert partial["status"] == "partial"
+    assert partial["breadth"]["status"] == "failed"
+    assert partial["entries"][0]["status"] == "ready"
+    _, directory = Snapshots(tmp_path).get("market", partial["id"])
+    assert (directory / "breadth_error.json").exists()
+    assert not (directory / "breadth.parquet").exists()
 
 
 def test_stale_missing_and_fresh_quotes_never_become_orders(tmp_path):

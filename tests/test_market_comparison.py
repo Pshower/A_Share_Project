@@ -53,7 +53,7 @@ def test_default_source_and_legacy_retry_keep_original_provider(tmp_path):
     with TestClient(create_app(tmp_path, start_workers=False)) as client:
         headers = {"X-CSRF-Token": client.get("/api/session").json()["token"]}
         status = client.get("/api/market/status").json()
-        assert status["default_history_source"] == "sina" and status["quote_source"] == "eastmoney"
+        assert status["default_history_source"] == "sina" and status["quote_source"] == "sina"
         body = dict(codes=["000001"], start_date="2020-01-01", end_date="2020-01-03", bases=["hfq"], allow_network=True)
         assert OnlineHistory(**body).source == "sina"
         response = client.post("/api/market/downloads", json=body, headers=headers)

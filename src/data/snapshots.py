@@ -13,7 +13,7 @@ def utc_now():
 
 
 class Snapshots:
-    KINDS = {"history": "h", "quotes": "q", "plans": "p", "supplements": "s"}
+    KINDS = {"history": "h", "quotes": "q", "plans": "p", "supplements": "s", "market": "m"}
 
     def __init__(self, root=ROOT):
         self.root = Path(root).resolve()
