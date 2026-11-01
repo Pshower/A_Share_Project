@@ -234,6 +234,38 @@ def create_app(root=ROOT, start_workers=True):
             return dict(snapshot=record, judgment=judge_quotes(record, plan))
         return record
 
+    @app.get("/api/market/macro/{snapshot_id}/catalog")
+    def macro_catalog(snapshot_id: str):
+        record, directory = snapshots.get("macro", snapshot_id)
+        if "macro.parquet" not in record["files"]:
+            return []
+        frame = pd.read_parquet(inside(directory / "macro.parquet", directory))
+        if frame.empty:
+            return []
+        catalog = []
+        for series_id, group in frame.groupby("series_id", sort=True):
+            group = group.sort_values("period")
+            last = group.iloc[-1]
+            catalog.append(dict(series_id=str(series_id), metric=str(last["metric"]),
+                                unit=str(last["unit"]), frequency=str(last["frequency"]),
+                                source=str(last["source"]), rows=len(group),
+                                first_period=str(group["period"].iloc[0]),
+                                last_period=str(group["period"].iloc[-1]),
+                                last_value=float(last["value"]),
+                                last_available_from=str(last["available_from"])))
+        return catalog
+
+    @app.get("/api/market/macro/{snapshot_id}/series/{series_id}")
+    def macro_series(snapshot_id: str, series_id: str):
+        record, directory = snapshots.get("macro", snapshot_id, files=["macro.parquet"])
+        frame = pd.read_parquet(inside(directory / "macro.parquet", directory))
+        frame = frame[frame.series_id.eq(series_id)].sort_values("period")
+        if frame.empty:
+            raise ValueError("No saved macro rows for this series")
+        columns = ["period", "available_from", "value", "unit", "source", "frequency"]
+        return dict(snapshot_id=snapshot_id, series_id=series_id, rows=json.loads(
+            frame[columns].to_json(orient="records")))
+
     @app.get("/api/market/history/{snapshot_id}/bars")
     def history_bars(snapshot_id: str, code: str, basis: Literal["hfq", "unadjusted"] = "unadjusted"):
         record, directory = snapshots.get("history", snapshot_id, files=[f"{basis}/{code}.parquet"])

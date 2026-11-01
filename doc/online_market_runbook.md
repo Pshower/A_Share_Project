@@ -50,6 +50,21 @@ data/online/market/m_<id>/
   indices/<index_code>.csv、.parquet
   breadth.csv、breadth.parquet、breadth_summary.json
   manifest.json
+
+data/online/calendar/c_<id>/
+  calendar.csv、calendar.parquet、manifest.json
+
+data/online/fundamentals/f_<id>/
+  financials/<period>.csv、.parquet
+  forecasts/<period>.csv、.parquet
+  shareholders/<period>.csv、.parquet
+  financials.csv、forecasts.csv、shareholders.csv（合并）
+  manifest.json
+
+data/online/macro/e_<id>/
+  series/<name>.csv、.parquet
+  macro.csv、macro.parquet（长表）
+  manifest.json
 ```
 
 快照不可覆盖，保存文件哈希、供应商、请求范围、实际日期、单位、成功/失败记录。构建中目录以点开头，不作为有效快照展示。失败批次保持 `partial`，不能生成模型计划或训练版本；任务“完成”只代表采集任务结束，不代表全部数据成功。
@@ -112,6 +127,10 @@ python -B -m src.data.online --kind history --codes-file .workbench/sina_hfq_cod
 python -B -m src.data.online --kind quotes --codes 000001 --allow-network --source sina
 python -B -m src.data.online --kind quotes --codes 000001 --allow-network --source eastmoney
 python -B -m src.data.online --kind market --start 2017-01-01 --end 2026-10-30 --allow-network --source sina
+python -B -m src.data.pit --kind calendar --allow-network
+python -B -m src.data.pit --kind fundamentals --codes-file .workbench/sina_hfq_codes.txt --start 2017-01-01 --end 2026-10-31 --allow-network
+python -B -m src.data.macro --start 2017-01-01 --end 2026-10-31 --allow-network
+python -B -m src.data.macro --only pmi cpi lpr --start 2017-01-01 --end 2026-10-31 --allow-network
 ```
 
 默认离线测试不包含真实网络访问，并排除 1 项历史源码基线检查：
@@ -158,3 +177,58 @@ npm --prefix web run test:e2e
 - 新浪宽度接口只返回 `ticktime`，不返回交易日。快照的 `as_of_date` 取同一批指数日线的最大 `last_date`，并明确记录 `as_of_date_source`；不得把网页抓取日期当成宽度交易日。
 - 2026-11-01 实测快照 `m_0428acaa87a246dc`：6 个指数各 2,384 条，覆盖 2017-01-03 至 2026-10-30；宽度 5,576 只，其中有效 5,574、停牌 2、上涨 892、下跌 4,602、平盘 80，中位涨幅 -3.127%，总成交额约 1.687 万亿元。结果与同日指数下跌一致，但仍只是供应商快照，不是交易日历或官方市场统计。
 - 只读接口：`GET /api/market/snapshots/market` 列出快照，`GET /api/market/snapshots/market/{id}` 读取 manifest 和宽度汇总；不会因查看而重新联网。
+
+## 10. PIT 日历、财报与股东户数（2026-11-01）
+
+`src.data.pit` 采集三类可审计参考数据，独立于个股 HFQ/未复权行情和实时报价：
+
+- 交易日历：新浪 `tool_trade_date_hist_sina`，保存全部交易日，不推断交易状态。
+- 季度财报：东财 `stock_yjbb_em`，保留供应商全字段，并添加 `period`、`code`、`announcement_date`。
+- 业绩预告：东财 `stock_yjyg_em`，同一股票可有多个预测指标，按 `(code, 预测指标)` 去重并保留最新公告日。
+- 股东户数：东财 `stock_zh_a_gdhs`，季度全市场表，添加 `period`、`code`、`announcement_date`。
+
+PIT 规则：**只能使用公告日期，不能使用报告期末日期**；公告只有日期没有时分，因此应顺延到下一交易日使用。供应商返回的是抓取时点的最新修订值，原始历史版本未保存；不能把修订后的财务值无条件回填到更早公告日。
+
+本次实测：
+
+- 日历快照 `c_4e276f88d8ff4018`：8,797 个交易日，1990-12-19 至 2026-12-31，其中 44 个未来日期；`status=ready`。
+- 财报/预告/股东快照 `f_2f8ef1efe22c430a`：39 个季度（2017Q1–2026Q3）、300 只目标股票、`status=ready`、0 个错误。
+  - 财报 11,297 行、299 只股票，公告日期 2017-04-27 至 2026-10-31，公告日期缺失 0。
+  - 业绩预告 6,242 行、272 只股票，39 个季度均有数据；未发布预告的股票不会出现，不能当作缺失值填充。
+  - 股东户数 9,381 行、276 只股票，公告日期 2017-04-13 至 2026-10-31，公告日期缺失 0。
+- `601059` 在财报和股东户数供应商表中缺失；该股票本身仍因停牌阻断完整 300 股计划。缺口保留为缺失，不用旧值、0 或行业中位数填充。
+- 这些快照 `model_ready=false`，尚未合并成模型特征、训练或计划输入；使用前仍需做覆盖率、公告日对齐、缺失掩码和消融验证。
+
+只读接口：`GET /api/market/snapshots/calendar`、`/api/market/snapshots/calendar/{id}`、`/api/market/snapshots/fundamentals`、`/api/market/snapshots/fundamentals/{id}`。查看不会重新联网。
+
+## 11. 宏观数据（2026-11-01）
+
+`src.data.macro` 采集 15 组宏观表，保存为独立 `e_<id>` 快照；不进入个股行情、PIT 财报/股东或模型训练。
+
+- 季频：GDP 绝对值与同比。
+- 月频：PMI（制造业/非制造业）、CPI、PPI、M2/M1、新增人民币贷款、社融、工业增加值、进出口同比、社零、固定资产投资。
+- 日频金融条件：1Y/5Y LPR、中国 10Y 国债收益率、10Y-2Y 期限利差、美国 10Y 国债收益率、SHIBOR O/N/1W/3M、USD/CNY。
+- 因子/单位：百分比、指数点、亿元、CNY/USD。SAFE 的美元报价从“每 100 美元人民币”换算为 CNY/USD；宽表和长表都使用换算后的值。
+
+PIT 边界：供应商表通常只有统计期，没有正式发布时间。本版使用**统计期结束 + 保守固定滞后**生成 `available_from`，不是官方发布日历；不能把它当作精确发布时间。`available_from` 也可能是周末，进入模型前应与交易日历连接并顺延到下一交易日。供应商只保留抓取时点的最新修订值，历史 vintage 未保存。
+
+本次实测快照 `e_4a57a7761ede4c7a`：
+
+- `status=ready`，15 个原始序列、30 个指标、19,980 行长表。
+- 覆盖 2017-01-03 至 2026-10-31；`available_from` 最晚 2026-11-01。
+- 日频：10Y 国债 2,620 行、SHIBOR 2,394 行、USD/CNY 2,385 行、LPR 742 行。
+- 月频：PMI 118 行；CPI/PPI/M2/信贷/进出口 117 行；工业增加值/社零 107 行；固定资产投资 97 行。
+- 季频：GDP 39 行。
+- 社融数据供应商只到 2026-04-30，落后于其他月频序列；不能拿 2026-05 之后的值填补。
+- 快照 `model_ready=false`，尚未做发布日期审计、宏观因子降维或模型消融。
+
+长表字段：`period`、`available_from`、`value`、`series_id`、`metric`、`unit`、`frequency`、`source`、`api`。只读接口：`GET /api/market/snapshots/macro`、`/api/market/snapshots/macro/{id}`。
+
+Web 入口：**联网行情 → 宏观环境**（二级标签页）。页面只读取已保存快照，可选择快照和指标，展示最新值、统计期、保守可用日、来源、历史曲线和最近 12 期表格；打开页面不会联网，也不会创建任务。数据读取接口：
+
+```text
+GET /api/market/macro/{snapshot_id}/catalog
+GET /api/market/macro/{snapshot_id}/series/{series_id}
+```
+
+宏观页面不生成训练、计划或交易动作；`available_from` 和模型缺失/年龄掩码仍需在独立特征层处理。

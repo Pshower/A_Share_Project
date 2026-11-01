@@ -17,6 +17,7 @@ import MarketResearch from './MarketResearch'
 import { weightsFrom } from './researchWeights'
 import { freshQuote } from './quoteFreshness'
 import SupplementDownloads from './SupplementDownloads'
+import MacroPanel from './MacroPanel'
 
 type Row = Record<string, any>
 type Props = {
@@ -62,15 +63,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export default function MarketPage(p: Props) {
   const [tab, setTab] = useState(
-    p.initialKind === 'supplements'
-      ? 'supplements'
-      : p.initialKind === 'quotes'
-        ? 'quotes'
-        : p.initialKind === 'plans'
-          ? 'plan'
-          : p.initialKind === 'history'
-            ? 'history'
-            : 'research'
+    p.initialKind === 'macro'
+      ? 'macro'
+      : p.initialKind === 'supplements'
+        ? 'supplements'
+        : p.initialKind === 'quotes'
+          ? 'quotes'
+          : p.initialKind === 'plans'
+            ? 'plan'
+            : p.initialKind === 'history'
+              ? 'history'
+              : 'research'
   )
   const [status, setStatus] = useState<Row>({ today: '', min_poll_seconds: 60 })
   const [histories, setHistories] = useState<Row[]>([])
@@ -353,6 +356,7 @@ export default function MarketPage(p: Props) {
           ['plan', '最新日线计划'],
           ['quotes', '报价与监控'],
           ['supplements', '扩展数据'],
+          ['macro', '宏观环境'],
         ].map(([id, text]) => (
           <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>
             {text}
@@ -436,6 +440,7 @@ export default function MarketPage(p: Props) {
           openJob={p.openJob}
         />
       )}
+      {tab === 'macro' && <MacroPanel fail={p.fail} />}
       {tab === 'history' && (
         <>
           <div className="form-grid">

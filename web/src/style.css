@@ -345,6 +345,12 @@ main {
   border-bottom: 1px solid #e6ebe8;
   margin-bottom: 28px;
 }
+.macro-stats {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+.macro-panel .chart {
+  margin: 18px 0 22px;
+}
 .stat {
   padding: 0 22px;
   min-width: 0;
