@@ -129,3 +129,23 @@ def test_negative_control_rejects_capm_when_the_slope_is_planted_at_zero():
     result = capm.verdict(summary, dict(annual_return=0.1, sharpe_excess=0.5),
                           dict(annual_return=0.1, sharpe_excess=0.5))
     assert result["capm_rejected"] is True
+
+def test_equal_weight_rebalances_on_schedule_and_drifts_between():
+    index = pd.bdate_range("2020-01-01", periods=6)
+    returns = pd.DataFrame({"A": [0.0, 0.10, 0.0, 0.0, 0.0, 0.0],
+                            "B": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}, index=index)
+    series, turnover = capm.equal_weight_portfolio(returns, step=3)
+    assert series.iloc[1] == pytest.approx(0.05)  # half the book earned 10%
+    # The rebalance happens on the third session, where A has drifted above 1/2.
+    assert turnover.iloc[2] > 0
+    assert turnover.iloc[0] == 0.0 and turnover.iloc[1] == 0.0
+    assert turnover.sum() == pytest.approx(turnover.iloc[2])
+
+
+def test_net_of_costs_subtracts_the_round_trip_times_turnover():
+    index = pd.bdate_range("2020-01-01", periods=3)
+    returns = pd.Series([0.01, 0.01, 0.01], index=index)
+    turnover = pd.Series([0.0, 0.5, 0.0], index=index)
+    net = capm.net_of_costs(returns, turnover)
+    assert net.iloc[1] == pytest.approx(0.01 - 0.5 * 0.0031)
+    assert net.iloc[0] == pytest.approx(0.01)

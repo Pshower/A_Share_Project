@@ -122,6 +122,40 @@ def cross_section(betas, forward, market_forward, dates, rf_period):
     return rows
 
 
+def equal_weight_portfolio(returns, step=STEP):
+    """Equal weight rebalanced every ``step`` sessions, drifting in between.
+
+    A daily-rebalanced ``1/N`` is not the strategy anyone runs: it pays the full
+    round trip on every name every day.  Holding the same weights and resetting
+    them monthly is both cheaper and what the repository's own ``equal_weight``
+    baseline does, so that is the book the market portfolio has to beat.
+
+    Returns the daily return series and the turnover charged at each rebalance,
+    where turnover is half the summed absolute weight change.
+    """
+    values = returns.to_numpy(dtype=float)
+    n = values.shape[1]
+    weights = np.full(n, 1.0 / n)
+    out = np.zeros(len(values))
+    turnover = np.zeros(len(values))
+    for position in range(len(values)):
+        row = np.nan_to_num(values[position], nan=0.0)
+        out[position] = float(weights @ row)
+        grown = weights * (1.0 + row)
+        total = grown.sum()
+        weights = grown / total if total > 0 else np.full(n, 1.0 / n)
+        if (position + 1) % step == 0:
+            target = np.full(n, 1.0 / n)
+            turnover[position] = float(np.abs(target - weights).sum() / 2.0)
+            weights = target
+    return pd.Series(out, index=returns.index), pd.Series(turnover, index=returns.index)
+
+
+def net_of_costs(returns, turnover, round_trip=0.0031):
+    """Subtract the transaction cost implied by a turnover series."""
+    return returns - turnover * round_trip
+
+
 def performance(series, cash_rate=CASH_RATE, days=TRADING_DAYS):
     """Annualised return, volatility, drawdown and excess Sharpe of a return series."""
     clean = series.dropna()
@@ -211,14 +245,22 @@ def measure(panel_dir=DEFAULT_OUTPUT, *, start=SAMPLE_START, end=SAMPLE_END, cas
 
     window = returns.loc[(returns.index >= pd.Timestamp(start)) & (returns.index <= pd.Timestamp(end))]
     market_window = market.reindex(window.index)
-    equal = window.mean(axis=1)
+    equal, turnover = equal_weight_portfolio(window, STEP)
+    equal = equal.reindex(market_window.index)
+    turnover = turnover.reindex(market_window.index).fillna(0.0)
+    equal_net = net_of_costs(equal, turnover)
     market_perf = performance(market_window, cash_rate)
     equal_perf = performance(equal, cash_rate)
+    equal_net_perf = performance(equal_net, cash_rate)
     return dict(panel=dict(path=str(Path(panel_dir)), shape=manifest["shape"],
-                           codes=manifest["shape"][1], missing=len(manifest.get("codes_missing", []))),
+                           codes=manifest["shape"][1], missing=len(manifest.get("codes_missing", [])),
+                           capitalisation=manifest.get("capitalisation")),
                 start=start, end=end, step=STEP, window=WINDOW, deciles=DECILES,
-                summary=summary, performance=dict(market=market_perf, equal_weight=equal_perf),
-                verdict=verdict(summary, market_perf, equal_perf),
+                summary=summary,
+                performance=dict(market=market_perf, equal_weight=equal_perf,
+                                 equal_weight_net=equal_net_perf,
+                                 annual_turnover=float(turnover.sum() * TRADING_DAYS / len(turnover))),
+                verdict=verdict(summary, market_perf, equal_net_perf),
                 periods=[dict(date=str(row["date"].date()), gamma1=row["gamma1"],
                               market=row["market"], names=row["names"]) for row in rows])
 
@@ -253,15 +295,26 @@ def _markdown(payload):
             key, summary["decile_beta"][key], summary["decile_excess"][key], summary["decile_alpha"][key]))
     lines += ["", f"α 极差 D10−D1：**{summary['alpha_spread']:+.4f}**（每 {payload['step']} 日）。", "",
               "## T3 市场组合 vs 1/N", "",
+              "市值加权组合是**买入并持有**：价格变动按比例改变权重，不需要再平衡，因此几乎没有成本。"
+              "1/N 每 20 日回到等权，按 31bp 往返扣费。", "",
               "| 组合 | 年化收益 | 年化波动 | 最大回撤 | 超额 Sharpe | 累计 |",
               "| --- | ---: | ---: | ---: | ---: | ---: |"]
-    for name, block in (("市值加权 M", perf["market"]), ("1/N 等权", perf["equal_weight"])):
+    for name, block in (("市值加权 M（买入持有）", perf["market"]),
+                        ("1/N 月频（毛）", perf["equal_weight"]),
+                        ("1/N 月频（净）", perf.get("equal_weight_net", {}))):
         lines.append("| {} | {} | {} | {} | {} | {} |".format(
             name, _fmt(block.get("annual_return"), "+.2%"), _fmt(block.get("annual_vol"), ".2%"),
             _fmt(block.get("max_drawdown"), ".2%"), _fmt(block.get("sharpe_excess"), "+.3f"),
             _fmt(block.get("cumulative"), "+.2%")))
-    lines.append("")
+    lines += ["", f"1/N 的年化换手：**{_fmt(perf.get('annual_turnover'), '.2f')} 倍**，"
+                  f"按 31bp 往返计成年化成本 {_fmt(_cost_drag(perf), '.2%')}。", ""]
     return "\n".join(lines)
+
+
+def _cost_drag(perf):
+    """Annual cost implied by the equal-weight turnover at a 31bp round trip."""
+    turnover = perf.get("annual_turnover")
+    return None if turnover is None else turnover * 0.0031
 
 
 def main(argv=None):
