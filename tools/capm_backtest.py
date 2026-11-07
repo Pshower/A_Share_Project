@@ -1,4 +1,4 @@
-﻿"""CAPM tests on the full-market panel: market portfolio, beta pricing, and 1/N.
+"""CAPM tests on the full-market panel: market portfolio, beta pricing, and 1/N.
 
 Three questions, in the order the protocol registers them:
 
@@ -453,10 +453,12 @@ def summarize(rows, names):
     decile_alpha = {key: float(np.mean([row["deciles"][key] - decile_betas[key] * row["market"] for row in rows]))
                     for key in range(1, DECILES + 1)}
     se = gamma1.std(ddof=1) / math.sqrt(len(gamma1)) if len(gamma1) > 1 else float("nan")
+    zero_band = gamma0.std(ddof=1) / math.sqrt(len(gamma0)) if len(gamma0) > 1 else float("nan")
     return dict(status="ready", periods=len(rows),
                 gamma1_mean=float(gamma1.mean()), gamma1_se=float(se),
                 gamma1_t=float(gamma1.mean() / se) if se and se > 0 else float("nan"),
                 gamma0_mean=float(gamma0.mean()),
+                gamma0_t=float(gamma0.mean() / zero_band) if zero_band and zero_band > 0 else float("nan"),
                 market_excess_mean=float(market.mean()),
                 slope_gap=float(gamma1.mean() - market.mean()),
                 slope_gap_t=float((gamma1.mean() - market.mean()) / se) if se and se > 0 else float("nan"),
@@ -488,6 +490,9 @@ def verdict(summary, market_perf, equal_perf):
     else:
         reading, rejected = "slope significantly ABOVE the market premium", False
     return dict(status="ready", slope_reading=reading, capm_rejected=rejected,
+                zero_beta_anomaly=bool(summary["gamma0_t"] >= 2.0) if summary.get("gamma0_t") is not None
+                and math.isfinite(summary["gamma0_t"]) else None,
+                zero_beta_t=summary.get("gamma0_t"),
                 low_vol_anomaly=bool(summary["alpha_spread"] < 0),
                 market_vs_equal=float(market_perf.get("annual_return", float("nan"))
                                       - equal_perf.get("annual_return", float("nan"))),
@@ -583,7 +588,7 @@ def _markdown(payload):
               f"| γ1 的 t | {summary['gamma1_t']:+.2f} |",
               f"| 同期市场区间超额 | {summary['market_excess_mean']:+.4f} |",
               f"| γ1 − 市场超额 | {summary['slope_gap']:+.4f}（t {summary['slope_gap_t']:+.2f}） |",
-              f"| 截距 γ0 | {summary['gamma0_mean']:+.4f} |", "",
+              f"| 截距 γ0 | {summary['gamma0_mean']:+.4f}（t {_fmt(summary.get('gamma0_t'), '+.2f')}） |", "",
               "| 十分位 | 平均 β | 平均超额 | α（对市场） |", "| ---: | ---: | ---: | ---: |"]
     for key in range(1, DECILES + 1):
         lines.append("| D{} | {:.3f} | {:+.4f} | {:+.4f} |".format(

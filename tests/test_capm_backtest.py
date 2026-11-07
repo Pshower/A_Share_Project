@@ -243,3 +243,23 @@ def test_subperiods_report_both_halves_on_a_synthetic_panel(tmp_path):
 
 def test_subperiod_markdown_is_empty_without_rows():
     assert capm._subperiod_markdown([]) == ""
+
+def test_zero_beta_intercept_is_zero_when_returns_are_only_beta_times_the_market():
+    beta, forward, market, index = _synthetic(slope=1.0, seed=51)
+    rows = capm.cross_section(beta, forward, market, list(index), 0.0)
+    summary = capm.summarize(rows, beta.shape[1])
+    assert abs(summary["gamma0_mean"]) < 0.01
+    assert abs(summary["gamma0_t"]) < 3.0
+    assert capm.verdict(summary, dict(annual_return=0.1, sharpe_excess=0.5),
+                        dict(annual_return=0.1, sharpe_excess=0.5))["zero_beta_anomaly"] is False
+
+
+def test_zero_beta_intercept_is_detected_when_every_name_carries_the_same_alpha():
+    beta, forward, market, index = _synthetic(slope=1.0, seed=52)
+    forward = forward + 0.02  # 2% per 20-day period on every name
+    rows = capm.cross_section(beta, forward, market, list(index), 0.0)
+    summary = capm.summarize(rows, beta.shape[1])
+    assert summary["gamma0_mean"] == pytest.approx(0.02, abs=0.002)
+    assert summary["gamma0_t"] > 3.0
+    assert capm.verdict(summary, dict(annual_return=0.1, sharpe_excess=0.5),
+                        dict(annual_return=0.1, sharpe_excess=0.5))["zero_beta_anomaly"] is True
