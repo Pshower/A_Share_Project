@@ -1,4 +1,4 @@
-"""Download the whole A-share universe, largest float cap first, resumably.
+﻿"""Download the whole A-share universe, largest float cap first, resumably.
 
 The CAPM test needs two things this repository does not have: a market portfolio
 that is not the 300 largest listings, and a cross-section wide enough to estimate
@@ -58,7 +58,13 @@ def save_progress(progress, path=PROGRESS):
 
 
 def plan(codes, progress, chunk_size=CHUNK):
-    """Chunks that still need a snapshot, as ``(index, codes)`` pairs."""
+    """Chunks that still need a snapshot, as ``(index, codes)`` pairs.
+
+    Only a chunk whose every code-basis pair arrived counts as done.  A chunk that
+    finished with failures is re-planned: recording it as complete would silently lock
+    the missing names out of the universe for good, which is exactly what happened to
+    one chunk that hit a rate limit.
+    """
     done = {int(index) for index, row in progress.get("chunks", {}).items()
             if row.get("status") == "ready"}
     pending = []
@@ -67,6 +73,60 @@ def plan(codes, progress, chunk_size=CHUNK):
             continue
         pending.append((index, codes[offset:offset + chunk_size]))
     return pending
+
+
+PERMANENT_ERRORS = ("History is empty", "404 Client Error", "Invalid OHLC")
+
+
+def classify_failures(snapshot_directory):
+    """Split a snapshot's failures into permanent gaps and transient ones.
+
+    "History is empty" means the provider has no bars for that code in the range (a
+    listing that post-dates the window), "404" means it does not serve the code, and
+    "Invalid OHLC" means the bars failed validation.  None of those improve on a
+    retry.  A circuit-breaker or time-limit message does, and that is the whole reason
+    this distinction exists: one chunk lost 169 pairs to a rate limit while fifteen
+    others simply carry codes that never had data.
+    """
+    path = Path(snapshot_directory) / "manifest.json"
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    permanent = transient = 0
+    for entry in payload.get("entries", []):
+        if entry.get("status") == "ready":
+            continue
+        text = str(entry.get("error"))
+        if any(marker in text for marker in PERMANENT_ERRORS):
+            permanent += 1
+        else:
+            transient += 1
+    return dict(permanent=permanent, transient=transient)
+
+
+def repair(progress, codes, chunk_size=CHUNK, history_root=None):
+    """Reopen chunks whose failures look transient, and count them.
+
+    A chunk that only carries codes the provider never had is finished work and must
+    stay closed; reopening it would spend hours re-confirming known gaps.
+    """
+    changed = 0
+    for index, offset in enumerate(range(0, len(codes), chunk_size)):
+        key = str(index)
+        row = progress.get("chunks", {}).get(key)
+        if not row or row.get("status") == "partial":
+            continue
+        expected = len(codes[offset:offset + chunk_size]) * len(BASES)
+        if row.get("ready", 0) >= expected:
+            continue
+        detail = None
+        if history_root and row.get("snapshot"):
+            detail = classify_failures(Path(history_root) / row["snapshot"])
+        if detail is None or detail["transient"] > 0:
+            row["status"] = "partial"
+            row["failure_detail"] = detail
+            changed += 1
+    return changed
 
 
 def run(*, limit=None, chunk_size=CHUNK, universe=UNIVERSE, progress_path=PROGRESS,
@@ -91,14 +151,18 @@ def run(*, limit=None, chunk_size=CHUNK, universe=UNIVERSE, progress_path=PROGRE
         if limit is not None and done_now >= limit:
             break
         started = time.time()
+        existing = progress.get("chunks", {}).get(str(index)) or {}
+        resume = existing.get("snapshot") if existing.get("status") == "partial" else None
         try:
             result = download_history(group, start, end, BASES, allow_network=True,
-                                      root=PROJECT_ROOT, source=SOURCE)
+                                      root=PROJECT_ROOT, source=SOURCE, resume_id=resume)
             ready = sum(1 for row in result["entries"] if row["status"] == "ready")
-            entry = dict(status="ready", snapshot=result.get("id") or result.get("snapshot_id"),
-                         codes=len(group), ready=ready, failed=len(group) * len(BASES) - ready,
+            expected = len(group) * len(BASES)
+            entry = dict(status="ready" if ready == expected else "partial",
+                         snapshot=result.get("id") or result.get("snapshot_id"),
+                         codes=len(group), ready=ready, failed=expected - ready,
                          seconds=round(time.time() - started, 1),
-                         first=group[0], last=group[-1])
+                         first=group[0], last=group[-1], resumed=bool(resume))
         except Exception as error:  # noqa: BLE001 - the chunk record is the durable evidence
             entry = dict(status="failed", error=str(error)[:400], codes=len(group),
                          seconds=round(time.time() - started, 1), first=group[0], last=group[-1])
@@ -120,8 +184,20 @@ def main(argv=None):
     parser.add_argument("--limit", type=int, default=None, help="Stop after this many chunks.")
     parser.add_argument("--chunk", type=int, default=CHUNK)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--repair", action="store_true",
+                        help="Mark every chunk with missing pairs as pending, then continue.")
     parser.add_argument("--allow-network", action="store_true")
     args = parser.parse_args(argv)
+    if args.repair:
+        codes = load_universe()
+        progress = load_progress()
+        changed = repair(progress, codes, args.chunk,
+                         history_root=PROJECT_ROOT / "data" / "online" / "history")
+        if args.dry_run:
+            print("would repair %d chunk(s)" % changed, flush=True)
+        else:
+            save_progress(progress)
+            print("repaired %d chunk(s)" % changed, flush=True)
     run(limit=args.limit, chunk_size=args.chunk, dry_run=args.dry_run,
         allow_network=args.allow_network or args.dry_run)
     return 0

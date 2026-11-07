@@ -69,3 +69,41 @@ def test_load_progress_starts_from_the_declared_range(tmp_path):
 def test_run_refuses_the_network_without_consent(tmp_path):
     with pytest.raises(ValueError):
         dl.run(universe=tmp_path / "u.json", progress_path=tmp_path / "p.json", allow_network=False)
+
+def test_plan_revisits_a_chunk_that_finished_with_failures():
+    codes = [f"{index:06d}" for index in range(6)]
+    progress = dict(start=dl.START, end=dl.END,
+                    chunks={"0": dict(status="partial", ready=2, failed=4)})
+    assert [index for index, _ in dl.plan(codes, progress, chunk_size=3)] == [0, 1]
+
+
+def test_repair_flips_incomplete_chunks_and_leaves_complete_ones():
+    codes = [f"{index:06d}" for index in range(6)]
+    progress = dict(chunks={"0": dict(status="ready", ready=6, failed=0),
+                            "1": dict(status="ready", ready=2, failed=4)})
+    assert dl.repair(progress, codes, chunk_size=3) == 1
+    assert progress["chunks"]["0"]["status"] == "ready"
+    assert progress["chunks"]["1"]["status"] == "partial"
+
+def test_classify_failures_separates_a_rate_limit_from_a_missing_listing(tmp_path):
+    snapshot = tmp_path / "h_test"
+    snapshot.mkdir()
+    (snapshot / "manifest.json").write_text(json.dumps(dict(entries=[
+        dict(code="1", status="ready"),
+        dict(code="2", status="failed", error="History is empty or missing required fields"),
+        dict(code="3", status="failed", error="404 Client Error: Not Found"),
+        dict(code="4", status="failed", error="Batch circuit/time limit reached")])), encoding="utf-8")
+    detail = dl.classify_failures(snapshot)
+    assert detail == {"permanent": 2, "transient": 1}
+
+
+def test_repair_leaves_a_chunk_closed_when_every_failure_is_permanent(tmp_path):
+    snapshot = tmp_path / "history" / "h_one"
+    snapshot.mkdir(parents=True)
+    (snapshot / "manifest.json").write_text(json.dumps(dict(entries=[
+        dict(code="1", status="failed", error="History is empty or missing required fields")])),
+        encoding="utf-8")
+    codes = ["000001"]
+    progress = dict(chunks={"0": dict(status="ready", ready=0, failed=2, snapshot="h_one")})
+    assert dl.repair(progress, codes, chunk_size=1, history_root=tmp_path / "history") == 0
+    assert progress["chunks"]["0"]["status"] == "ready"
