@@ -22,34 +22,51 @@
 | `*_audit.json` / `independent_*.json` / `manifest.json` / `*seal.py` | 冷审计、封存与 CRC | **不可重建** |
 | `metrics.csv` / `model_index.csv` / `comparison.png` | 汇总表与图 | 由本轮小文件重算 |
 | `runs/<config>/` | 每个配置一次训练 | 需重训同一 seed 与预算 |
-| `runs/<config>/training_trace/` | 逐更新 `steps_*.npz`；`orders.jsonl.gz` | 需重训（GPU 小时） |
-| `runs/<config>/{initial,long,short}_model/` | 保存的 torch 权重 | 需重训 |
+| `runs/<config>/training_trace/index.json` | 轨迹清单：contract 哈希、300 只代码、逐 chunk sha256 | 需重训 |
+| `runs/<config>/training_trace/steps_*.npz` | 每 512 步一块，**67 个数组 × (步数 × 300 只)**：观测、原始与映射后动作、开/收盘账户状态、逐只成交结果、`reward`、`value`、`log_prob` | 需重训 |
+| `runs/<config>/training_trace/orders.jsonl.gz` | 每步一行的**可读**下单记录：side、目标权重、申报/成交股数、价、费、滑点、状态、拒因 | 需重训 |
+| `runs/<config>/{initial,long,short,pilot}_model/` | 保存的 torch 权重 | 需重训 |
 | `runs/<config>/events/`、`logs/` | 事件流与日志 | 需重跑 |
 
-**判据是：名字里带 `report`/`summary`/`audit`/`protocol`/`manifest`/`seal`/`crc` 的是证据，
-名字里带 `training_trace`/`_model`/`events`/`logs` 的是中间产物。**
+**判据是：能被直接读的是证据，只能被矩阵运算消费的是中间产物。**
+名字里带 `report`/`summary`/`audit`/`protocol`/`manifest`/`seal`/`crc` 的属于前者；
+`steps_*.npz`、`*_model/`、`events/`、`logs/` 属于后者。
+`orders.jsonl.gz` 与 `index.json` 名字里带 `training_trace`，但属于前者。
 
 ## 2. 三层保留策略
 
 | 层 | 内容 | 处置 |
 | --- | --- | --- |
-| **T1 证据** | 上表所有 json/csv/md/png 汇总、审计、封存与协议 | **永久保留**。文档中的结论靠它复核 |
-| **T2 中间产物** | `training_trace/`、`*_model/`、`events/`、`logs/` | 可由同配置重训重建；方向关闭时可清理 |
+| **T1 证据** | 上表所有 json/csv/md/png 汇总、审计、封存与协议，以及 `training_trace/index.json` 与 `orders.jsonl.gz` | **永久保留**。文档中的结论靠它复核 |
+| **T2 稠密中间产物** | `training_trace/steps_*.npz`、`*_model/` 权重 | 可由同配置重训重建；方向关闭时可清理 |
 | **T3 现役** | 2026-11 之后的全部 study（合计 < 200 MB） | 全留，含中间产物 |
+
+`index.json` 与 `orders.jsonl.gz` 放在 T1 而不放 T2，是因为它们**不是稠密数组**：
+一个是清单，一个是每步一行、可以直接读的下单流水（成交股数、价、费、滑点、拒因）。
+真正占空间的 `steps_*.npz` 是"每一步 × 每一只 × 67 个字段"的观测/动作矩阵——它有审计价值，
+但没有阅读价值。
 
 ### 当前占用（2026-11-07 实测）
 
 | 分类 | 文件 | 大小 | 占总量 |
 | --- | ---: | ---: | ---: |
 | 全部 | 39,281 | **28.7 GB** | 100% |
-| 训练轨迹与权重（T2） | 5,570 | 21.6 GB | 75% |
-| 其余（T1 + 面板与切片） | 33,711 | 7.1 GB | 25% |
+| 逐更新快照 `steps_*.npz` | 4,412 | 16.0 GB | 56% |
+| 模型权重 `*_model/` | 816 | 2.5 GB | 9% |
+| 交易流水 `orders.jsonl.gz` | 182 | 3.1 GB | 11% |
+| 清单 `index.json` | 182 | 2.8 MB | ~0% |
+| 其余（报告、审计、面板、rollout 缓冲） | 33,689 | 7.1 GB | 25% |
 | 其中报告与表格类证据（T1） | 19,171 | 1.57 GB | 5% |
 
 ```text
-training_trace/          4,776 个文件   19.1 GB   （.npz 逐更新快照 + orders.jsonl.gz）
-{initial,long,short}_model/  794 个文件   2.5 GB   （.zip torch 权重）
+steps_*.npz       4,412 个文件  16.0 GB   ← 87% 的 T2 体积
+*_model/            816 个文件   2.5 GB
+orders.jsonl.gz     182 个文件   3.1 GB   ← 可读，保留
 ```
+
+单个配置的量级：`ppo_priority_rank_20261011_16k/runs/2024_decoupled_ppo_42` 的
+`training_trace/` 是 32 个 `steps_*.npz`（约 5.5 MB/块）+ 1 个 50.7 MB 的
+`orders.jsonl.gz` + `index.json`，合计约 227 MB；其中可读的下单流水占 22%。
 
 ### 一个必须写下来的例外
 
@@ -61,7 +78,8 @@ training_trace/          4,776 个文件   19.1 GB   （.npz 逐更新快照 + o
 
 ## 3. 完整目录表
 
-按大小降序。"轨迹/权重" 列是 T2 层在该目录内的大小；完全不重训即可读的部分 = 前一列减此列。
+按大小降序。"轨迹/权重" 列是 `training_trace/` 与 `*_model/` 在该目录内的大小，
+**其中约 16% 是可读的 `orders.jsonl.gz`**（属 T1）；把这一列减去 orders 才是该目录可清理的快照量。
 
 | 目录 | 文件 | MB | 其中轨迹/权重 MB | 最后写入 |
 | --- | ---: | ---: | ---: | --- |
@@ -130,34 +148,38 @@ training_trace/          4,776 个文件   19.1 GB   （.npz 逐更新快照 + o
 
 ## 4. 清理 T2（本次**未执行**）
 
-先只列出目标，核对总量再动手：
+只删 `steps_*.npz` 与模型权重，保留 `index.json` 和 `orders.jsonl.gz`。先只列出目标：
 
 ```powershell
-$targets = Get-ChildItem reports/runs -Recurse -Directory |
-  Where-Object { $_.Name -in 'training_trace','initial_model','long_model','short_model' }
+$snapshots = Get-ChildItem reports/runs -Recurse -File -Filter 'steps_*.npz'
+$models = Get-ChildItem reports/runs -Recurse -Directory |
+  Where-Object { $_.Name -in 'initial_model','long_model','short_model','pilot_model' }
 
-$targets | ForEach-Object {
-  $mb = ((Get-ChildItem -Recurse -File $_.FullName | Measure-Object Length -Sum).Sum) / 1MB
-  '{0,10:N1} MB  {1}' -f $mb, $_.FullName
-}
-($targets | ForEach-Object { (Get-ChildItem -Recurse -File $_.FullName | Measure-Object Length -Sum).Sum } |
-  Measure-Object -Sum).Sum / 1GB
+'快照 {0:N1} GB / {1} 个文件' -f ((($snapshots | Measure-Object Length -Sum).Sum) / 1e9), $snapshots.Count
+'权重 {0:N1} GB / {1} 个文件' -f ((($models | ForEach-Object { (Get-ChildItem -Recurse -File $_.FullName | Measure-Object Length -Sum).Sum } |
+  Measure-Object -Sum).Sum / 1e9), $models.Count
 ```
 
-确认后逐个删除（`-WhatIf` 先跑一遍）：
+确认后逐个删除（先跑 `-WhatIf` 看一遍）：
 
 ```powershell
-$targets | Remove-Item -Recurse -Force -WhatIf
+$snapshots | Remove-Item -WhatIf
+$models | Remove-Item -Recurse -WhatIf
 ```
 
-预期释放约 **21.6 GB**，保留 7.1 GB，其中报告与表格类证据 1.57 GB 全在。
-`ppo_priority_rank_20261011_16k` 与 `ppo_counterfactual_learning_20261017` 若要做冷审计复核，
-应先从其 CRC 清单决定保留哪几个配置的轨迹，而不是整目录删除。
+预期释放 **18.5 GB**（16.0 GB 快照 + 2.5 GB 权重），保留 10.2 GB，其中可读交易流水 3.1 GB、
+报告与表格类证据 1.57 GB 全在。
+
+代价必须写清楚：`verify_trace_prefix` / `verify_priority_trace` 之类的冷审计是**对 chunk 的
+sha256** 比对，快照删掉后这些审计无法重跑（审计结论仍在 `*_audit.json` 里，但它证明的对象没了）。
+`ppo_priority_rank_20261011_16k`、`ppo_counterfactual_learning_20261017` 与
+`ppo_delta_actor_20261004` 的 `sealed_inputs.json` 属于这一类，应逐轮决定是否整体保留。
 
 ## 5. 硬规则
 
 - **不删 T1**：`*.md`、`report*.json`、`summary*.json`、`*audit*.json`、`*seal*`、
-  `manifest.json`、`*crc*.json`、`metrics.csv`、`model_index.csv`、`*.png`。它们是文档结论的凭据。
+  `manifest.json`、`*crc*.json`、`metrics.csv`、`model_index.csv`、`*.png`，
+  以及 `training_trace/index.json` 与 `orders.jsonl.gz`。它们是文档结论的凭据。
 - 清理只针对 T2，且**逐轮决定**，不按目录名批量套用。
 - 新的一项研究落盘后，若总体积变化超过 1 GB，更新本文件第 2 节的占用表。
 - 本文件随 Git 分发；`reports/runs/` 不随 Git 分发。
