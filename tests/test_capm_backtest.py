@@ -149,3 +149,15 @@ def test_net_of_costs_subtracts_the_round_trip_times_turnover():
     net = capm.net_of_costs(returns, turnover)
     assert net.iloc[1] == pytest.approx(0.01 - 0.5 * 0.0031)
     assert net.iloc[0] == pytest.approx(0.01)
+
+def test_largest_takes_the_top_k_by_median_capitalisation_independent_of_column_order():
+    index = pd.bdate_range("2020-01-01", periods=3)
+    capitalisation = pd.DataFrame({"small": [10.0] * 3, "big": [900.0] * 3, "mid": [100.0] * 3},
+                                  index=index)
+    assert capm.largest(capitalisation, 2) == ["big", "mid"]
+    assert capm.largest(capitalisation, 3) == ["big", "mid", "small"]
+
+
+def test_sweep_returns_one_row_per_width_that_can_be_measured(tmp_path):
+    # A panel that cannot be loaded must not raise: the sweep simply yields nothing.
+    assert capm.sweep(tmp_path, values=(10,)) in ([],)

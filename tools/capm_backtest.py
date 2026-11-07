@@ -1,4 +1,4 @@
-"""CAPM tests on the full-market panel: market portfolio, beta pricing, and 1/N.
+﻿"""CAPM tests on the full-market panel: market portfolio, beta pricing, and 1/N.
 
 Three questions, in the order the protocol registers them:
 
@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 
 from src.data.preprocess import write_json
+from tools.exposure_metrics import SNAPSHOT, load_index
 from tools.full_market_panel import DEFAULT_OUTPUT, load
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -156,6 +157,87 @@ def net_of_costs(returns, turnover, round_trip=0.0031):
     return returns - turnover * round_trip
 
 
+def index_returns(code="000300", start=None, end=None):
+    """Daily returns of a published index, used to sanity-check the construction."""
+    bars = load_index(SNAPSHOT, code)
+    nav = bars.set_index("date")["close"].sort_index()
+    if start is not None:
+        nav = nav.loc[nav.index >= pd.Timestamp(start)]
+    if end is not None:
+        nav = nav.loc[nav.index <= pd.Timestamp(end)]
+    return nav.pct_change().dropna()
+
+
+def compare_to_index(market, code="000300", start=None, end=None):
+    """How closely the constructed market portfolio tracks the published index.
+
+    This is a construction check, not a result.  A cap-weighted portfolio built from
+    the traded price times free float should not diverge wildly from ``000300`` at
+    high coverage; if it does, the weights or the price basis are wrong and every
+    later number is void.
+    """
+    index = index_returns(code, start, end)
+    joined = pd.concat([market.rename("market"), index.rename("index")], axis=1, join="inner").dropna()
+    if len(joined) < 30:
+        return dict(status="insufficient")
+    difference = joined["market"] - joined["index"]
+    beta = float(np.polyfit(joined["index"], joined["market"], 1)[0])
+    return dict(status="ready", code=code, observations=int(len(joined)),
+                correlation=float(joined["market"].corr(joined["index"])),
+                beta_to_index=beta,
+                tracking_error=float(difference.std(ddof=1) * math.sqrt(TRADING_DAYS)),
+                annual_market=float((1 + joined["market"]).prod() ** (TRADING_DAYS / len(joined)) - 1),
+                annual_index=float((1 + joined["index"]).prod() ** (TRADING_DAYS / len(joined)) - 1))
+
+
+def largest(capitalisation, top_k):
+    """The ``top_k`` codes by median capitalisation, whatever order the panel uses."""
+    order = capitalisation.median().sort_values(ascending=False).index
+    return list(order[:top_k])
+
+
+def sweep(panel_dir=DEFAULT_OUTPUT, values=(50, 100, 200, 400, 800, 1600, 3200, None),
+          *, start=SAMPLE_START, end=SAMPLE_END):
+    """Run the same test at several universe widths.
+
+    Coverage and breadth are separate things and both decide the answer, so the
+    width is swept rather than assumed.  ``None`` means the whole panel.
+    """
+    rows = []
+    for top_k in values:
+        try:
+            payload = measure(panel_dir, start=start, end=end, top_k=top_k)
+        except (ValueError, FileNotFoundError, KeyError):
+            continue
+        summary, performance = payload["summary"], payload["performance"]
+        if summary.get("status") != "ready":
+            continue
+        index = performance.get("index_comparison") or {}
+        rows.append(dict(top_k=top_k, names=int(summary["mean_names"]),
+                         gamma1=summary["gamma1_mean"], gamma1_t=summary["gamma1_t"],
+                         gap_t=summary["slope_gap_t"],
+                         market_annual=performance["market"].get("annual_return"),
+                         equal_annual=performance["equal_weight"].get("annual_return"),
+                         equal_net_annual=performance["equal_weight_net"].get("annual_return"),
+                         correlation_to_index=index.get("correlation")))
+    return rows
+
+
+def _sweep_markdown(rows, code):
+    lines = ["# 覆盖率与宽度的敏感性", "",
+             f"同一面板按市值取前 K 只，其余口径不变。因子 {code}。", "",
+             "| 前 K 只 | 平均股票数 | γ1 | γ1 的 t | γ1−市场（t） | 市场组合年化 | 1/N 净年化 | 与指数相关 |",
+             "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    for row in rows:
+        label = "全部" if row["top_k"] is None else str(row["top_k"])
+        lines.append("| {} | {} | {:+.4f} | {:+.2f} | {:+.2f} | {} | {} | {} |".format(
+            label, row["names"], row["gamma1"], row["gamma1_t"], row["gap_t"],
+            _fmt(row["market_annual"], "+.2%"), _fmt(row["equal_net_annual"], "+.2%"),
+            _fmt(row["correlation_to_index"], ".3f")))
+    lines.append("")
+    return "\n".join(lines)
+
+
 def performance(series, cash_rate=CASH_RATE, days=TRADING_DAYS):
     """Annualised return, volatility, drawdown and excess Sharpe of a return series."""
     clean = series.dropna()
@@ -228,9 +310,18 @@ def verdict(summary, market_perf, equal_perf):
                 equal_sharpe=equal_perf.get("sharpe_excess"))
 
 
-def measure(panel_dir=DEFAULT_OUTPUT, *, start=SAMPLE_START, end=SAMPLE_END, cash_rate=CASH_RATE):
-    """Run T1, T2 and T3 on a built panel."""
+def measure(panel_dir=DEFAULT_OUTPUT, *, start=SAMPLE_START, end=SAMPLE_END, cash_rate=CASH_RATE,
+            top_k=None):
+    """Run T1, T2 and T3 on a built panel.
+
+    ``top_k`` keeps only the largest names by median capitalisation, which is how the
+    coverage sweep checks whether the answer depends on how much of the market the
+    panel actually contains.
+    """
     manifest, prices, traded, shares = load(panel_dir)
+    if top_k is not None:
+        keep = largest(traded * shares, top_k)
+        prices, traded, shares = prices[keep], traded[keep], shares[keep]
     market, weights, capitalisation = market_portfolio(prices, traded, shares, cash_rate)
     market = market.dropna()
     returns = daily_frame(prices)
@@ -259,7 +350,8 @@ def measure(panel_dir=DEFAULT_OUTPUT, *, start=SAMPLE_START, end=SAMPLE_END, cas
                 summary=summary,
                 performance=dict(market=market_perf, equal_weight=equal_perf,
                                  equal_weight_net=equal_net_perf,
-                                 annual_turnover=float(turnover.sum() * TRADING_DAYS / len(turnover))),
+                                 annual_turnover=float(turnover.sum() * TRADING_DAYS / len(turnover)),
+                                 index_comparison=compare_to_index(market_window, start=start, end=end)),
                 verdict=verdict(summary, market_perf, equal_net_perf),
                 periods=[dict(date=str(row["date"].date()), gamma1=row["gamma1"],
                               market=row["market"], names=row["names"]) for row in rows])
@@ -323,6 +415,8 @@ def main(argv=None):
     parser.add_argument("--start", default=SAMPLE_START)
     parser.add_argument("--end", default=SAMPLE_END)
     parser.add_argument("--output", default=None)
+    parser.add_argument("--sweep", action="store_true",
+                        help="Also sweep the universe width and write the sensitivity table.")
     args = parser.parse_args(argv)
 
     payload = measure(args.panel, start=args.start, end=args.end)
@@ -331,6 +425,11 @@ def main(argv=None):
     write_json(target / "capm_full_market.json", payload["summary"] | {"verdict": payload["verdict"],
                                                                       "performance": payload["performance"]})
     (target / "capm_full_market.md").write_text(_markdown(payload), encoding="utf-8")
+    if args.sweep:
+        rows = sweep(args.panel, start=args.start, end=args.end)
+        write_json(target / "capm_sweep.json", dict(rows=rows))
+        (target / "capm_sweep.md").write_text(_sweep_markdown(rows, "000300"), encoding="utf-8")
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
     print(json.dumps(payload["verdict"], ensure_ascii=False, indent=2))
     return 0
 
