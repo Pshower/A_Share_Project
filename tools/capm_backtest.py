@@ -1,4 +1,4 @@
-﻿"""CAPM tests on the full-market panel: market portfolio, beta pricing, and 1/N.
+"""CAPM tests on the full-market panel: market portfolio, beta pricing, and 1/N.
 
 Three questions, in the order the protocol registers them:
 
@@ -157,37 +157,77 @@ def net_of_costs(returns, turnover, round_trip=0.0031):
     return returns - turnover * round_trip
 
 
-def index_returns(code="000300", start=None, end=None):
-    """Daily returns of a published index, used to sanity-check the construction."""
-    bars = load_index(SNAPSHOT, code)
-    nav = bars.set_index("date")["close"].sort_index()
-    if start is not None:
-        nav = nav.loc[nav.index >= pd.Timestamp(start)]
-    if end is not None:
-        nav = nav.loc[nav.index <= pd.Timestamp(end)]
-    return nav.pct_change().dropna()
+MARKET_ROOT = PROJECT_ROOT / "data" / "online" / "market"
+BENCHMARKS = ("000300", "399317")
 
 
-def compare_to_index(market, code="000300", start=None, end=None):
-    """How closely the constructed market portfolio tracks the published index.
+def _market_snapshot_returns(code, start=None, end=None, root=MARKET_ROOT):
+    """Newest captured market snapshot that carries ``code``, as daily returns.
 
-    This is a construction check, not a result.  A cap-weighted portfolio built from
-    the traded price times free float should not diverge wildly from ``000300`` at
-    high coverage; if it does, the weights or the price basis are wrong and every
-    later number is void.
+    ``399317`` (国证A指) is the point of this path: it is a cap-weighted all-A-share
+    index, so it is a survivorship-free counterpart to anything this repository can
+    build from currently listed names.
     """
-    index = index_returns(code, start, end)
-    joined = pd.concat([market.rename("market"), index.rename("index")], axis=1, join="inner").dropna()
-    if len(joined) < 30:
-        return dict(status="insufficient")
-    difference = joined["market"] - joined["index"]
-    beta = float(np.polyfit(joined["index"], joined["market"], 1)[0])
-    return dict(status="ready", code=code, observations=int(len(joined)),
-                correlation=float(joined["market"].corr(joined["index"])),
-                beta_to_index=beta,
-                tracking_error=float(difference.std(ddof=1) * math.sqrt(TRADING_DAYS)),
-                annual_market=float((1 + joined["market"]).prod() ** (TRADING_DAYS / len(joined)) - 1),
-                annual_index=float((1 + joined["index"]).prod() ** (TRADING_DAYS / len(joined)) - 1))
+    for manifest in sorted(Path(root).glob("m_*/manifest.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        path = manifest.parent / "indices" / f"{code}.parquet"
+        if not path.exists():
+            continue
+        frame = pd.read_parquet(path)
+        column = "close" if "close" in frame else "收盘价"
+        frame["date"] = pd.to_datetime(frame["date"] if "date" in frame else frame["日期"])
+        nav = frame.set_index("date")[column].astype(float).sort_index()
+        if start is not None:
+            nav = nav.loc[nav.index >= pd.Timestamp(start)]
+        if end is not None:
+            nav = nav.loc[nav.index <= pd.Timestamp(end)]
+        return nav.pct_change().dropna()
+    return None
+
+
+def index_returns(code="000300", start=None, end=None):
+    """Daily returns of a published index, from the supplement or the market snapshot."""
+    try:
+        bars = load_index(SNAPSHOT, code)
+        nav = bars.set_index("date")["close"].sort_index()
+        if start is not None:
+            nav = nav.loc[nav.index >= pd.Timestamp(start)]
+        if end is not None:
+            nav = nav.loc[nav.index <= pd.Timestamp(end)]
+        return nav.pct_change().dropna()
+    except (OSError, KeyError, ValueError):
+        return _market_snapshot_returns(code, start, end)
+
+
+def compare_to_index(market, codes=BENCHMARKS, start=None, end=None):
+    """How closely the constructed market portfolio tracks the published indices.
+
+    This is a construction check, not a result.  ``000300`` is a 300-name large-cap
+    index, so at high coverage the constructed portfolio should track it closely.
+    ``399317`` is an all-A-share index: the gap against it is the part of the
+    constructed return that comes from holding **currently listed** names, which is
+    the survivorship bias this study cannot otherwise measure.
+    """
+    result = {}
+    for code in codes:
+        index = index_returns(code, start, end)
+        if index is None or index.empty:
+            result[code] = dict(status="missing")
+            continue
+        joined = pd.concat([market.rename("market"), index.rename("index")], axis=1, join="inner").dropna()
+        if len(joined) < 30:
+            result[code] = dict(status="insufficient")
+            continue
+        difference = joined["market"] - joined["index"]
+        beta = float(np.polyfit(joined["index"], joined["market"], 1)[0])
+        result[code] = dict(status="ready", observations=int(len(joined)),
+                            correlation=float(joined["market"].corr(joined["index"])),
+                            beta_to_index=beta,
+                            tracking_error=float(difference.std(ddof=1) * math.sqrt(TRADING_DAYS)),
+                            annual_market=float((1 + joined["market"]).prod() ** (TRADING_DAYS / len(joined)) - 1),
+                            annual_index=float((1 + joined["index"]).prod() ** (TRADING_DAYS / len(joined)) - 1),
+                            annual_gap=float(((1 + joined["market"]).prod() ** (TRADING_DAYS / len(joined)) - 1)
+                                             - ((1 + joined["index"]).prod() ** (TRADING_DAYS / len(joined)) - 1)))
+    return result
 
 
 def largest(capitalisation, top_k):
@@ -399,7 +439,21 @@ def _markdown(payload):
             _fmt(block.get("max_drawdown"), ".2%"), _fmt(block.get("sharpe_excess"), "+.3f"),
             _fmt(block.get("cumulative"), "+.2%")))
     lines += ["", f"1/N 的年化换手：**{_fmt(perf.get('annual_turnover'), '.2f')} 倍**，"
-                  f"按 31bp 往返计成年化成本 {_fmt(_cost_drag(perf), '.2%')}。", ""]
+                  f"按 31bp 往返计成年化成本 {_fmt(_cost_drag(perf), '.2%')}。", "",
+              "## 构造校验：与两个公开指数对照", "",
+              "`000300` 是 300 只大盘股指数；`399317`（国证 A 指）是全部 A 股的市值加权指数。"
+              "与后者的差，就是**只持有现存股票**带来的那部分收益。", "",
+              "| 指数 | 相关 | β | 跟踪误差 | 指数年化 | 构造组合年化 | 差 |",
+              "| --- | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    for code, block in sorted((perf.get("index_comparison") or {}).items()):
+        if block.get("status") != "ready":
+            lines.append("| {} | — | — | — | — | — | — |".format(code))
+            continue
+        lines.append("| `{}` | {:.3f} | {:.3f} | {} | {} | {} | {} |".format(
+            code, block["correlation"], block["beta_to_index"],
+            _fmt(block["tracking_error"], ".2%"), _fmt(block["annual_index"], "+.2%"),
+            _fmt(block["annual_market"], "+.2%"), _fmt(block["annual_gap"], "+.2%")))
+    lines.append("")
     return "\n".join(lines)
 
 

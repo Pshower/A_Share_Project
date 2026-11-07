@@ -161,3 +161,24 @@ def test_largest_takes_the_top_k_by_median_capitalisation_independent_of_column_
 def test_sweep_returns_one_row_per_width_that_can_be_measured(tmp_path):
     # A panel that cannot be loaded must not raise: the sweep simply yields nothing.
     assert capm.sweep(tmp_path, values=(10,)) in ([],)
+
+def test_compare_to_index_returns_one_block_per_benchmark():
+    index = pd.bdate_range("2020-01-01", periods=300)
+    rng = np.random.default_rng(9)
+    market = pd.Series(rng.normal(0.0004, 0.01, len(index)), index=index)
+    result = capm.compare_to_index(market, codes=("000300", "399317"))
+    assert set(result) == {"000300", "399317"}
+    for block in result.values():
+        assert block["status"] in {"ready", "missing", "insufficient"}
+        if block["status"] == "ready":
+            assert block["observations"] > 30
+            assert block["annual_gap"] == pytest.approx(
+                block["annual_market"] - block["annual_index"], abs=1e-12)
+
+
+def test_all_share_index_is_captured_and_has_the_full_range():
+    returns = capm.index_returns("399317", "2019-01-02", "2024-12-31")
+    assert returns is not None and len(returns) > 1000
+    assert returns.index[0] >= pd.Timestamp("2019-01-02")
+    assert returns.index[-1] <= pd.Timestamp("2024-12-31")
+    assert np.isfinite(returns.to_numpy()).all()
