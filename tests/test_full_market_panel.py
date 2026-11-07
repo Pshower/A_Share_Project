@@ -107,3 +107,16 @@ def test_repair_leaves_a_chunk_closed_when_every_failure_is_permanent(tmp_path):
     progress = dict(chunks={"0": dict(status="ready", ready=0, failed=2, snapshot="h_one")})
     assert dl.repair(progress, codes, chunk_size=1, history_root=tmp_path / "history") == 0
     assert progress["chunks"]["0"]["status"] == "ready"
+
+def test_missing_codes_skips_codes_that_already_have_both_bases():
+    fm = __import__("tools.fetch_missing", fromlist=["fetch_missing"])
+    ready = {("000001", "hfq"), ("000001", "unadjusted"), ("000002", "hfq")}
+    assert fm.missing_codes(["000001", "000002", "000003"], ready) == ["000002", "000003"]
+
+
+def test_batches_cover_every_item_once():
+    fm = __import__("tools.fetch_missing", fromlist=["fetch_missing"])
+    items = list(range(11))
+    groups = list(fm.batches(items, 3))
+    assert [len(g) for g in groups] == [3, 3, 3, 2]
+    assert [x for g in groups for x in g] == items
