@@ -38,6 +38,7 @@
 | [research_direction_20261107.md](research_direction_20261107.md) | 研究方向复核：持有期 × 成本 × 效应量的算术，为什么 1 日算术关闭而 20 日还有余量，以及唯一该做的实验与停止清单 |
 | [prior_attribution_20261107.md](prior_attribution_20261107.md) | R1 动量先验的只读归因：残差只有先验振幅的 0.01~0.53%，排序 12 个 run 全部未变；附样本账本修正 A3（R 已被 9 月训练消耗） |
 | [baseline_capm_20261107.md](baseline_capm_20261107.md) | 1/N 与 CAPM 的分解：剥掉 β 后七个策略的 α 几乎相同（PPO +17.01% 对等权 +16.82%），α 的水位来自池子偏差而非本事 |
+| [capm_protocol_20261107.md](capm_protocol_20261107.md) | 全市场 CAPM 检验的预登记：5,578 只、市值加权市场组合、β 十分位、Fama-MacBeth 斜率、与 1/N 对照；判据在数据到手前写定 |
 | [bulk_download_runbook.md](bulk_download_runbook.md) | 批量选取、代码导入、进度、取消、重试和数据集扩充 |
 | [akshare_download_expansion.md](akshare_download_expansion.md) | 资料、资金流、分钟、指数和分红的独立归档；不自动入模 |
 | [training_data_linkage.md](training_data_linkage.md) | 多股日期交集、lookback、原始行情与下载批次关联 |

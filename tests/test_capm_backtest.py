@@ -94,3 +94,38 @@ def test_verdict_ladder_order(gap_t, slope_t, expected):
 
 def test_summarize_is_empty_without_periods():
     assert capm.summarize([], 10) == dict(status="empty")
+
+def _synthetic(periods=60, names=100, slope=1.0, seed=17):
+    rng = np.random.default_rng(seed)
+    index = pd.bdate_range("2019-01-02", periods=periods, freq="20B")
+    codes = [f"S{i:03d}" for i in range(names)]
+    beta = pd.DataFrame(rng.uniform(0.5, 1.6, (periods, names)), index=index, columns=codes)
+    market = pd.Series(rng.normal(0.008, 0.05, periods), index=index)
+    noise = rng.normal(0.0, 0.002, (periods, names))
+    forward = beta.mul(market, axis=0) * slope + noise
+    return beta, forward, market, index
+
+
+def test_positive_control_does_not_reject_capm_when_returns_are_beta_times_the_market():
+    beta, forward, market, index = _synthetic()
+    rows = capm.cross_section(beta, forward, market, list(index), 0.0)
+    summary = capm.summarize(rows, beta.shape[1])
+    # The planted slope is exactly the market's own return, which is CAPM.
+    assert summary["gamma1_mean"] == pytest.approx(market.mean(), rel=0.25)
+    assert abs(summary["slope_gap_t"]) < 3.0
+    result = capm.verdict(summary, dict(annual_return=0.1, sharpe_excess=0.5),
+                          dict(annual_return=0.1, sharpe_excess=0.5))
+    assert result["capm_rejected"] is not True
+
+
+def test_negative_control_rejects_capm_when_the_slope_is_planted_at_zero():
+    beta, forward, market, index = _synthetic(slope=0.0)
+    rows = capm.cross_section(beta, forward, market, list(index), 0.0)
+    summary = capm.summarize(rows, beta.shape[1])
+    # Returns carry no beta loading at all, so the slope must sit near zero while the
+    # market premium does not: that is the rejection case of the protocol.
+    assert abs(summary["gamma1_mean"]) < 0.01
+    assert summary["slope_gap_t"] < -2.0
+    result = capm.verdict(summary, dict(annual_return=0.1, sharpe_excess=0.5),
+                          dict(annual_return=0.1, sharpe_excess=0.5))
+    assert result["capm_rejected"] is True
