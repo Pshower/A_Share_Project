@@ -50,14 +50,25 @@ def test_rolling_beta_recovers_a_planted_loading():
 
 def test_forward_returns_cover_exactly_step_sessions_after_the_decision():
     index = pd.bdate_range("2020-01-01", periods=5)
-    returns = pd.Series([0.0, 0.10, 0.10, 0.0, 0.0], index=index)
-    forward = capm.forward_returns(returns.to_frame("A"), step=2)["A"]
+    prices = pd.Series([100.0, 110.0, 121.0, 121.0, 121.0], index=index)
+    forward = capm.forward_returns(prices.to_frame("A"), step=2)["A"]
     # Two sessions after t=0 are t+1 and t+2: 10% then 10%.
     assert forward.iloc[0] == pytest.approx(0.21)
     # From t=1 the window is t+2 and t+3: 10% then 0%.
     assert forward.iloc[1] == pytest.approx(0.10)
     assert forward.iloc[2] == pytest.approx(0.0)
     assert forward.iloc[3] != forward.iloc[3]  # no room for a two-session window
+
+
+def test_forward_returns_survive_a_suspension_and_stay_blank_before_listing():
+    index = pd.bdate_range("2020-01-01", periods=6)
+    prices = pd.Series([np.nan, 100.0, np.nan, 110.0, 121.0, 133.1], index=index)
+    forward = capm.forward_returns(prices.to_frame("A"), step=2)["A"]
+    assert forward.first_valid_index() == index[1]  # nothing before listing
+    # The suspended session carries the last price, so the window still measures:
+    # two sessions after t=1 is t=3, where the filled price is 110.
+    assert forward.loc[index[1]] == pytest.approx(110.0 / 100.0 - 1.0)
+    assert forward.loc[index[2]] != forward.loc[index[2]]  # price missing at t
 
 
 def test_rebalance_dates_are_spaced_and_inside_the_sample():

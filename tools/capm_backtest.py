@@ -77,16 +77,21 @@ def rolling_beta(returns, market, cash_rate=CASH_RATE, days=TRADING_DAYS, window
     return covariance.div(variance, axis=0)
 
 
-def forward_returns(returns, step=STEP):
+def forward_returns(prices, step=STEP):
     """Return over the ``step`` sessions that follow the decision date.
 
-    ``step`` sessions after ``t`` means sessions ``t+1 .. t+step``, and since
-    ``growth[t]`` already contains ``r[t]`` the correct ratio is
-    ``growth[t+step] / growth[t] - 1``.  Dividing by ``growth[t+1]`` instead would
-    silently measure ``step - 1`` sessions.
+    Computed from the **price** frame, forward-filled, rather than from the cumulative
+    product of returns.  ``cumprod`` poisons every later date at the first missing
+    return, so a single suspension would silently remove a stock from the
+    cross-section for the rest of the sample: 854 of 2,133 names carry such an
+    internal gap.  A suspended name keeps its last price, which is what a suspension
+    means, and the result is masked only where the stock had not listed yet.
     """
-    growth = (1.0 + returns).cumprod()
-    return growth.shift(-step) / growth - 1.0
+    if step < 1:
+        raise ValueError("Forward window must be at least one session")
+    filled = prices.astype(float).ffill()
+    forward = filled.shift(-step) / filled - 1.0
+    return forward.where(prices.notna())
 
 
 def rebalance_dates(index, start=SAMPLE_START, end=SAMPLE_END, step=STEP):
@@ -578,7 +583,7 @@ def measure(panel_dir=DEFAULT_OUTPUT, *, start=SAMPLE_START, end=SAMPLE_END, cas
         factor_series = published.reindex(returns.index).ffill()
         factor_series.name = factor
     betas = rolling_beta(returns, factor_series, cash_rate)
-    forward = forward_returns(returns)
+    forward = forward_returns(prices)
     growth = (1.0 + factor_series.fillna(0.0)).cumprod()
     market_forward = growth.shift(-STEP) / growth - 1.0
     dates = rebalance_dates(returns.index, start, end)
