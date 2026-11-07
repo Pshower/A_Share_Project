@@ -1,4 +1,4 @@
-"""CAPM tests on the full-market panel: market portfolio, beta pricing, and 1/N.
+﻿"""CAPM tests on the full-market panel: market portfolio, beta pricing, and 1/N.
 
 Three questions, in the order the protocol registers them:
 
@@ -379,6 +379,50 @@ def alpha_census(prices, market, cash_rate=CASH_RATE, days=TRADING_DAYS, min_obs
                 median_observations=int(frame["observations"].median()))
 
 
+SUB_PERIODS = (("2019-01-02", "2021-12-31"), ("2022-01-03", "2024-11-30"))
+
+
+def subperiods(panel_dir=DEFAULT_OUTPUT, bounds=SUB_PERIODS, factor="constructed"):
+    """Run the whole test separately on each half of the sample.
+
+    An eight-year answer that is produced entirely by one half is a regime story, not
+    a property of the market, so the halves are reported beside the pooled result.
+    """
+    rows = []
+    for low, high in bounds:
+        try:
+            payload = measure(panel_dir, start=low, end=high, factor=factor)
+        except (ValueError, FileNotFoundError, KeyError):
+            continue
+        summary, performance = payload["summary"], payload["performance"]
+        if summary.get("status") != "ready":
+            continue
+        market = performance["market"].get("annual_return")
+        equal = performance["equal_weight_net"].get("annual_return")
+        rows.append(dict(start=low, end=high, periods=int(summary["periods"]),
+                         gamma1=summary["gamma1_mean"], gamma1_t=summary["gamma1_t"],
+                         gap_t=summary["slope_gap_t"],
+                         market_annual=market, equal_net_annual=equal,
+                         gap=None if market is None or equal is None else market - equal,
+                         alpha_spread=summary["alpha_spread"]))
+    return rows
+
+
+def _subperiod_markdown(rows):
+    if not rows:
+        return ""
+    lines = ["## 分段稳定性", "",
+             "| 区间 | 区间数 | γ1 | γ1 的 t | γ1−溢价（t） | M 年化 | 1/N 净 | 差 |",
+             "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    for row in rows:
+        lines.append("| {} ~ {} | {} | {:+.4f} | {:+.2f} | {:+.2f} | {} | {} | {} |".format(
+            row["start"], row["end"], row["periods"], row["gamma1"], row["gamma1_t"], row["gap_t"],
+            _fmt(row["market_annual"], "+.2%"), _fmt(row["equal_net_annual"], "+.2%"),
+            _fmt(row["gap"], "+.2%")))
+    lines.append("")
+    return "\n".join(lines)
+
+
 def performance(series, cash_rate=CASH_RATE, days=TRADING_DAYS):
     """Annualised return, volatility, drawdown and excess Sharpe of a return series."""
     clean = series.dropna()
@@ -616,6 +660,8 @@ def main(argv=None):
                         help="Factor used to define beta: constructed, or an index code.")
     parser.add_argument("--placebo", type=int, default=0,
                         help="Permutation draws for the placebo control.")
+    parser.add_argument("--subperiods", action="store_true",
+                        help="Also report the two halves of the sample separately.")
     parser.add_argument("--sweep", action="store_true",
                         help="Also sweep the universe width and write the sensitivity table.")
     args = parser.parse_args(argv)
@@ -631,6 +677,13 @@ def main(argv=None):
         rows = sweep(args.panel, start=args.start, end=args.end)
         write_json(target / "capm_sweep.json", dict(rows=rows))
         (target / "capm_sweep.md").write_text(_sweep_markdown(rows, "000300"), encoding="utf-8")
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+    if args.subperiods:
+        rows = subperiods(args.panel, factor=args.factor)
+        from src.data.preprocess import write_json as _write
+        _write(target / "capm_subperiods.json", dict(rows=rows))
+        with (target / "capm_full_market.md").open("a", encoding="utf-8") as stream:
+            stream.write("\n" + _subperiod_markdown(rows))
         print(json.dumps(rows, ensure_ascii=False, indent=2))
     print(json.dumps(payload["verdict"], ensure_ascii=False, indent=2))
     return 0

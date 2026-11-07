@@ -235,3 +235,11 @@ def test_alpha_census_cannot_see_a_twenty_percent_alpha_in_two_years():
     prices, market = _census_panel(alpha_daily=0.001)
     census = capm.alpha_census(prices, market)
     assert census["share_positive_significant"] < 0.60
+
+def test_subperiods_report_both_halves_on_a_synthetic_panel(tmp_path):
+    # No panel on disk: the helper must degrade to an empty report, not raise.
+    assert capm.subperiods(tmp_path) == []
+
+
+def test_subperiod_markdown_is_empty_without_rows():
+    assert capm._subperiod_markdown([]) == ""
