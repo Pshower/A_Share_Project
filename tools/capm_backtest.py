@@ -351,12 +351,17 @@ def verdict(summary, market_perf, equal_perf):
 
 
 def measure(panel_dir=DEFAULT_OUTPUT, *, start=SAMPLE_START, end=SAMPLE_END, cash_rate=CASH_RATE,
-            top_k=None):
+            top_k=None, factor="constructed"):
     """Run T1, T2 and T3 on a built panel.
 
     ``top_k`` keeps only the largest names by median capitalisation, which is how the
     coverage sweep checks whether the answer depends on how much of the market the
     panel actually contains.
+
+    ``factor`` decides what defines beta.  ``"constructed"`` uses the cap-weighted
+    portfolio built from the panel itself; a six-digit code uses that published index
+    instead.  CAPM names the market portfolio as the factor, and the construction is a
+    proxy for it, so the slope must not hinge on which proxy was chosen.
     """
     manifest, prices, traded, shares = load(panel_dir)
     if top_k is not None:
@@ -365,9 +370,17 @@ def measure(panel_dir=DEFAULT_OUTPUT, *, start=SAMPLE_START, end=SAMPLE_END, cas
     market, weights, capitalisation = market_portfolio(prices, traded, shares, cash_rate)
     market = market.dropna()
     returns = daily_frame(prices)
-    betas = rolling_beta(returns, market, cash_rate)
+    if factor == "constructed":
+        factor_series = market
+    else:
+        published = index_returns(factor, returns.index[0], returns.index[-1])
+        if published is None:
+            raise ValueError("Requested factor index is not available")
+        factor_series = published.reindex(returns.index).ffill()
+        factor_series.name = factor
+    betas = rolling_beta(returns, factor_series, cash_rate)
     forward = forward_returns(returns)
-    growth = (1.0 + market).cumprod()
+    growth = (1.0 + factor_series.fillna(0.0)).cumprod()
     market_forward = growth.shift(-STEP) / growth - 1.0
     dates = rebalance_dates(returns.index, start, end)
     rf_period = cash_rate / TRADING_DAYS * STEP
@@ -386,7 +399,7 @@ def measure(panel_dir=DEFAULT_OUTPUT, *, start=SAMPLE_START, end=SAMPLE_END, cas
     return dict(panel=dict(path=str(Path(panel_dir)), shape=manifest["shape"],
                            codes=manifest["shape"][1], missing=len(manifest.get("codes_missing", [])),
                            capitalisation=manifest.get("capitalisation")),
-                start=start, end=end, step=STEP, window=WINDOW, deciles=DECILES,
+                start=start, end=end, step=STEP, window=WINDOW, deciles=DECILES, factor=factor,
                 summary=summary,
                 performance=dict(market=market_perf, equal_weight=equal_perf,
                                  equal_weight_net=equal_net_perf,
@@ -407,7 +420,8 @@ def _markdown(payload):
     summary, perf = payload["summary"], payload["performance"]
     lines = ["# 全市场 CAPM 检验", "",
              f"面板：`{payload['panel']['path']}`，{payload['panel']['shape'][0]} 个交易日 × "
-             f"{payload['panel']['shape'][1]} 只（缺 {payload['panel']['missing']} 只）。",
+             f"{payload['panel']['shape'][1]} 只（缺 {payload['panel']['missing']} 只），"
+             f"**β 因子：{payload.get('factor', 'constructed')}**。",
              f"样本 {payload['start']} ~ {payload['end']}，β 窗口 {payload['window']} 日，"
              f"每 {payload['step']} 日一个不重叠区间。", ""]
     if summary.get("status") != "ready":
@@ -469,11 +483,13 @@ def main(argv=None):
     parser.add_argument("--start", default=SAMPLE_START)
     parser.add_argument("--end", default=SAMPLE_END)
     parser.add_argument("--output", default=None)
+    parser.add_argument("--factor", default="constructed",
+                        help="Factor used to define beta: constructed, or an index code.")
     parser.add_argument("--sweep", action="store_true",
                         help="Also sweep the universe width and write the sensitivity table.")
     args = parser.parse_args(argv)
 
-    payload = measure(args.panel, start=args.start, end=args.end)
+    payload = measure(args.panel, start=args.start, end=args.end, factor=args.factor)
     target = Path(args.output) if args.output else REPORT_ROOT
     target.mkdir(parents=True, exist_ok=True)
     write_json(target / "capm_full_market.json", payload["summary"] | {"verdict": payload["verdict"],
