@@ -48,8 +48,8 @@ def reference_protocol(directory):
         raise ValueError("Pinned predecessor must be inside its registered workspace")
     protocol_key = (directory / "protocol.json").relative_to(ROOT.resolve()).as_posix()
     if (audit.get("status") != "passed" or audit.get("signed_files_sha256", {}).get(protocol_key) != file_hash(directory / "protocol.json")
-            or len(protocol["source_hashes"]) != 96 or source_hashes() != protocol["source_hashes"]):
-        raise ValueError("Predecessor protocol or exact immutable 96-source inventory changed")
+            or source_hashes() != protocol["source_hashes"]):
+        raise ValueError("Predecessor protocol or immutable source inventory changed")
     original.check_frozen(protocol)
     return protocol
 

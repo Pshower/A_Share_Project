@@ -34,9 +34,21 @@ def same_json(left, right):
 
 
 def code_identity():
+    """Pin every source file actually present, so drift is a per-file hash mismatch.
+
+    This used to reject any tree whose ``src/**/*.py`` count was not exactly 96, the
+    2026-10-15 inventory of the phase-budget study. That constant is not a property
+    this identity can enforce: adding an unrelated collector or web module changes the
+    count without changing the timing code path, and it made the sealed study's unit
+    tests unrunnable on any later checkout. Drift is enforced where it is measurable
+    instead -- recorded hashes are compared with a fresh recomputation by
+    ``validate_contract``, ``PhaseTimingAgent.load`` and the study runners, and each
+    runner additionally requires its protocol's recorded ``source_hashes`` to equal
+    this mapping, so a drifted checkout cannot be re-run under an old signature.
+    """
     sources = {path.relative_to(ROOT).as_posix(): file_hash(path) for path in (ROOT / "src").rglob("*.py")}
-    if len(sources) != 96:
-        raise ValueError("Timing phase research requires the unchanged 96-source inventory")
+    if not sources:
+        raise ValueError("Timing phase research requires a non-empty source inventory")
     return dict(source_hashes=sources, tool_hashes={name: file_hash(ROOT / name) for name in TOOL_FILES})
 
 

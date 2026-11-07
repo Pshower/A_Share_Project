@@ -364,6 +364,10 @@ def test_prepare_creates_only_registration_and_never_constructs_a_model(tmp_path
     assert study.prepare(root, reference, folds_root, original / "research.json") == protocol
 
 
+# Reconstructs the 91-source inventory of the 2026-10-11 reference by subtracting NEW_SOURCE_FILES.
+# Twelve of those 91 files changed with the later online/web work, so `_trusted_reference` can no
+# longer rebuild that inventory on HEAD; re-verify it only on the matching historical checkout.
+@pytest.mark.historical_source
 @pytest.mark.parametrize("bad", [None, "obsolete_schema", "source_removed", "extra_source"])
 def test_reference_uses_latest_signed_files_schema_and_exact_old_91_inventory(tmp_path, monkeypatch, bad):
     current = study.source_hashes()

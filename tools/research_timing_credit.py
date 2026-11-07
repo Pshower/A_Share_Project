@@ -76,7 +76,7 @@ def check_frozen(protocol):
         tie_break="lambda .95 then log_net")
     if BUDGETS != fixed["budgets"] or any(protocol.get(key) != value for key, value in fixed.items()):
         raise ValueError("Credit grid, budget or admission rule changed")
-    if (source_hashes() != protocol["source_hashes"] or len(protocol["source_hashes"]) != 96
+    if (source_hashes() != protocol["source_hashes"]
             or file_hash(Path(__file__)) != protocol["tool_sha256"] or file_hash(ROOT / HELPER_FILE) != protocol["helper_sha256"]
             or file_hash(DOCUMENT) != protocol["document_sha256"] or set(protocol.get("test_hashes", {})) != set(TEST_FILES)
             or protocol["reference_final_audit_sha256"] != REFERENCE_AUDIT_SHA256):

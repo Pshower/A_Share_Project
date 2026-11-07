@@ -12,11 +12,11 @@ from stable_baselines3 import PPO
 
 from src.agents.timing_agent import TimingAgent, InferenceOnlyTimingPPO
 from src.agents.timing_policy import CalendarTimingPolicy
-from src.data.preprocess import FEATURES, file_hash, write_json
+from src.data.preprocess import FEATURES, ROOT, file_hash, write_json
 from src.envs.broker import BrokerConfig
 from src.training.timing_env import build_timing_contract
 from tests.test_timing_policy import SyntheticTimingEnv
-from tools.timing_phase_agent import PhaseTimingAgent, phase_policy_contract, same_json
+from tools.timing_phase_agent import TOOL_FILES, PhaseTimingAgent, code_identity, phase_policy_contract, same_json
 from tools.timing_phase_policy import DuePhaseTimingPolicy
 
 
@@ -189,3 +189,13 @@ def test_unregistered_subclass_and_nonboolean_resume_are_rejected(tmp_path):
             PhaseTimingAgent(model, contract).transfer_to(env, {}, contract)
     finally:
         env.close()
+
+
+def test_code_identity_hashes_the_present_inventory_without_a_fixed_source_count():
+    identity = code_identity()
+    present = {path.relative_to(ROOT).as_posix(): file_hash(path)
+               for path in (ROOT / "src").rglob("*.py")}
+    assert present, "The repository must expose at least one source module"
+    assert identity["source_hashes"] == present
+    assert set(identity["tool_hashes"]) == set(TOOL_FILES)
+    assert all(len(value) == 64 for value in identity["source_hashes"].values())
