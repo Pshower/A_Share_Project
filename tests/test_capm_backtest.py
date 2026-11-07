@@ -263,3 +263,13 @@ def test_zero_beta_intercept_is_detected_when_every_name_carries_the_same_alpha(
     assert summary["gamma0_t"] > 3.0
     assert capm.verdict(summary, dict(annual_return=0.1, sharpe_excess=0.5),
                         dict(annual_return=0.1, sharpe_excess=0.5))["zero_beta_anomaly"] is True
+
+def test_configuration_table_marks_missing_panels_instead_of_raising(tmp_path):
+    rows = capm.configuration_table([("missing", tmp_path, None)])
+    assert len(rows) == 1
+    assert rows[0]["status"].startswith("skipped")
+
+
+def test_configuration_markdown_is_empty_without_ready_rows():
+    assert capm._configuration_markdown([]) == ""
+    assert capm._configuration_markdown([dict(status="skipped")]) == ""

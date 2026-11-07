@@ -423,6 +423,52 @@ def _subperiod_markdown(rows):
     return "\n".join(lines)
 
 
+def configuration_table(configurations, *, factor="constructed", **kwargs):
+    """Measure several ``(label, panel, top_k)`` configurations side by side.
+
+    The same names can be measured from a panel that ends at K names or from a larger
+    panel cut to its top K.  Comparing the two is the check that decides whether a
+    coefficient is a property of the estimator or an artefact of which panel it came
+    from, and it is the check that retracted the level-shift reading.
+    """
+    rows = []
+    for label, panel_dir, top_k in configurations:
+        try:
+            payload = measure(panel_dir, top_k=top_k, factor=factor, **kwargs)
+        except (ValueError, FileNotFoundError, KeyError) as error:
+            rows.append(dict(label=label, panel=str(panel_dir), top_k=top_k, status=f"skipped: {error}"))
+            continue
+        summary = payload["summary"]
+        if summary.get("status") != "ready":
+            rows.append(dict(label=label, panel=str(panel_dir), top_k=top_k, status="empty"))
+            continue
+        rows.append(dict(label=label, panel=str(panel_dir), top_k=top_k, status="ready",
+                         names=int(summary["mean_names"]), periods=int(summary["periods"]),
+                         gamma1=summary["gamma1_mean"], gamma1_t=summary["gamma1_t"],
+                         gamma0=summary["gamma0_mean"], gamma0_t=summary.get("gamma0_t"),
+                         gap_t=summary["slope_gap_t"],
+                         market_annual=payload["performance"]["market"].get("annual_return"),
+                         equal_net_annual=payload["performance"]["equal_weight_net"].get("annual_return")))
+    return rows
+
+
+def _configuration_markdown(rows):
+    ready = [row for row in rows if row.get("status") == "ready"]
+    if not ready:
+        return ""
+    lines = ["## 配置对照（同批名字、不同面板）", "",
+             "同一个名字集合从不同面板取出来分别测量。**可复现的是估计量的性质，不可复现的只是面板构成的产物。**", "",
+             "| 配置 | 面板 | 前 K 只 | 名字数 | γ1 | γ1 的 t | γ0（t） | γ1−溢价（t） |",
+             "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    for row in ready:
+        lines.append("| {} | `{}` | {} | {} | {:+.4f} | {:+.2f} | {}（{}） | {:+.2f} |".format(
+            row["label"], Path(row["panel"]).name, "全部" if row["top_k"] is None else row["top_k"],
+            row["names"], row["gamma1"], row["gamma1_t"],
+            _fmt(row["gamma0"], "+.4f"), _fmt(row["gamma0_t"], "+.2f"), row["gap_t"]))
+    lines.append("")
+    return "\n".join(lines)
+
+
 def performance(series, cash_rate=CASH_RATE, days=TRADING_DAYS):
     """Annualised return, volatility, drawdown and excess Sharpe of a return series."""
     clean = series.dropna()
@@ -667,6 +713,8 @@ def main(argv=None):
                         help="Permutation draws for the placebo control.")
     parser.add_argument("--subperiods", action="store_true",
                         help="Also report the two halves of the sample separately.")
+    parser.add_argument("--compare", action="append", default=None,
+                        help="Extra configuration to tabulate, as panel:top_k or panel. Repeatable.")
     parser.add_argument("--sweep", action="store_true",
                         help="Also sweep the universe width and write the sensitivity table.")
     args = parser.parse_args(argv)
@@ -689,6 +737,18 @@ def main(argv=None):
         _write(target / "capm_subperiods.json", dict(rows=rows))
         with (target / "capm_full_market.md").open("a", encoding="utf-8") as stream:
             stream.write("\n" + _subperiod_markdown(rows))
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+    if args.compare:
+        configurations = []
+        for position, spec in enumerate([f"{args.panel}:full"] + list(args.compare)):
+            path, _, top = spec.partition(":")
+            top_k = None if top in ("", "full", "none") else int(top)
+            configurations.append((spec, path, top_k))
+        rows = configuration_table(configurations, factor=args.factor)
+        from src.data.preprocess import write_json as _write
+        _write(target / "capm_configurations.json", dict(rows=rows))
+        with (target / "capm_full_market.md").open("a", encoding="utf-8") as stream:
+            stream.write("\n" + _configuration_markdown(rows))
         print(json.dumps(rows, ensure_ascii=False, indent=2))
     print(json.dumps(payload["verdict"], ensure_ascii=False, indent=2))
     return 0
