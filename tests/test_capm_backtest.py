@@ -1,4 +1,4 @@
-"""Tests for the CAPM backtest machinery."""
+﻿"""Tests for the CAPM backtest machinery."""
 
 import numpy as np
 import pandas as pd
@@ -182,3 +182,20 @@ def test_all_share_index_is_captured_and_has_the_full_range():
     assert returns.index[0] >= pd.Timestamp("2019-01-02")
     assert returns.index[-1] <= pd.Timestamp("2024-12-31")
     assert np.isfinite(returns.to_numpy()).all()
+
+def test_permutation_control_finds_no_slope_in_shuffled_labels():
+    beta, forward, market, index = _synthetic(slope=1.0, seed=31)
+    result = capm.permutation_gamma(beta, forward, market, list(index), 0.0, draws=20, seed=5)
+    assert result["status"] == "ready"
+    # The real pairing carries a slope; the shuffle must not.
+    assert abs(result["observed"]) > abs(result["placebo_mean"]) * 3
+    assert abs(result["placebo_mean"]) < 0.01
+    assert result["p_value"] <= 0.05
+
+
+def test_permutation_control_is_uninformative_when_the_slope_is_planted_at_zero():
+    beta, forward, market, index = _synthetic(slope=0.0, seed=32)
+    result = capm.permutation_gamma(beta, forward, market, list(index), 0.0, draws=20, seed=6)
+    assert result["status"] == "ready"
+    # With no planted slope the observation is ordinary, not extreme.
+    assert abs(result["observed"]) <= max(3 * result["placebo_sd"], 1e-9) + abs(result["placebo_mean"])

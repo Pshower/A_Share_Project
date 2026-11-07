@@ -278,6 +278,39 @@ def _sweep_markdown(rows, code):
     return "\n".join(lines)
 
 
+def permutation_gamma(betas, forward, market_forward, dates, rf_period, draws=100, seed=20261107):
+    """Mean slope when the beta labels are shuffled across names within each date.
+
+    The shuffle keeps both marginal distributions and destroys only their pairing, so
+    the resulting distribution is what the estimator reports when there is nothing to
+    find.  If the observed slope sits inside it, the slope is not evidence of beta
+    pricing; the reported p-value is the share of shuffles at least as extreme as the
+    observation, in absolute value.
+    """
+    subset = betas.reindex(dates)
+    values = subset.to_numpy(dtype=float)
+    observed = cross_section(subset, forward, market_forward, dates, rf_period)
+    if not observed:
+        return dict(status="empty")
+    real = float(np.mean([row["gamma1"] for row in observed]))
+    rng = np.random.default_rng(seed)
+    shuffled_means = []
+    for _ in range(draws):
+        shuffled = values.copy()
+        for row in range(shuffled.shape[0]):
+            rng.shuffle(shuffled[row])
+        frame = pd.DataFrame(shuffled, index=subset.index, columns=betas.columns)
+        rows = cross_section(frame, forward, market_forward, dates, rf_period)
+        if rows:
+            shuffled_means.append(float(np.mean([row["gamma1"] for row in rows])))
+    if not shuffled_means:
+        return dict(status="empty")
+    spread = np.asarray(shuffled_means)
+    return dict(status="ready", draws=int(len(spread)), observed=real,
+                placebo_mean=float(spread.mean()), placebo_sd=float(spread.std(ddof=1)),
+                p_value=float(np.mean(np.abs(spread) >= abs(real))))
+
+
 def performance(series, cash_rate=CASH_RATE, days=TRADING_DAYS):
     """Annualised return, volatility, drawdown and excess Sharpe of a return series."""
     clean = series.dropna()
@@ -351,7 +384,7 @@ def verdict(summary, market_perf, equal_perf):
 
 
 def measure(panel_dir=DEFAULT_OUTPUT, *, start=SAMPLE_START, end=SAMPLE_END, cash_rate=CASH_RATE,
-            top_k=None, factor="constructed"):
+            top_k=None, factor="constructed", placebo_draws=0):
     """Run T1, T2 and T3 on a built panel.
 
     ``top_k`` keeps only the largest names by median capitalisation, which is how the
@@ -396,11 +429,13 @@ def measure(panel_dir=DEFAULT_OUTPUT, *, start=SAMPLE_START, end=SAMPLE_END, cas
     market_perf = performance(market_window, cash_rate)
     equal_perf = performance(equal, cash_rate)
     equal_net_perf = performance(equal_net, cash_rate)
+    placebo = (permutation_gamma(betas, forward, market_forward, dates, rf_period, placebo_draws)
+               if placebo_draws else dict(status="skipped"))
     return dict(panel=dict(path=str(Path(panel_dir)), shape=manifest["shape"],
                            codes=manifest["shape"][1], missing=len(manifest.get("codes_missing", [])),
                            capitalisation=manifest.get("capitalisation")),
                 start=start, end=end, step=STEP, window=WINDOW, deciles=DECILES, factor=factor,
-                summary=summary,
+                summary=summary, placebo=placebo,
                 performance=dict(market=market_perf, equal_weight=equal_perf,
                                  equal_weight_net=equal_net_perf,
                                  annual_turnover=float(turnover.sum() * TRADING_DAYS / len(turnover)),
@@ -467,6 +502,15 @@ def _markdown(payload):
             code, block["correlation"], block["beta_to_index"],
             _fmt(block["tracking_error"], ".2%"), _fmt(block["annual_index"], "+.2%"),
             _fmt(block["annual_market"], "+.2%"), _fmt(block["annual_gap"], "+.2%")))
+    placebo = payload.get("placebo") or {}
+    if placebo.get("status") == "ready":
+        lines += ["", "## 置换对照", "",
+                  f"在每个区间内把 β 在股票间随机重排 {placebo['draws']} 次，只破坏配对、保留边缘分布。", "",
+                  "| 项 | 值 |", "| --- | ---: |",
+                  f"| 真实 γ1 | {placebo['observed']:+.4f} |",
+                  f"| 重排均值 | {placebo['placebo_mean']:+.4f} |",
+                  f"| 重排标准差 | {placebo['placebo_sd']:.4f} |",
+                  f"| p 值（\\|γ1\\| ≥ 观测） | **{placebo['p_value']:.3f}** |"]
     lines.append("")
     return "\n".join(lines)
 
@@ -485,11 +529,14 @@ def main(argv=None):
     parser.add_argument("--output", default=None)
     parser.add_argument("--factor", default="constructed",
                         help="Factor used to define beta: constructed, or an index code.")
+    parser.add_argument("--placebo", type=int, default=0,
+                        help="Permutation draws for the placebo control.")
     parser.add_argument("--sweep", action="store_true",
                         help="Also sweep the universe width and write the sensitivity table.")
     args = parser.parse_args(argv)
 
-    payload = measure(args.panel, start=args.start, end=args.end, factor=args.factor)
+    payload = measure(args.panel, start=args.start, end=args.end, factor=args.factor,
+                      placebo_draws=args.placebo)
     target = Path(args.output) if args.output else REPORT_ROOT
     target.mkdir(parents=True, exist_ok=True)
     write_json(target / "capm_full_market.json", payload["summary"] | {"verdict": payload["verdict"],
