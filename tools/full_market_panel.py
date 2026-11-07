@@ -1,4 +1,4 @@
-"""Consolidate the chunked full-market downloads into one wide panel.
+﻿"""Consolidate the chunked full-market downloads into one wide panel.
 
 The universe download creates one immutable history snapshot per chunk, so the
 data arrives as dozens of directories with two price bases each.  This tool joins
@@ -103,7 +103,28 @@ def float_shares(price):
     return derived.replace([np.inf, -np.inf], np.nan).ffill().bfill()
 
 
-def build(codes, *, start=START, end=END, root=HISTORY_ROOT, output=DEFAULT_OUTPUT, log=print):
+def capitalisation_covered(columns, universe_file):
+    """Share of total free-float capitalisation the panel actually contains.
+
+    Coverage is the number that decides whether a cap-weighted market portfolio is
+    already a market portfolio or still a large-cap proxy, so it is recorded with
+    the panel rather than recomputed later.
+    """
+    path = Path(universe_file) if universe_file else None
+    if path is None or not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    rows = payload["rows"] if isinstance(payload, dict) else payload
+    total = sum(float(row.get("nmc") or 0.0) for row in rows)
+    if total <= 0:
+        return None
+    present = set(columns)
+    covered = sum(float(row.get("nmc") or 0.0) for row in rows if str(row.get("code")) in present)
+    return dict(universe_codes=len(rows), panel_codes=len(present), share_of_float_cap=covered / total)
+
+
+def build(codes, *, start=START, end=END, root=HISTORY_ROOT, output=DEFAULT_OUTPUT,
+          universe_file=None, log=print):
     """Join every usable snapshot into three wide frames plus a manifest."""
     snapshots = [row for row in snapshot_requests(root) if usable(row, start, end, codes)]
     if not snapshots:
@@ -150,6 +171,7 @@ def build(codes, *, start=START, end=END, root=HISTORY_ROOT, output=DEFAULT_OUTP
                     codes=list(panel.columns), codes_missing=missing,
                     fields=list(FIELDS), shape=list(panel.shape),
                     provenance=provenance,
+                    capitalisation=capitalisation_covered(panel.columns, universe_file),
                     snapshots=[dict(id=row["id"], codes=len(row["codes"]), created=row["created"])
                                for row in snapshots],
                     coverage=dict(
@@ -186,7 +208,7 @@ def main(argv=None):
     if args.lenient:
         universe = [code for row in snapshot_requests() for code in row["codes"]]
         universe = list(dict.fromkeys(universe))
-    manifest = build(universe, output=args.output)
+    manifest = build(universe, output=args.output, universe_file=args.codes_from)
     print(json.dumps(manifest["coverage"], ensure_ascii=False))
     return 0
 

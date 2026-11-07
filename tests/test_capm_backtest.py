@@ -1,0 +1,96 @@
+"""Tests for the CAPM backtest machinery."""
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from tools import capm_backtest as capm
+
+
+def _panel():
+    index = pd.bdate_range("2020-01-01", periods=4)
+    prices = pd.DataFrame({"A": [10.0, 11.0, 11.0, 12.1], "B": [20.0, 20.0, 22.0, 22.0]}, index=index)
+    traded = prices.copy()
+    shares = pd.DataFrame({"A": [100.0] * 4, "B": [300.0] * 4}, index=index)
+    return prices, traded, shares
+
+
+def test_market_portfolio_weights_by_capitalisation_lagged_one_day():
+    prices, traded, shares = _panel()
+    market, weights, capitalisation = capm.market_portfolio(prices, traded, shares)
+    assert capitalisation.iloc[0].tolist() == pytest.approx([1000.0, 6000.0])
+    assert weights.iloc[1].tolist() == pytest.approx([1000 / 7000, 6000 / 7000])
+    # Day 1 returns are +10% on A and 0% on B, so the market earns the lagged weights.
+    assert market.iloc[1] == pytest.approx((1000 * 0.10 + 6000 * 0.0) / 7000)
+    assert market.iloc[0] != market.iloc[0]  # the first row has no lagged weight
+
+
+def test_market_portfolio_drops_names_without_a_return_and_renormalises():
+    prices, traded, shares = _panel()
+    prices = prices.copy()
+    prices.iloc[1, 1] = np.nan
+    market, weights, _ = capm.market_portfolio(prices, traded, shares)
+    assert weights.iloc[1, 1] != weights.iloc[1, 1]  # dropped
+    assert weights.iloc[1, 0] == pytest.approx(1.0)
+
+
+def test_rolling_beta_recovers_a_planted_loading():
+    rng = np.random.default_rng(4)
+    index = pd.bdate_range("2019-01-01", periods=400)
+    market = pd.Series(rng.normal(0.0004, 0.01, len(index)), index=index)
+    rf = capm.CASH_RATE / capm.TRADING_DAYS
+    returns = pd.DataFrame({"A": 1.4 * (market - rf) + rf + rng.normal(0, 0.0002, len(index)),
+                            "B": 0.6 * (market - rf) + rf + rng.normal(0, 0.0002, len(index))},
+                           index=index)
+    betas = capm.rolling_beta(returns, market)
+    assert betas["A"].iloc[-1] == pytest.approx(1.4, abs=0.05)
+    assert betas["B"].iloc[-1] == pytest.approx(0.6, abs=0.05)
+    assert betas["A"].iloc[: capm.MIN_OBS - 1].isna().all()
+
+
+def test_forward_returns_cover_exactly_step_sessions_after_the_decision():
+    index = pd.bdate_range("2020-01-01", periods=5)
+    returns = pd.Series([0.0, 0.10, 0.10, 0.0, 0.0], index=index)
+    forward = capm.forward_returns(returns.to_frame("A"), step=2)["A"]
+    # Two sessions after t=0 are t+1 and t+2: 10% then 10%.
+    assert forward.iloc[0] == pytest.approx(0.21)
+    # From t=1 the window is t+2 and t+3: 10% then 0%.
+    assert forward.iloc[1] == pytest.approx(0.10)
+    assert forward.iloc[2] == pytest.approx(0.0)
+    assert forward.iloc[3] != forward.iloc[3]  # no room for a two-session window
+
+
+def test_rebalance_dates_are_spaced_and_inside_the_sample():
+    index = pd.bdate_range("2019-01-01", periods=200)
+    dates = capm.rebalance_dates(index, "2019-02-01", "2019-08-01", step=20)
+    assert len(dates) > 3
+    assert all((dates >= pd.Timestamp("2019-02-01")) & (dates <= pd.Timestamp("2019-08-01")))
+    assert (dates[1:] - dates[:-1]).days.min() >= 25
+
+
+def test_performance_annualises_and_reports_drawdown():
+    index = pd.bdate_range("2020-01-01", periods=243)
+    series = pd.Series(np.linspace(0.0005, 0.0005, 243), index=index)
+    result = capm.performance(series)
+    assert result["annual_return"] == pytest.approx((1.0005 ** 243) - 1, rel=1e-6)
+    assert result["max_drawdown"] == pytest.approx(0.0)
+    assert result["observations"] == 243
+
+
+@pytest.mark.parametrize("gap_t,slope_t,expected", [
+    (-3.0, 5.0, True),
+    (0.5, 2.5, False),
+    (0.5, 1.2, None),
+    (3.0, 5.0, False),
+])
+def test_verdict_ladder_order(gap_t, slope_t, expected):
+    summary = dict(status="ready", slope_gap_t=gap_t, gamma1_t=slope_t, alpha_spread=0.001)
+    result = capm.verdict(summary, dict(annual_return=0.1, sharpe_excess=0.5),
+                          dict(annual_return=0.2, sharpe_excess=1.0))
+    assert result["capm_rejected"] is expected
+    assert result["market_vs_equal"] == pytest.approx(-0.1)
+    assert result["low_vol_anomaly"] is False
+
+
+def test_summarize_is_empty_without_periods():
+    assert capm.summarize([], 10) == dict(status="empty")
