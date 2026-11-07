@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from src.data.pit import capture_calendar, capture_fundamentals, report_periods
+from src.data.pit import capture_calendar, capture_fundamentals, report_periods, statutory_deadline
 from src.data.snapshots import Snapshots
 from src.web.app import create_app
 
@@ -78,6 +78,45 @@ def test_quarterly_financials_and_holders_filter_codes(tmp_path):
     assert financials.announcement_date.tolist() == ["2020-04-30"] * 4
     assert holders.code.tolist() == ["000001"] * 4
     assert saved["request"]["periods"] == ["20200331", "20200630", "20200930", "20201231"]
+
+
+def test_financials_use_the_statutory_deadline_while_observed_dates_are_used_directly(tmp_path):
+    provider = FakePitProvider()
+    snapshot = capture_fundamentals(["000001"], "2020-01-01", "2020-12-31",
+                                    allow_network=True, root=tmp_path, provider=provider)
+    _, directory = Snapshots(tmp_path).get("fundamentals", snapshot["id"])
+    financials = pd.read_parquet(directory / "financials.parquet")
+    forecasts = pd.read_parquet(directory / "forecasts.parquet")
+    # stock_yjbb_em only exposes the latest revision; the availability date must not inherit it.
+    assert financials.availability_basis.tolist() == ["statutory_deadline"] * 4
+    assert financials.available_from.tolist() == ["2020-04-30", "2020-08-31", "2020-10-31", "2021-04-30"]
+    assert (pd.to_datetime(financials.available_from) >= pd.to_datetime(financials.period)).all()
+    assert forecasts.availability_basis.tolist() == ["vendor_announcement"] * 8
+    assert (forecasts.available_from == forecasts.announcement_date).all()
+    assert snapshot["availability_policy"]["financials"] == "statutory_deadline"
+    assert snapshot["combined"]["financials"]["lag_days"]["available_from"]["over_365_days"] == 0
+    assert snapshot["combined"]["financials"]["lag_days"]["announcement_date"]["over_365_days"] == 0
+
+
+def test_statutory_deadlines_cover_every_quarter_end_and_move_the_annual_report_to_the_next_year():
+    assert statutory_deadline("20200331") == pd.Timestamp("2020-04-30")
+    assert statutory_deadline("20200630") == pd.Timestamp("2020-08-31")
+    assert statutory_deadline("20200930") == pd.Timestamp("2020-10-31")
+    assert statutory_deadline("20201231") == pd.Timestamp("2021-04-30")
+    with pytest.raises(ValueError):
+        statutory_deadline("20200229")
+
+
+def test_availability_survives_a_filter_that_leaves_a_non_contiguous_index(tmp_path):
+    # 000001 is first in the provider table, so keeping only 600000 leaves index label 1.
+    snapshot = capture_fundamentals(["600000"], "2020-01-01", "2020-03-31",
+                                    allow_network=True, root=tmp_path, provider=FakePitProvider())
+    _, directory = Snapshots(tmp_path).get("fundamentals", snapshot["id"])
+    financials = pd.read_parquet(directory / "financials.parquet")
+    assert financials.code.tolist() == ["600000"]
+    assert financials.available_from.tolist() == ["2020-04-30"]
+    assert financials.available_from.notna().all()
+    assert snapshot["entries"][0]["financials"]["first_available"] == "2020-04-30"
 
 
 def test_optional_failure_is_partial_and_bad_schema_is_recorded(tmp_path):
