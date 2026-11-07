@@ -32,7 +32,8 @@ def make_model(env, config):
     kwargs = dict(hidden_sizes=tuple(config["hidden_sizes"]),
                    initial_log_std=config.get("initial_log_std", 0.0),
                    prior_feature_index=config.get("prior_feature_index"),
-                   prior_strength=config.get("prior_strength", 4.0), residual_scale=config.get("residual_scale", 0.25))
+                   prior_strength=config.get("prior_strength", 4.0), residual_scale=config.get("residual_scale", 0.25),
+                   full_invest=config.get("action_full_invest", False))
     policy = SharedStockPolicy
     if config.get("action_mode") == "stock_delta":
         policy = SharedDeltaPolicy
@@ -92,9 +93,12 @@ class PPOAgent:
                 raise ValueError("Trade policy spaces, initialization or execution contract mismatch")
             return
         delta = contract.get("action_mode") == "stock_delta"
-        expected_mapping = DELTA_MAPPING_VERSION if delta else mapping_version(contract.get("action_top_k"))
+        full = bool(contract.get("action_full_invest", False))
+        expected_mapping = (DELTA_MAPPING_VERSION if delta
+                            else mapping_version(contract.get("action_top_k"), full))
+        expected_shape = (n,) if (delta or full) else (n + 1,)
         if (contract["mapping_version"] != expected_mapping
-                or model.action_space.shape != ((n,) if delta else (n + 1,))
+                or model.action_space.shape != expected_shape
                 or model.observation_space["stock_features"].shape != (n, contract["lookback"], len(contract["feature_cols"]))
                 or not np.all(model.action_space.high == contract["logit_bound"])
                 or not np.all(model.action_space.low == -contract["logit_bound"])):
@@ -113,6 +117,8 @@ class PPOAgent:
                              residual_scale=network.residual_scale) if network.prior_feature_index is not None else None)
         if actual_prior != expected_prior:
             raise ValueError("Policy prior differs from model contract")
+        if bool(getattr(network, "full_invest", False)) != full:
+            raise ValueError("Policy cash/full-invest mode differs from model contract")
 
     def reset(self):
         pass
@@ -143,7 +149,7 @@ class PPOAgent:
             return map_delta_action(latent, observation, self.contract["broker"]["max_weight"],
                                     self.contract["delta"]["max_delta_weight"], self.contract["logit_bound"])
         return map_action(latent, observation, self.contract["broker"]["max_weight"], self.contract["logit_bound"],
-                          self.contract.get("action_top_k"))
+                          self.contract.get("action_top_k"), bool(self.contract.get("action_full_invest", False)))
 
     def act(self, observation, step=None, deterministic=True):
         result = self.inspect_action(observation, deterministic)

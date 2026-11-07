@@ -16,7 +16,7 @@ from src.agents.trade_mapping import (TradeActionWrapper, TRADE_MAPPING_VERSION,
 from src.data.preprocess import file_hash, read_config, resolve_path
 from src.envs.broker import BrokerConfig
 from src.envs.market import MarketDataProvider
-from src.envs.trading import TradingEnv
+from src.envs.trading import REWARD_MODES, TradingEnv
 
 
 def validate_config(config):
@@ -51,6 +51,11 @@ def validate_config(config):
     top_k = config.get("action_top_k")
     if top_k is not None and (type(top_k) is not int or not 1 <= top_k <= 500):
         raise ValueError("action_top_k must be in [1, 500]")
+    full_invest = config.get("action_full_invest", False)
+    if type(full_invest) is not bool:
+        raise ValueError("action_full_invest must be a boolean")
+    if full_invest and (mode != "target" or top_k is not None):
+        raise ValueError("action_full_invest supports only the target action mode without top_k")
     if not np.isfinite(config.get("initial_log_std", 0.0)) or not -5 <= config.get("initial_log_std", 0.0) <= 1:
         raise ValueError("initial_log_std must be in [-5, 1]")
     for key, default in [("prior_strength", 4.0), ("residual_scale", 0.25)]:
@@ -59,6 +64,15 @@ def validate_config(config):
     recent = config.get("recent_episode_every", 0)
     if type(recent) is not int or recent < 0 or (recent and not config.get("training_episode_steps")):
         raise ValueError("Recent episode sampling requires a bounded training episode")
+    reward_mode = config.get("reward_mode", "return")
+    if reward_mode not in REWARD_MODES:
+        raise ValueError("Unknown reward_mode: " + str(reward_mode))
+    checkpoint = config.get("checkpoint_every")
+    if checkpoint is not None and (type(checkpoint) is not int or checkpoint < 1):
+        raise ValueError("checkpoint_every must be a positive integer or absent")
+    capital = config.get("initial_capital")
+    if capital is not None and (not np.isfinite(capital) or capital <= 0):
+        raise ValueError("initial_capital override must be positive and finite")
     from src.envs.initial_account import MODES
     if config.get("initial_portfolio", "cash") not in (*MODES, "mixed"):
         raise ValueError("Unknown initial portfolio mode")
@@ -160,6 +174,11 @@ class ResearchData:
             raise ValueError("Feature and price dates differ")
         self.settings = deepcopy(self.research["backtest"])
         self.settings.update(seed=config["seed"], lookback=config["lookback"])
+        # A capital override exists because whole-lot indivisibility binds before the strategy
+        # does: at one million over thirty names, a handful of HFQ prices cost more per lot than
+        # one name's share, so even the equal-weight reference cannot deploy its own weights.
+        if config.get("initial_capital") is not None:
+            self.settings["initial_capital"] = float(config["initial_capital"])
         if (config.get("action_mode") == "stock_trade"
                 and config.get("max_commission_ratio", .001) < BrokerConfig(**self.settings["broker"]).commission):
             raise ValueError("max_commission_ratio must be at least broker commission")
@@ -174,19 +193,29 @@ class ResearchData:
                              lookback=config["lookback"], price_basis=manifest["price_basis"],
                              broker=asdict(BrokerConfig(**self.settings["broker"])),
                              initial_capital=self.settings["initial_capital"],
-                             mapping_version=mapping_version(top_k=config.get("action_top_k")), logit_bound=config["logit_bound"],
+                             mapping_version=mapping_version(top_k=config.get("action_top_k"),
+                                                             full_invest=config.get("action_full_invest", False)),
+                             logit_bound=config["logit_bound"],
                              hidden_sizes=config["hidden_sizes"])
         if self.training_coverage is not None:
             self.contract["training_date_policy"] = "intersection"
             self.contract["train_interval"] = {k: self.training_coverage[k] for k in ["train_start", "train_end"]}
         if config.get("initial_portfolio", "cash") != "cash":
             self.contract["initial_portfolio"] = config["initial_portfolio"]
+        if config.get("reward_mode", "return") != "return":
+            self.contract["reward_mode"] = config["reward_mode"]
+            self.contract["reward_reference"] = (
+                "equal_weight_return_of_valid_universe_same_interval")
         if config.get("training_episode_steps") is not None:
             self.contract["training_episode_steps"] = config["training_episode_steps"]
         if config.get("recent_episode_every"):
             self.contract["recent_episode_every"] = config["recent_episode_every"]
         if config.get("action_top_k") is not None:
             self.contract["action_top_k"] = config["action_top_k"]
+        if config.get("action_full_invest", False):
+            self.contract["action_full_invest"] = True
+            self.contract["cash_semantics"] = ("no_cash_action;weights_normalised_to_one_with_cap_"
+                                               "redistribution;residual_only_if_cap_infeasible")
         if config.get("action_mode") == "stock_delta":
             self.contract.update(action_mode="stock_delta", mapping_version=DELTA_MAPPING_VERSION,
                                  delta=dict(max_delta_weight=config.get("max_delta_weight", .05),
@@ -257,7 +286,8 @@ class ResearchData:
                                    initial_portfolio=self.config.get("initial_portfolio", "cash") if split == "train" else "cash",
                                    max_steps=self.config.get("training_episode_steps") if split == "train" else None,
                                    random_start=split == "train" and self.config.get("training_episode_steps") is not None,
-                                   recent_episode_every=self.config.get("recent_episode_every", 0) if split == "train" else 0)
+                                   recent_episode_every=self.config.get("recent_episode_every", 0) if split == "train" else 0,
+                                   reward_mode=self.config.get("reward_mode", "return"))
         if self.config.get("action_mode") == "stock_delta":
             return DeltaActionWrapper(env, self.config["logit_bound"], self.config.get("max_delta_weight", .05),
                                       self.settings.get("delta_top_n", self.config.get("top_n", 20)),
@@ -267,7 +297,8 @@ class ResearchData:
                                       self.config.get("max_commission_ratio", .001),
                                       self.settings.get("trade_top_n", self.config.get("top_n", 20)),
                                       self.config.get("top_n_choices") if split == "train" else None)
-        return LatentActionWrapper(env, self.config["logit_bound"], self.config.get("action_top_k"))
+        return LatentActionWrapper(env, self.config["logit_bound"], self.config.get("action_top_k"),
+                                   self.config.get("action_full_invest", False))
 
     def vector_env(self, split="train"):
         env = DummyVecEnv([lambda: Monitor(self.env(split))])

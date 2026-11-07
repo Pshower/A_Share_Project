@@ -7,6 +7,8 @@ from gymnasium import spaces
 from .broker import BrokerSimulator
 from .portfolio import Portfolio
 
+REWARD_MODES = ("return", "excess_pool")
+
 
 class TargetWeightSpace(spaces.Box):
     """Box-shaped long-only weights with unallocated weight held as cash."""
@@ -23,10 +25,13 @@ class TradingEnv(gym.Env):
     metadata = {"render_modes": []}
 
     def __init__(self, market, initial_capital=1e6, broker_config=None, max_steps=None, initial_portfolio="cash", random_start=False,
-                 recent_episode_every=0):
+                 recent_episode_every=0, reward_mode="return"):
         super().__init__()
         if max_steps is not None and (not isinstance(max_steps, int) or max_steps < 1):
             raise ValueError("max_steps must be a positive integer")
+        if reward_mode not in REWARD_MODES:
+            raise ValueError("Unknown reward_mode: " + str(reward_mode))
+        self.reward_mode = reward_mode
         self.market = market
         self.portfolio = Portfolio(initial_capital, market.stock_codes)
         self.broker = BrokerSimulator(broker_config)
@@ -140,6 +145,22 @@ class TradingEnv(gym.Env):
         """Advance one day without placing orders, for hold/rebalance schedules."""
         return self._advance(None)
 
+    def benchmark_return(self, idx, valid):
+        """Equal-weight return of the investable universe over the step's own interval.
+
+        ``valid`` is the mask the agent sees at ``idx``, so the benchmark is the average of
+        the names that were actually buyable, valued on the same ffill series as the account.
+        A suspended name carries its last close and therefore contributes a zero return, which
+        is exactly what holding it would have produced.
+        """
+        previous = self.market.prices.iloc[idx].to_numpy(dtype=float)
+        following = self.market.prices.iloc[idx + 1].to_numpy(dtype=float)
+        usable = (np.asarray(valid, dtype=bool) & np.isfinite(previous)
+                  & np.isfinite(following) & (previous > 0))
+        if not usable.any():
+            return 0.0
+        return float(np.mean(following[usable] / previous[usable] - 1.0))
+
     def _advance(self, weights, *, delta_weights=None, freeze_mask=None, top_n=None, exit_mask=None,
                  shares=None, buy_priority=None, max_trade_weight=0.05, max_commission_ratio=0.001):
         if self._done:
@@ -183,7 +204,11 @@ class TradingEnv(gym.Env):
         if shares is not None:
             info["opening_snapshot"] = self.broker.last_trade_snapshot
         info["corporate_actions"] = events
-        reward = info["equity"] / previous_value - 1 if previous_value > 0 else 0.0
+        raw = info["equity"] / previous_value - 1 if previous_value > 0 else 0.0
+        info["raw_return"] = float(raw)
+        info["benchmark_return"] = self.benchmark_return(idx, valid)
+        info["excess_return"] = float(raw - info["benchmark_return"])
+        reward = info["raw_return"] if self.reward_mode == "return" else info["excess_return"]
         terminated = self.market.current_index == self.market.n_dates - 1 or info["equity"] <= 0
         truncated = not terminated and self.max_steps is not None and self._steps >= self.max_steps
         self._done = terminated or truncated

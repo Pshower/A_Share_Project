@@ -2,6 +2,7 @@
 
 import argparse
 from collections import Counter
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
@@ -9,14 +10,90 @@ from time import perf_counter
 import numpy as np
 import pandas as pd
 import torch
-from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 from stable_baselines3.common.logger import configure
 
 from src.agents.ppo_agent import PPOAgent, make_model
+from src.backtest.metrics import performance
+from src.backtest.run import run_policy, run_strategy
 from src.data.preprocess import ROOT, read_config, resolve_path, write_json
 from src.runtime import events
 from .env_factory import ResearchData
 from .evaluate import evaluate_agent, selection_score, selection_assessment
+
+
+def checkpoint_row(step, daily, reference, metrics):
+    """One checkpoint's own validation backtest, measured against the equal-weight pool.
+
+    The reference is the daily-rebalanced equal-weight portfolio on the same validation
+    market, so ``excess_return`` is a selection-and-timing result rather than beta. Nothing is
+    fitted here: the policy is evaluated as it stands at that checkpoint.
+    """
+    policy_return = float(metrics["cumulative_return"])
+    reference_return = float(reference.equity.iloc[-1] / reference.equity.iloc[0] - 1)
+    paired = pd.concat([daily.set_index("date").equity.pct_change().rename("policy"),
+                        reference.set_index("date").equity.pct_change().rename("reference")],
+                       axis=1).dropna()
+    active = (paired.policy - paired.reference).to_numpy(dtype=float)
+    tracking = float(active.std(ddof=1)) if len(active) > 1 else 0.0
+    return dict(step=int(step), policy_return=policy_return, reference_return=reference_return,
+                excess_return=policy_return - reference_return,
+                sharpe=metrics["sharpe"], max_drawdown=metrics["max_drawdown"],
+                mean_cash_ratio=metrics["mean_cash_ratio"],
+                mean_daily_turnover=metrics["mean_daily_turnover"],
+                total_fees=metrics["total_fees"], matched_steps=len(active),
+                tracking_error=tracking * np.sqrt(252),
+                information_ratio=(float(active.mean() / tracking * np.sqrt(252))
+                                   if tracking > 1e-15 else None))
+
+
+class CheckpointBacktest(BaseCallback):
+    """Backtest the live policy at every checkpoint, so progress is measured, not assumed."""
+
+    def __init__(self, data, output, every_steps):
+        super().__init__()
+        self.data = data
+        self.output = Path(output)
+        self.every = int(every_steps)
+        self.settings = deepcopy(data.settings)
+        reference_settings = deepcopy(self.settings)
+        reference_settings["rebalance_every"] = 1
+        self.reference = run_strategy(data.market("val"), "equal_weight", reference_settings)[0]
+        self.rows = []
+        self.last_step = None
+
+    def _record(self, step):
+        agent = PPOAgent(self.model, self.data.contract)
+        folder = self.output / "checkpoints" / f"step_{step}"
+        folder.parent.mkdir(parents=True, exist_ok=True)
+        agent.save(folder, self.data.config, dict(checkpoint_step=step))
+        daily, _, _, assumptions = run_policy(self.data.market("val"), agent, self.settings)
+        row = checkpoint_row(step, daily, self.reference, performance(daily))
+        self.rows.append(row)
+        pd.DataFrame(self.rows).to_csv(self.output / "checkpoints.csv", index=False)
+        write_json(self.output / "checkpoints" / "reference.json",
+                   dict(strategy="equal_weight_daily", split="val",
+                        cumulative_return=float(self.reference.equity.iloc[-1] / self.reference.equity.iloc[0] - 1),
+                        steps=int(len(self.reference)), assumptions=assumptions))
+        events.emit("checkpoint", step=step, excess_return=row["excess_return"],
+                    sharpe=row["sharpe"])
+
+    def _on_rollout_start(self):
+        step = self.model.num_timesteps
+        if not step or step % self.every or step == self.last_step:
+            return
+        self.last_step = step
+        self._record(step)
+
+    def _on_step(self):
+        return True
+
+    def _on_training_end(self):
+        """The final weights deserve a backtest too, but no rollout starts after them."""
+        final = self.model.num_timesteps
+        if final and final != self.last_step:
+            self.last_step = final
+            self._record(final)
 
 
 class ValidationCallback(BaseCallback):
@@ -120,7 +197,10 @@ class ValidationCallback(BaseCallback):
                 cash_metric = "requested_cash_reference" if trade else "target_cash"
                 self.logger.record_mean("portfolio/" + cash_metric, diagnostics["cash_weight"])
                 self.logger.record_mean("portfolio/action_saturation", diagnostics["saturation_fraction"])
-                self.logger.record_mean("portfolio/raw_return", info["reward"])
+                self.logger.record_mean("portfolio/raw_return", info.get("raw_return", info["reward"]))
+                if "excess_return" in info:
+                    self.logger.record_mean("portfolio/excess_return", info["excess_return"])
+                    self.logger.record_mean("portfolio/benchmark_return", info["benchmark_return"])
                 self.logger.record_mean("portfolio/actual_cash", info["cash"] / info["equity"] if info["equity"] else 0)
                 orders = info["orders"]
                 self.logger.record_mean("portfolio/fees", sum(o["fee"] for o in orders))
@@ -130,7 +210,7 @@ class ValidationCallback(BaseCallback):
                 self.logger.record_mean("portfolio/gross_turnover", gross / previous)
                 weights = diagnostics.get("weights")
                 sample = dict(actual_cash=info["cash"] / info["equity"] if info["equity"] else 0,
-                              raw_return=info["reward"], fees=sum(o["fee"] for o in orders), gross_turnover=gross / previous,
+                              raw_return=info.get("raw_return", info["reward"]), fees=sum(o["fee"] for o in orders), gross_turnover=gross / previous,
                               unfilled_orders=sum(o["status"] != "filled" for o in orders),
                               action_saturation=diagnostics["saturation_fraction"])
                 sample[cash_metric] = diagnostics["cash_weight"]
@@ -250,9 +330,15 @@ def main(argv=None):
                        rollout_size=config["ppo"]["n_steps"], note="SB3 completes full rollouts; actual timesteps may exceed the requested budget."))
             model.set_logger(configure(str(output / "logs"), ["stdout", "csv"]))
             callback = ValidationCallback(data, output)
+            callbacks = [callback]
+            checkpoints = None
+            if config.get("checkpoint_every"):
+                checkpoints = CheckpointBacktest(data, output, config["checkpoint_every"])
+                callbacks.append(checkpoints)
             events.phase("training", effective_budget=int(np.ceil(args.total_timesteps / config["ppo"]["n_steps"]) * config["ppo"]["n_steps"]))
             started = perf_counter()
-            model.learn(total_timesteps=args.total_timesteps, callback=callback)
+            model.learn(total_timesteps=args.total_timesteps,
+                        callback=callbacks if len(callbacks) > 1 else callback)
             elapsed = perf_counter() - started
             model.logger.dump(step=model.num_timesteps)
             events.phase("saving")
@@ -267,6 +353,8 @@ def main(argv=None):
                          tensor_delta_l2=deltas, elapsed_seconds=elapsed,
                          all_parameters_finite=all(bool(torch.isfinite(p).all()) for p in model.policy.parameters()),
                          test_evaluated=False, initial_account_steps=dict(callback.initial_account_steps),
+                         reward_mode=config.get("reward_mode", "return"),
+                         checkpoint_rows=len(checkpoints.rows) if checkpoints is not None else 0,
                          valid_observation_steps={c: int(v) for c, v in zip(data.codes, callback.valid_observation_steps)})
             if not audit["changed_tensors"] or not audit["optimizer_steps_min"] or not audit["all_parameters_finite"]:
                 raise AssertionError("Training did not perform finite parameter updates")

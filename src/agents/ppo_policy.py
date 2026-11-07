@@ -22,13 +22,15 @@ class SharedStockNetwork(nn.Module):
     """
 
     def __init__(self, lookback, n_features, hidden_sizes=(128, 64), initial_log_std=0.0,
-                 prior_feature_index=None, prior_strength=4.0, residual_scale=0.25):
+                 prior_feature_index=None, prior_strength=4.0, residual_scale=0.25,
+                 full_invest=False):
         super().__init__()
         if len(hidden_sizes) != 2 or any(not isinstance(v, int) or v < 1 for v in hidden_sizes):
             raise ValueError("hidden_sizes must contain two positive integers")
         h, d = hidden_sizes
         self.prior_feature_index = prior_feature_index
         self.prior_strength, self.residual_scale = prior_strength, residual_scale
+        self.full_invest = bool(full_invest)
         if prior_feature_index is not None and (type(prior_feature_index) is not int or not 0 <= prior_feature_index < n_features):
             raise ValueError("Invalid prior feature index")
         # Each stock supplies L*F features plus [weight, valid, buy, sell].
@@ -39,13 +41,16 @@ class SharedStockNetwork(nn.Module):
         # Actor heads score stock/cash actions; the critic estimates future reward.
         context_size = d * 2 + 2
         self.stock_head = nn.Sequential(nn.Linear(d + context_size, d), nn.Tanh(), nn.Linear(d, 1))
-        self.cash_head = nn.Sequential(nn.Linear(context_size, d), nn.Tanh(), nn.Linear(d, 1))
+        # A fully invested book has no cash action, so the head would only collect dead
+        # parameters. It is built only when the mapping can actually use it.
+        if not self.full_invest:
+            self.cash_head = nn.Sequential(nn.Linear(context_size, d), nn.Tanh(), nn.Linear(d, 1))
         self.value_head = nn.Sequential(nn.Linear(context_size, d), nn.Tanh(), nn.Linear(d, 1))
         self.log_std = nn.Parameter(torch.full((2,), float(initial_log_std)))
         if prior_feature_index is not None:
             # A fresh actor starts at the pure prior; training learns the residual.
             # The critic retains its normal initialization.
-            for head in [self.stock_head, self.cash_head]:
+            for head in [self.stock_head] + ([] if self.full_invest else [self.cash_head]):
                 nn.init.zeros_(head[-1].weight)
                 nn.init.zeros_(head[-1].bias)
 
@@ -55,7 +60,7 @@ class SharedStockNetwork(nn.Module):
         Inputs: stock_features[B,N,L,F], portfolio[B,N+1] (cash last),
         valid_mask/buy_mask/sell_mask[B,N], receivable_ratio[B,1]. Upstream
         observation construction supplies finite feature values and masks.
-        Returns: mean[B,N+1], value[B,1], log_std[N+1]. The Gaussian distribution
+        Returns: mean[B,N(+1)], value[B,1], log_std[N(+1)]. The Gaussian distribution
         broadcasts log_std across the batch and uses exp(log_std) as its scale.
         """
         # Flatten only time and feature axes: [B,N,L,F] -> [B,N,L*F].
@@ -75,7 +80,7 @@ class SharedStockNetwork(nn.Module):
         # context[B,2*d+2] is broadcast to every stock. Stock-head input is
         # [B,N,3*d+2], combining its own embedding with the same portfolio state.
         stock = self.stock_head(torch.cat([encoded, context.unsqueeze(1).expand(-1, encoded.shape[1], -1)], dim=-1)).squeeze(-1)
-        cash = self.cash_head(context)
+        cash = None if self.full_invest else self.cash_head(context)
         if self.prior_feature_index is not None:
             # Rank only valid, buyable stocks by their latest selected feature.
             # In R1 the selected feature is momentum_20. Infinity moves excluded
@@ -93,9 +98,13 @@ class SharedStockNetwork(nn.Module):
             prior = torch.where(eligible, rank * self.prior_strength, torch.zeros_like(signal))
             # R1 uses 4*rank + 0.25*tanh(stock), and 0.25*tanh(cash).
             stock = prior + self.residual_scale * stock.tanh()
-            cash = self.residual_scale * cash.tanh()
+            if cash is not None:
+                cash = self.residual_scale * cash.tanh()
         # Mean contains latent stock scores plus cash, before weight mapping.
         # The critic estimates discounted future rewards for PPO's advantage target.
+        if self.full_invest:
+            log_std = self.log_std[:1].expand(encoded.shape[1])
+            return stock, self.value_head(context), log_std
         mean = torch.cat([stock, cash], dim=1)
         log_std = torch.cat([self.log_std[:1].expand(encoded.shape[1]), self.log_std[1:]])
         return mean, self.value_head(context), log_std
@@ -105,18 +114,21 @@ class SharedStockPolicy(ActorCriticPolicy):
     """Connect shared stock representations to SB3's Gaussian actor and critic."""
 
     def __init__(self, *args, hidden_sizes=(128, 64), initial_log_std=0.0, prior_feature_index=None,
-                 prior_strength=4.0, residual_scale=0.25, **kwargs):
+                 prior_strength=4.0, residual_scale=0.25, full_invest=False, **kwargs):
         self.hidden_sizes = tuple(hidden_sizes)
+        self.full_invest = bool(full_invest)
         self.prior_options = dict(initial_log_std=initial_log_std, prior_feature_index=prior_feature_index,
-                                  prior_strength=prior_strength, residual_scale=residual_scale)
+                                  prior_strength=prior_strength, residual_scale=residual_scale,
+                                  full_invest=self.full_invest)
         super().__init__(*args, **kwargs)
 
     def _build(self, lr_schedule):
         n, lookback, features = self.observation_space["stock_features"].shape
-        if self.action_space.shape != (n + 1,) or self.use_sde:
-            raise ValueError("SharedStockPolicy requires N+1 Gaussian actions without SDE")
+        size = n if self.full_invest else n + 1
+        if self.action_space.shape != (size,) or self.use_sde:
+            raise ValueError("SharedStockPolicy action shape does not match the cash/full-invest mapping")
         self.network = SharedStockNetwork(lookback, features, self.hidden_sizes, **self.prior_options)
-        self.action_dist = DiagGaussianDistribution(n + 1)
+        self.action_dist = DiagGaussianDistribution(size)
         self.optimizer = self.optimizer_class(self.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs)
 
     def _distribution_value(self, obs):
