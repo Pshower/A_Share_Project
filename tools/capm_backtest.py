@@ -1,4 +1,4 @@
-"""CAPM tests on the full-market panel: market portfolio, beta pricing, and 1/N.
+﻿"""CAPM tests on the full-market panel: market portfolio, beta pricing, and 1/N.
 
 Three questions, in the order the protocol registers them:
 
@@ -506,6 +506,13 @@ def summarize(rows, names):
     # Alpha per decile: realised excess minus the decile's beta times the market excess.
     decile_alpha = {key: float(np.mean([row["deciles"][key] - decile_betas[key] * row["market"] for row in rows]))
                     for key in range(1, DECILES + 1)}
+    # The same quantity period by period, so the decile alpha carries a t statistic and
+    # "the spread is negative" can become "the top decile has negative alpha".
+    decile_alpha_t = {}
+    for key in range(1, DECILES + 1):
+        series = np.array([row["deciles"][key] - decile_betas[key] * row["market"] for row in rows])
+        error = series.std(ddof=1) / math.sqrt(len(series)) if len(series) > 1 else float("nan")
+        decile_alpha_t[key] = float(series.mean() / error) if error and error > 0 else float("nan")
     se = gamma1.std(ddof=1) / math.sqrt(len(gamma1)) if len(gamma1) > 1 else float("nan")
     zero_band = gamma0.std(ddof=1) / math.sqrt(len(gamma0)) if len(gamma0) > 1 else float("nan")
     return dict(status="ready", periods=len(rows),
@@ -517,6 +524,7 @@ def summarize(rows, names):
                 slope_gap=float(gamma1.mean() - market.mean()),
                 slope_gap_t=float((gamma1.mean() - market.mean()) / se) if se and se > 0 else float("nan"),
                 decile_excess=decile_means, decile_beta=decile_betas, decile_alpha=decile_alpha,
+                decile_alpha_t=decile_alpha_t,
                 alpha_spread=float(decile_alpha[DECILES] - decile_alpha[1]),
                 mean_names=float(np.mean([row["names"] for row in rows])),
                 universe=int(names))
@@ -643,10 +651,11 @@ def _markdown(payload):
               f"| 同期市场区间超额 | {summary['market_excess_mean']:+.4f} |",
               f"| γ1 − 市场超额 | {summary['slope_gap']:+.4f}（t {summary['slope_gap_t']:+.2f}） |",
               f"| 截距 γ0 | {summary['gamma0_mean']:+.4f}（t {_fmt(summary.get('gamma0_t'), '+.2f')}） |", "",
-              "| 十分位 | 平均 β | 平均超额 | α（对市场） |", "| ---: | ---: | ---: | ---: |"]
+              "| 十分位 | 平均 β | 平均超额 | α（对市场） | α 的 t |", "| ---: | ---: | ---: | ---: | ---: |"]
     for key in range(1, DECILES + 1):
-        lines.append("| D{} | {:.3f} | {:+.4f} | {:+.4f} |".format(
-            key, summary["decile_beta"][key], summary["decile_excess"][key], summary["decile_alpha"][key]))
+        lines.append("| D{} | {:.3f} | {:+.4f} | {:+.4f} | {} |".format(
+            key, summary["decile_beta"][key], summary["decile_excess"][key], summary["decile_alpha"][key],
+            _fmt(summary.get("decile_alpha_t", {}).get(key), "+.2f")))
     lines += ["", f"α 极差 D10−D1：**{summary['alpha_spread']:+.4f}**（每 {payload['step']} 日）。", "",
               "## T3 市场组合 vs 1/N", "",
               "市值加权组合是**买入并持有**：价格变动按比例改变权重，不需要再平衡，因此几乎没有成本。"
