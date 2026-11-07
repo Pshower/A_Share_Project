@@ -199,3 +199,39 @@ def test_permutation_control_is_uninformative_when_the_slope_is_planted_at_zero(
     assert result["status"] == "ready"
     # With no planted slope the observation is ordinary, not extreme.
     assert abs(result["observed"]) <= max(3 * result["placebo_sd"], 1e-9) + abs(result["placebo_mean"])
+
+def _census_panel(alpha_daily=0.0, names=200, days=500, seed=41):
+    rng = np.random.default_rng(seed)
+    index = pd.bdate_range("2020-01-01", periods=days)
+    codes = [f"C{i:03d}" for i in range(names)]
+    market = pd.Series(rng.normal(0.0003, 0.01, days), index=index)
+    beta = rng.uniform(0.5, 1.5, (1, names))
+    noise = rng.normal(0.0, 0.015, (days, names))
+    returns = alpha_daily + beta * market.to_numpy()[:, None] + noise
+    prices = pd.DataFrame(100 * np.exp(np.cumsum(np.log1p(returns), axis=0)), index=index, columns=codes)
+    return prices, market
+
+
+def test_alpha_census_finds_about_five_percent_by_chance_when_there_is_no_alpha():
+    prices, market = _census_panel(alpha_daily=0.0)
+    census = capm.alpha_census(prices, market)
+    assert census["status"] == "ready"
+    assert census["stocks"] == 200
+    assert census["share_significant"] < 0.12
+    assert abs(census["median_alpha"]) < 0.10
+
+
+def test_alpha_census_detects_a_planted_alpha():
+    # A 0.001/day alpha is only t = 1.5 here, which is the power wall this study keeps
+    # meeting; the detection test therefore plants an alpha large enough to clear it.
+    prices, market = _census_panel(alpha_daily=0.0025)
+    census = capm.alpha_census(prices, market)
+    assert census["share_positive_significant"] > 0.90
+    assert census["median_alpha"] == pytest.approx(0.0025 * capm.TRADING_DAYS, rel=0.15)
+
+
+def test_alpha_census_cannot_see_a_twenty_percent_alpha_in_two_years():
+    # 24% a year, 500 sessions, 1.5% daily idiosyncratic noise: t is about 1.5.
+    prices, market = _census_panel(alpha_daily=0.001)
+    census = capm.alpha_census(prices, market)
+    assert census["share_positive_significant"] < 0.60

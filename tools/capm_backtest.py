@@ -311,6 +311,65 @@ def permutation_gamma(betas, forward, market_forward, dates, rf_period, draws=10
                 p_value=float(np.mean(np.abs(spread) >= abs(real))))
 
 
+MIN_ALPHA_OBS = 250
+
+
+def alpha_census(prices, market, cash_rate=CASH_RATE, days=TRADING_DAYS, min_obs=MIN_ALPHA_OBS):
+    """Time-series Jensen alpha for every stock against the market factor.
+
+    T1 asks whether the *deciles* have alpha and T2 whether the slope matches the
+    premium; this asks the textbook question directly: for each stock, is the alpha of
+    a regression on the market factor zero?  Under CAPM roughly 5% of names should
+    clear |t| >= 2, and those should be split evenly between signs.  A census is where
+    breadth actually pays off: unlike the slope, this statistic is estimated from the
+    time dimension of every name at once.
+
+    Coefficients are solved in closed form with a pairwise-valid mask per name, so a
+    suspension drops that day for that stock only.
+    """
+    tickers = list(prices.columns)
+    values = daily_frame(prices).to_numpy(dtype=float)
+    rf = cash_rate / days
+    factor = (market - rf).reindex(prices.index).to_numpy(dtype=float)
+    rows = []
+    for column, code in enumerate(tickers):
+        y = values[:, column] - rf
+        valid = np.isfinite(y) & np.isfinite(factor)
+        count = int(valid.sum())
+        if count < min_obs:
+            continue
+        x, yv = factor[valid], y[valid]
+        x_centred = x - x.mean()
+        sums = float(x_centred @ x_centred)
+        if sums <= 0:
+            continue
+        beta = float(x_centred @ (yv - yv.mean())) / sums
+        alpha = float(yv.mean() - beta * x.mean())
+        residuals = yv - (alpha + beta * x)
+        dof = count - 2
+        if dof <= 0:
+            continue
+        sigma2 = float(residuals @ residuals) / dof
+        standard_error = math.sqrt(sigma2 * (1.0 / count + x.mean() ** 2 / sums)) if sigma2 > 0 else float("nan")
+        rows.append(dict(code=code, observations=count, alpha=alpha * days,
+                         alpha_t=alpha / standard_error if standard_error and standard_error > 0 else float("nan"),
+                         beta=beta))
+    if not rows:
+        return dict(status="empty")
+    frame = pd.DataFrame(rows)
+    significant = frame["alpha_t"].abs() >= 2.0
+    return dict(status="ready", stocks=int(len(frame)),
+                share_significant=float(significant.mean()),
+                share_positive_significant=float((frame["alpha_t"] >= 2.0).mean()),
+                share_negative_significant=float((frame["alpha_t"] <= -2.0).mean()),
+                median_alpha=float(frame["alpha"].median()),
+                median_alpha_t=float(frame["alpha_t"].median()),
+                median_beta=float(frame["beta"].median()),
+                alpha_beta_correlation=float(frame["alpha"].corr(frame["beta"])),
+                min_observations=int(frame["observations"].min()),
+                median_observations=int(frame["observations"].median()))
+
+
 def performance(series, cash_rate=CASH_RATE, days=TRADING_DAYS):
     """Annualised return, volatility, drawdown and excess Sharpe of a return series."""
     clean = series.dropna()
@@ -431,11 +490,13 @@ def measure(panel_dir=DEFAULT_OUTPUT, *, start=SAMPLE_START, end=SAMPLE_END, cas
     equal_net_perf = performance(equal_net, cash_rate)
     placebo = (permutation_gamma(betas, forward, market_forward, dates, rf_period, placebo_draws)
                if placebo_draws else dict(status="skipped"))
+    sample_prices = prices.loc[(prices.index >= pd.Timestamp(start)) & (prices.index <= pd.Timestamp(end))]
+    census = alpha_census(sample_prices, factor_series.reindex(sample_prices.index), cash_rate)
     return dict(panel=dict(path=str(Path(panel_dir)), shape=manifest["shape"],
                            codes=manifest["shape"][1], missing=len(manifest.get("codes_missing", [])),
                            capitalisation=manifest.get("capitalisation")),
                 start=start, end=end, step=STEP, window=WINDOW, deciles=DECILES, factor=factor,
-                summary=summary, placebo=placebo,
+                summary=summary, placebo=placebo, alpha_census=census,
                 performance=dict(market=market_perf, equal_weight=equal_perf,
                                  equal_weight_net=equal_net_perf,
                                  annual_turnover=float(turnover.sum() * TRADING_DAYS / len(turnover)),
@@ -511,6 +572,21 @@ def _markdown(payload):
                   f"| 重排均值 | {placebo['placebo_mean']:+.4f} |",
                   f"| 重排标准差 | {placebo['placebo_sd']:.4f} |",
                   f"| p 值（\\|γ1\\| ≥ 观测） | **{placebo['p_value']:.3f}** |"]
+    census = payload.get("alpha_census") or {}
+    if census.get("status") == "ready":
+        lines += ["", "## 个股 α 普查（Jensen）", "",
+                  "每只股票对市场因子做时间序列回归，看 α 的 t 值分布。CAPM 下应有约 5% 的股票 \\|t\\| ≥ 2，"
+                  "且正负各半。", "",
+                  "| 项 | 值 |", "| --- | ---: |",
+                  f"| 股票数 | {census['stocks']} |",
+                  f"| \\|t\\| ≥ 2 的比例 | **{census['share_significant']:.2%}** |",
+                  f"| 显著为正 | {census['share_positive_significant']:.2%} |",
+                  f"| 显著为负 | {census['share_negative_significant']:.2%} |",
+                  f"| α 中位数（年化） | {census['median_alpha']:+.2%} |",
+                  f"| α 的 t 中位数 | {census['median_alpha_t']:+.2f} |",
+                  f"| β 中位数 | {census['median_beta']:.3f} |",
+                  f"| α 与 β 的相关 | {census['alpha_beta_correlation']:+.3f} |",
+                  f"| 观测数（中位） | {census['median_observations']} |"]
     lines.append("")
     return "\n".join(lines)
 
