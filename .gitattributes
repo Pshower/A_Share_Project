@@ -1,0 +1,25 @@
+# Repository line-ending policy.
+#
+# Two sealed timing studies hash src/**/*.py on disk and compare the result with a
+# recorded sha256 map (tools/timing_phase_agent.py, tools/research_timing_credit.py,
+# tools/research_timing_margin.py). A CRLF checkout changes every one of those
+# hashes, so the checkout format is pinned here instead of being inherited from
+# each machine's core.autocrlf setting.
+* text=auto
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+*.csv text eol=lf
+*.yml text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.mjs text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+
+*.pdf binary
+*.png binary
+*.zip binary
+*.parquet binary
+*.npz binary
