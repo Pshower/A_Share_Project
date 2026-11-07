@@ -1,4 +1,4 @@
-﻿"""Download the whole A-share universe, largest float cap first, resumably.
+"""Download the whole A-share universe, largest float cap first, resumably.
 
 The CAPM test needs two things this repository does not have: a market portfolio
 that is not the 300 largest listings, and a cross-section wide enough to estimate
@@ -105,26 +105,32 @@ def classify_failures(snapshot_directory):
 
 
 def repair(progress, codes, chunk_size=CHUNK, history_root=None):
-    """Reopen chunks whose failures look transient, and count them.
+    """Settle every recorded chunk into ``ready`` or ``partial`` and return the change count.
 
-    A chunk that only carries codes the provider never had is finished work and must
-    stay closed; reopening it would spend hours re-confirming known gaps.
+    A chunk whose failures are all permanent (the provider simply has no bars for those
+    codes) is finished work and is closed, so it is never fetched again.  A chunk with a
+    transient failure such as a circuit breaker is reopened so the resume logic retries
+    it.  Without the closing direction, one accidental reopen would re-download fifteen
+    chunks for nothing.
     """
     changed = 0
     for index, offset in enumerate(range(0, len(codes), chunk_size)):
         key = str(index)
         row = progress.get("chunks", {}).get(key)
-        if not row or row.get("status") == "partial":
+        if not row:
             continue
         expected = len(codes[offset:offset + chunk_size]) * len(BASES)
+        before = row.get("status")
         if row.get("ready", 0) >= expected:
-            continue
-        detail = None
-        if history_root and row.get("snapshot"):
-            detail = classify_failures(Path(history_root) / row["snapshot"])
-        if detail is None or detail["transient"] > 0:
-            row["status"] = "partial"
+            row["status"] = "ready"
+        else:
+            detail = None
+            if history_root and row.get("snapshot"):
+                detail = classify_failures(Path(history_root) / row["snapshot"])
             row["failure_detail"] = detail
+            # An unclassifiable chunk stays open: guessing "permanent" would lose data.
+            row["status"] = "partial" if detail is None or detail["transient"] > 0 else "ready"
+        if row.get("status") != before:
             changed += 1
     return changed
 
