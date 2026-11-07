@@ -1,4 +1,4 @@
-"""Tests for the full-market panel builder and the chunked download planner."""
+﻿"""Tests for the full-market panel builder and the chunked download planner."""
 
 import json
 from pathlib import Path
@@ -94,7 +94,7 @@ def test_classify_failures_separates_a_rate_limit_from_a_missing_listing(tmp_pat
         dict(code="3", status="failed", error="404 Client Error: Not Found"),
         dict(code="4", status="failed", error="Batch circuit/time limit reached")])), encoding="utf-8")
     detail = dl.classify_failures(snapshot)
-    assert detail == {"permanent": 2, "transient": 1}
+    assert detail == {"ready": 1, "permanent": 2, "transient": 1}
 
 
 def test_repair_leaves_a_chunk_closed_when_every_failure_is_permanent(tmp_path):

@@ -1,4 +1,4 @@
-"""Download the whole A-share universe, largest float cap first, resumably.
+﻿"""Download the whole A-share universe, largest float cap first, resumably.
 
 The CAPM test needs two things this repository does not have: a market portfolio
 that is not the 300 largest listings, and a cross-section wide enough to estimate
@@ -92,16 +92,17 @@ def classify_failures(snapshot_directory):
     if not path.exists():
         return None
     payload = json.loads(path.read_text(encoding="utf-8"))
-    permanent = transient = 0
+    permanent = transient = ready = 0
     for entry in payload.get("entries", []):
         if entry.get("status") == "ready":
+            ready += 1
             continue
         text = str(entry.get("error"))
         if any(marker in text for marker in PERMANENT_ERRORS):
             permanent += 1
         else:
             transient += 1
-    return dict(permanent=permanent, transient=transient)
+    return dict(ready=ready, permanent=permanent, transient=transient)
 
 
 def repair(progress, codes, chunk_size=CHUNK, history_root=None):
@@ -121,12 +122,17 @@ def repair(progress, codes, chunk_size=CHUNK, history_root=None):
             continue
         expected = len(codes[offset:offset + chunk_size]) * len(BASES)
         before = row.get("status")
+        detail = None
+        if history_root and row.get("snapshot"):
+            detail = classify_failures(Path(history_root) / row["snapshot"])
+        if detail is not None:
+            # Trust the snapshot over the stored counters: a failed retry can leave the
+            # record blank while the manifest still holds every entry.
+            row["ready"] = detail["ready"]
+            row["failed"] = detail["permanent"] + detail["transient"]
         if row.get("ready", 0) >= expected:
             row["status"] = "ready"
         else:
-            detail = None
-            if history_root and row.get("snapshot"):
-                detail = classify_failures(Path(history_root) / row["snapshot"])
             row["failure_detail"] = detail
             # An unclassifiable chunk stays open: guessing "permanent" would lose data.
             row["status"] = "partial" if detail is None or detail["transient"] > 0 else "ready"
@@ -160,7 +166,9 @@ def run(*, limit=None, chunk_size=CHUNK, universe=UNIVERSE, progress_path=PROGRE
         existing = progress.get("chunks", {}).get(str(index)) or {}
         resume = existing.get("snapshot") if existing.get("status") == "partial" else None
         try:
-            result = download_history(group, start, end, BASES, allow_network=True,
+            # A list, not the BASES tuple: the stored request round-trips through JSON,
+            # where a tuple becomes a list, and the resume check compares for equality.
+            result = download_history(group, start, end, list(BASES), allow_network=True,
                                       root=PROJECT_ROOT, source=SOURCE, resume_id=resume)
             ready = sum(1 for row in result["entries"] if row["status"] == "ready")
             expected = len(group) * len(BASES)
