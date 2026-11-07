@@ -59,6 +59,46 @@ def batches(items, size):
         yield items[offset:offset + size]
 
 
+def attempted_pairs():
+    """Every (code, basis) some snapshot recorded, ready or not."""
+    seen = set()
+    for manifest in HISTORY.glob("h_*/manifest.json"):
+        try:
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for entry in payload.get("entries", []):
+            seen.add((entry["code"], entry["basis"]))
+    return seen
+
+
+def status():
+    """The download ledger: what was attempted, what arrived, what never existed.
+
+    Reported in both code and capitalisation terms, because the gap is confined to the
+    smallest names: counting codes makes it look serious, counting capitalisation makes
+    it look negligible, and only both together say what it is.
+    """
+    payload = json.loads(UNIVERSE.read_text(encoding="utf-8"))
+    rows = payload["rows"]
+    codes = [row["code"] for row in rows]
+    weight = {row["code"]: float(row.get("nmc") or 0.0) for row in rows}
+    total = sum(weight.values()) or 1.0
+    ready = {code for code, _ in ready_pairs()}
+    attempted = {code for code, _ in attempted_pairs()}
+    present = [code for code in codes if code in ready]
+    absent = [code for code in codes if code not in ready]
+    never = [code for code in codes if code not in attempted]
+    return dict(universe=len(codes),
+                with_history=len(present),
+                with_history_share=len(present) / len(codes),
+                missing=len(absent),
+                missing_share=len(absent) / len(codes),
+                missing_capitalisation=sum(weight.get(code, 0.0) for code in absent) / total,
+                never_attempted=len(never),
+                never_attempted_capitalisation=sum(weight.get(code, 0.0) for code in never) / total)
+
+
 def run(batch_size=5, rounds=4, limit=None, log=print):
     universe = load_universe()
     for attempt in range(1, rounds + 1):
@@ -90,7 +130,12 @@ def main(argv=None):
     parser.add_argument("--rounds", type=int, default=4)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--allow-network", action="store_true")
+    parser.add_argument("--status", action="store_true",
+                        help="Print the download ledger and exit without fetching.")
     args = parser.parse_args(argv)
+    if args.status:
+        print(json.dumps(status(), ensure_ascii=False, indent=2))
+        return 0
     if not args.allow_network:
         raise SystemExit("Explicit network consent required: pass --allow-network")
     result = run(batch_size=args.batch, rounds=args.rounds, limit=args.limit)

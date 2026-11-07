@@ -120,3 +120,11 @@ def test_batches_cover_every_item_once():
     groups = list(fm.batches(items, 3))
     assert [len(g) for g in groups] == [3, 3, 3, 2]
     assert [x for g in groups for x in g] == items
+
+def test_status_ledger_is_internally_consistent():
+    fm = __import__("tools.fetch_missing", fromlist=["fetch_missing"])
+    ledger = fm.status()
+    assert ledger["universe"] == ledger["with_history"] + ledger["missing"]
+    assert 0.0 <= ledger["with_history_share"] <= 1.0
+    assert 0.0 <= ledger["missing_capitalisation"] <= 1.0
+    assert ledger["never_attempted"] <= ledger["missing"]
