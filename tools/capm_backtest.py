@@ -131,12 +131,19 @@ def equal_weight_portfolio(returns, step=STEP):
     them monthly is both cheaper and what the repository's own ``equal_weight``
     baseline does, so that is the book the market portfolio has to beat.
 
+    Weights are equal across the names **trading at that date**, not across the whole
+    panel: a stock that lists in 2021 must not hold an idle slot from 2019, which
+    would quietly park a quarter of the book in cash and understate both the return
+    and the volatility of the naive strategy.  Names therefore enter at the first
+    rebalance after their listing.
+
     Returns the daily return series and the turnover charged at each rebalance,
     where turnover is half the summed absolute weight change.
     """
     values = returns.to_numpy(dtype=float)
     n = values.shape[1]
-    weights = np.full(n, 1.0 / n)
+    first = np.isfinite(values[0])
+    weights = np.where(first, 1.0 / max(first.sum(), 1), 0.0)
     out = np.zeros(len(values))
     turnover = np.zeros(len(values))
     for position in range(len(values)):
@@ -144,9 +151,11 @@ def equal_weight_portfolio(returns, step=STEP):
         out[position] = float(weights @ row)
         grown = weights * (1.0 + row)
         total = grown.sum()
-        weights = grown / total if total > 0 else np.full(n, 1.0 / n)
+        weights = grown / total if total > 0 else weights
         if (position + 1) % step == 0:
-            target = np.full(n, 1.0 / n)
+            tradable = np.isfinite(values[position])
+            count = int(tradable.sum())
+            target = np.where(tradable, 1.0 / count, 0.0) if count else weights
             turnover[position] = float(np.abs(target - weights).sum() / 2.0)
             weights = target
     return pd.Series(out, index=returns.index), pd.Series(turnover, index=returns.index)
