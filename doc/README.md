@@ -36,6 +36,7 @@
 | [autocorrelation_20261106.md](autocorrelation_20261106.md) | 自回归结构诊断：时序是轻微动量，截面 1 日反转很强且 T+1 可执行，但卡在成本上 |
 | [reversal_backtest_20261106.md](reversal_backtest_20261106.md) | 1 日反转的成本感知回测：毛额 +520%，但零滑点下法定费率已把它压到 +69%，全程输给等权池 |
 | [research_direction_20261107.md](research_direction_20261107.md) | 研究方向复核：持有期 × 成本 × 效应量的算术，为什么 1 日算术关闭而 20 日还有余量，以及唯一该做的实验与停止清单 |
+| [prior_attribution_20261107.md](prior_attribution_20261107.md) | R1 动量先验的只读归因：残差只有先验振幅的 0.01~0.53%，排序 12 个 run 全部未变；附样本账本修正 A3（R 已被 9 月训练消耗） |
 | [bulk_download_runbook.md](bulk_download_runbook.md) | 批量选取、代码导入、进度、取消、重试和数据集扩充 |
 | [akshare_download_expansion.md](akshare_download_expansion.md) | 资料、资金流、分钟、指数和分红的独立归档；不自动入模 |
 | [training_data_linkage.md](training_data_linkage.md) | 多股日期交集、lookback、原始行情与下载批次关联 |
@@ -67,6 +68,7 @@
 
 | 日期 | 研究 | 协议/设计 | 结果与证据 | 结论 |
 | --- | --- | --- | --- | --- |
+| 2026-11-07 | R1 动量先验的只读归因 | 无独立预注册（只读诊断） | [报告](prior_attribution_20261107.md)、`reports/runs/prior_attribution/`、`tools/prior_attribution.py` | 训练后与先验排序的 Spearman **0.9999997**、top-20 **20/20 完全重合**、残差只有先验振幅 **0.01%~0.53%**（设计上限 6.25%）。9 月那轮**结构上改不动**，不能当作"RL 学不会截面 alpha"的证据；11 月无先验那轮才是真检验。**附修正 A3：R 已被 9 月训练消耗（训练至 2026-03-31、验证至 2026-06-30），不再是干净样本。** |
 | 2026-11-07 | 研究方向复核与仓库整理 | [方向复核](research_direction_20261107.md) | [实施进度](implementation_plan.md)、[本地产物目录](../reports/README.md) | 不产生新样本：算术显示 1 日构造净 **−41.8%/年**、20 日 **+5.3%/年**，内点最优约 14 日；盈亏平衡 IC 0.0310 对实测 0.0311，**恰好压线**。据此把下一步收敛为单个 go/no-go 实验（20 日、298 只、20 特征全取负号等权、top 30），并列出停止清单（RL 策略学习、仓位控制、1 日反转、IC 显著性检验） |
 | 2026-11-07 | 1 日反转的成本感知回测 | [报告](reversal_backtest_20261106.md) | `reports/runs/reversal_backtest/`（含 `slippage_sweep.png`）、`tools/reversal_backtest.py` | 零成本下 6 年 **+217%~+520%**（等权参考 +108.6%），与 IC 折算同量级；真券商下 **−60%~−80%**；缓冲带只降换手约 10%（1 日反转排名逐日独立）；**滑点扫描（佣金与印花税始终照收）显示整条曲线都在参考线之下**——滑点 0 时最好也只有 **+69%**，法定费率吃掉约 87% 毛收益；滑点 0.10% 时 −71%，0.20% 时 −92% |
 | 2026-11-06 | 自回归结构诊断 | [报告](autocorrelation_20261106.md) | `reports/runs/autocorrelation/`、`tools/autocorrelation_probe.py` | 时序上日收益是**轻微动量**（ρ₁ +0.030、t 2.41；VR(5) 1.062、t 2.19）；截面上 1 日**开盘到开盘**反转很强且 **T+1 可执行**：`body_ratio` IC −0.0258（t **5.69**）、**14/20 特征 \|t\|≥2**，full 窗口 −0.0272（t 7.01）；但 2 日就掉到边缘、5 日消失；毛收益 ≈0.139%/日 对一次往返成本 ≈0.31%，**成败取决于换手** |
