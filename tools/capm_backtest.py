@@ -447,6 +447,8 @@ def configuration_table(configurations, *, factor="constructed", **kwargs):
                          gamma1=summary["gamma1_mean"], gamma1_t=summary["gamma1_t"],
                          gamma0=summary["gamma0_mean"], gamma0_t=summary.get("gamma0_t"),
                          gap_t=summary["slope_gap_t"],
+                         reading=payload["verdict"].get("slope_reading"),
+                         rejected=payload["verdict"].get("capm_rejected"),
                          market_annual=payload["performance"]["market"].get("annual_return"),
                          equal_net_annual=payload["performance"]["equal_weight_net"].get("annual_return")))
     return rows
@@ -458,13 +460,14 @@ def _configuration_markdown(rows):
         return ""
     lines = ["## 配置对照（同批名字、不同面板）", "",
              "同一个名字集合从不同面板取出来分别测量。**可复现的是估计量的性质，不可复现的只是面板构成的产物。**", "",
-             "| 配置 | 面板 | 前 K 只 | 名字数 | γ1 | γ1 的 t | γ0（t） | γ1−溢价（t） |",
-             "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"]
+             "| 配置 | 面板 | 前 K 只 | 名字数 | γ1 | γ1 的 t | γ0（t） | γ1−溢价（t） | 判读 |",
+             "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |"]
     for row in ready:
-        lines.append("| {} | `{}` | {} | {} | {:+.4f} | {:+.2f} | {}（{}） | {:+.2f} |".format(
+        lines.append("| {} | `{}` | {} | {} | {:+.4f} | {:+.2f} | {}（{}） | {:+.2f} | {} |".format(
             row["label"], Path(row["panel"]).name, "全部" if row["top_k"] is None else row["top_k"],
             row["names"], row["gamma1"], row["gamma1_t"],
-            _fmt(row["gamma0"], "+.4f"), _fmt(row["gamma0_t"], "+.2f"), row["gap_t"]))
+            _fmt(row["gamma0"], "+.4f"), _fmt(row["gamma0_t"], "+.2f"), row["gap_t"],
+            row.get("reading") or "—"))
     lines.append("")
     return "\n".join(lines)
 
