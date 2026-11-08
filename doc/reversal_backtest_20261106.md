@@ -97,9 +97,7 @@
 
 所以之前那个"胜负取决于滑点"的说法要收窄：**滑点确实决定亏多少，但决定不了能不能赢——在任何滑点水平上，它都输给"直接持有等权池"。**
 
-![slippage](slippage_sweep.png)
-
-（图见 `reports/runs/reversal_backtest/slippage_sweep.png`：左 = 净收益对滑点，右 = 零滑点与登记滑点两条净值曲线对照参考。）
+（曲线图见本地产物 `reports/runs/reversal_backtest/slippage_sweep.png`：左 = 净收益对滑点，右 = 零滑点与登记滑点两条净值曲线对照参考；`reports/runs/` 不随 Git 分发，按第 6 节命令生成。）
 
 ---
 
