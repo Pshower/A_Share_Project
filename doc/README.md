@@ -40,6 +40,7 @@
 | [baseline_capm_20261107.md](baseline_capm_20261107.md) | 1/N 与 CAPM 的分解：剥掉 β 后七个策略的 α 几乎相同（PPO +17.01% 对等权 +16.82%），α 的水位来自池子偏差而非本事 |
 | [capm_protocol_20261107.md](capm_protocol_20261107.md) | 全市场 CAPM 检验的预登记：数据口径、市场组合定义、T1/T2/T3 判据和四级判定顺序（写在数据到手之前） |
 | [capm_full_market_20261108.md](capm_full_market_20261108.md) | 全市场 CAPM 检验（**已完成**）：5,056 只、覆盖 98.50% 流通市值，自建市值加权市场组合；β 配对真实（置换 p=0.000）但斜率只到溢价的四成二、判定"无法区分"（合并 t −0.89，2019-2021 单看 t −2.00）；市值加权被 1/N 碾压 3.99pp/年 |
+| [equal_weight_crosscheck_20261108.md](equal_weight_crosscheck_20261108.md) | 等权溢价的指数对照与自我更正：面板算出 +7.92pp，同档真实指数（000905/000982）只有 +0.59pp；机制是等权拿到个股算术平均（+15.36%）而中位数只有 +6.50%，差额≈σ²/2。**主报告的 3.99pp 因此作废** |
 | [capm_protocol_20261107.md](capm_protocol_20261107.md) | 全市场 CAPM 检验的预登记：5,578 只、市值加权市场组合、β 十分位、Fama-MacBeth 斜率、与 1/N 对照；判据在数据到手前写定 |
 | [bulk_download_runbook.md](bulk_download_runbook.md) | 批量选取、代码导入、进度、取消、重试和数据集扩充 |
 | [akshare_download_expansion.md](akshare_download_expansion.md) | 资料、资金流、分钟、指数和分红的独立归档；不自动入模 |
