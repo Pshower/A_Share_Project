@@ -131,10 +131,11 @@ def markdown(rows, module_rows, doc_rows, test_rows):
         by_line[row["line"]].append(row)
     lines = ["# 仓库清点", "",
              "工具 %d 个、`src` 模块 %d 个、文档 %d 篇、测试文件 %d 个。"
-             % (total_tools, len(module_rows), len(doc_rows), len(test_rows)), "",
-             "**属于已结束研究线的工具：%d 个，合计 %d 行。** 引用计数不能判定它们该删："
-             "同一研究线内部互相 import，会让每个脚本都显得\"被引用\"。判定依据是这条线有没有结束。"
-             % (len(retired), sum(row["lines"] for row in retired)), ""]
+             % (total_tools, len(module_rows), len(doc_rows), len(test_rows)), ""]
+    if retired:
+        lines += ["**属于已结束研究线的工具：%d 个，合计 %d 行。** 引用计数不能判定它们该删："
+                  "同一研究线内部互相 import，会让每个脚本都显得\"被引用\"。判定依据是这条线有没有结束。"
+                  % (len(retired), sum(row["lines"] for row in retired)), ""]
     for line in sorted(by_line, key=lambda name: (name in FINISHED, name)):
         members = by_line[line]
         alive = [row for row in members if not row["retired"]]
