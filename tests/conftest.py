@@ -1,3 +1,9 @@
+﻿import os
+
+# Archived research lines are kept so their results stay reproducible, but they are not
+# part of the default run. Set ARCHIVED_TESTS=1 to collect them.
+collect_ignore_glob = [] if os.environ.get("ARCHIVED_TESTS") else ["archive/*"]
+
 """Default tests fail immediately if they accidentally open a network connection."""
 
 import socket
