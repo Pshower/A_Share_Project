@@ -77,3 +77,24 @@ def test_index_pair_premium_is_small_and_tracks_the_cap_weighted_sibling():
     # constituents, different weighting, so the premium must be small.
     assert abs(detail["premium"]) < 0.03
     assert detail["correlation"] > 0.98
+
+def test_point_in_time_selection_removes_the_lookahead_premium(tmp_path=None):
+    # The static band is chosen by median capitalisation over the whole sample, which is
+    # a look-ahead: winners that were small in 2019 keep a full equal weight on day one.
+    # Re-choosing the band each rebalance from the lagged cap must shrink the premium
+    # towards the published index pair. This pins the finding so it cannot silently
+    # come back.
+    static = check.panel_premium(check.DEFAULT_PANEL, 300, 800, "2019-01-02", "2024-12-31")
+    pit = check.dynamic_band_premium(check.DEFAULT_PANEL, 300, 800, "2019-01-02", "2024-12-31")
+    index = check.index_premium("000905", "000982", "2019-01-02", "2024-12-31")
+    assert static["premium"] > 0.05
+    assert abs(pit["premium"]) < 0.02
+    assert abs(pit["premium"] - index["premium"]) < 0.02
+
+
+def test_point_in_time_premium_is_judged_supported_while_static_is_not():
+    static = 0.0792
+    pit = 0.0037
+    index = 0.0059
+    assert check.verdict(static, index)["status"] == "unsupported"
+    assert check.verdict(pit, index)["status"] == "supported"

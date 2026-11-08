@@ -1,4 +1,4 @@
-"""Check a panel-built equal-weight premium against a real index pair.
+﻿"""Check a panel-built equal-weight premium against a real index pair.
 
 An equal-weight portfolio constructed from a panel of *currently listed* names is not
 the same object as an equal-weight index.  The panel selects on today's capitalisation,
@@ -43,7 +43,15 @@ def band_frames(panel_dir, lo, hi):
 
 
 def panel_premium(panel_dir, lo, hi, start=capm.SAMPLE_START, end="2024-12-31"):
-    """Annual return of the cap-weighted and equal-weighted books on one size band."""
+    """Annual return of the cap-weighted and equal-weighted books on one size band.
+
+    Band membership is chosen once, by **median** capitalisation over the whole sample.
+    That is a look-ahead: a name that was small in 2019 and only reached the band by
+    rising keeps a full equal weight on day one, while cap weighting gives it almost
+    nothing, and a name that was large and fell into the band keeps a large cap weight.
+    ``dynamic_band_premium`` repeats the exercise without it, and the difference between
+    the two is the whole of the inflated premium.
+    """
     prices, traded, shares = band_frames(panel_dir, lo, hi)
     market, _, _ = capm.market_portfolio(prices, traded, shares)
     market = market.dropna().loc[start:end]
@@ -55,6 +63,51 @@ def panel_premium(panel_dir, lo, hi, start=capm.SAMPLE_START, end="2024-12-31"):
                 cap_annual=cap_perf["annual_return"], equal_annual=equal_perf["annual_return"],
                 cap_vol=cap_perf["annual_vol"], equal_vol=equal_perf["annual_vol"],
                 premium=equal_perf["annual_return"] - cap_perf["annual_return"])
+
+
+def dynamic_band_premium(panel_dir, lo, hi, start=capm.SAMPLE_START, end="2024-12-31", step=capm.STEP):
+    """The same band, re-chosen each rebalance from the **lagged** capitalisation.
+
+    At every rebalance the band is the names ranked ``lo`` to ``hi`` by float market
+    capitalisation on the previous session, so nothing about the future decides who is
+    in it.  Both legs are re-weighted daily inside that band, which is the closest this
+    module gets to the index provider's own construction.
+    """
+    _, _, _, caps = _panel_with_caps(panel_dir)
+    returns = capm.daily_frame(_panel_with_caps(panel_dir)[0])
+    window = returns.loc[start:end]
+    dated = caps.reindex(window.index).ffill()
+    marks = set(range(0, len(window), step))
+    equal_series, cap_series = [], []
+    band = []
+    for position in range(len(window)):
+        if position in marks:
+            asof = dated.iloc[max(position - 1, 0)].dropna()
+            band = list(asof.sort_values(ascending=False).index[lo:hi])
+        row = window.iloc[position]
+        members = [code for code in band if np.isfinite(row.get(code, np.nan))]
+        if len(members) < 30:
+            equal_series.append(np.nan)
+            cap_series.append(np.nan)
+            continue
+        values = row[members].to_numpy(dtype=float)
+        equal_series.append(float(np.nanmean(values)))
+        weights = np.nan_to_num(dated.iloc[max(position - 1, 0)][members].to_numpy(dtype=float), nan=0.0)
+        cap_series.append(float(weights @ values / weights.sum()) if weights.sum() > 0 else np.nan)
+    equal = pd.Series(equal_series, index=window.index).dropna()
+    market = pd.Series(cap_series, index=window.index).dropna()
+    shared = equal.index.intersection(market.index)
+    years = len(shared) / capm.TRADING_DAYS
+    cap_annual = float((1 + market.loc[shared]).prod() ** (1 / years) - 1)
+    equal_annual = float((1 + equal.loc[shared]).prod() ** (1 / years) - 1)
+    return dict(names=int(len(band)), days=int(len(shared)),
+                cap_annual=cap_annual, equal_annual=equal_annual,
+                premium=equal_annual - cap_annual)
+
+
+def _panel_with_caps(panel_dir):
+    manifest, prices, traded, shares = load(panel_dir)
+    return prices, traded, shares, traded * shares
 
 
 def index_premium(cap_index, equal_index, start=capm.SAMPLE_START, end="2024-12-31"):
@@ -118,7 +171,12 @@ def measure(panel_dir=DEFAULT_PANEL, pairs=PAIRS, start=capm.SAMPLE_START, end="
             rows.append(row)
             continue
         row["status"] = "ready"
+        try:
+            row["panel_pit"] = dynamic_band_premium(panel_dir, spec["lo"], spec["hi"], start, end)
+        except (ValueError, FileNotFoundError, KeyError):
+            row["panel_pit"] = None
         row["verdict"] = verdict(row["panel"]["premium"], row["index"].get("premium"))
+        row["verdict_pit"] = verdict((row["panel_pit"] or {}).get("premium"), row["index"].get("premium"))
         prices, _, _ = band_frames(panel_dir, spec["lo"], spec["hi"])
         row["mechanism"] = mechanism(prices, start, end)
         rows.append(row)
@@ -129,18 +187,23 @@ def _markdown(payload):
     lines = ["# 等权溢价的指数对照", "",
              "面板用**当前市值**选股，等权因此把权重摊到「必须是幸存者」的全体上；"
              "指数是实时计算的，历史里含当时成分。这一节把两者放在同一档位、同一区间上比。", "",
-             "| 档位 | 面板市值加权 | 面板等权 | 面板溢价 | 指数市值加权 | 指数等权 | 指数溢价 | 判定 |",
-             "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |"]
+             "| 档位 | 静态选档溢价 | **PIT 动态选档溢价** | 指数溢价 | 静态判定 | PIT 判定 |",
+             "| --- | ---: | ---: | ---: | --- | --- |"]
     for row in payload["rows"]:
         if row.get("status") != "ready":
-            lines.append("| {} | — | — | — | — | — | — | {} |".format(row["label"], row.get("status")))
+            lines.append("| {} | — | — | — | — | {} |".format(row["label"], row.get("status")))
             continue
-        panel, index, decision = row["panel"], row["index"], row["verdict"]
-        lines.append("| {} | {:+.2f}% | {:+.2f}% | **{:+.2f}pp** | {:+.2f}% | {:+.2f}% | **{:+.2f}pp** | {} |".format(
-            row["label"], panel["cap_annual"] * 100, panel["equal_annual"] * 100, panel["premium"] * 100,
-            index["cap_annual"] * 100, index["equal_annual"] * 100, index["premium"] * 100,
-            decision["status"]))
-    lines += ["", "## 机制：等权拿到的是算术平均，指数没有", "",
+        panel, index = row["panel"], row["index"]
+        pit = row.get("panel_pit") or {}
+        lines.append("| {} | **{:+.2f}pp** | **{:+.2f}pp** | **{:+.2f}pp** | {} | {} |".format(
+            row["label"], panel["premium"] * 100, pit.get("premium", float("nan")) * 100,
+            index["premium"] * 100, row["verdict"]["status"],
+            (row.get("verdict_pit") or {}).get("status", "—")))
+    lines += ["", "静态选档用**全样本中位市值**决定档位归属，是前视；PIT 用**调仓日前一日市值**重新选档。"
+                  "两者之差就是假溢价的全部来源。", ""]
+    lines += ["", "## 副对照：组合与单个股票之间的方差拖累", "",
+              "这一栏解释的是**任何 500 股组合**为什么高于个股中位数（方差拖累 σ²/2），"
+              "**不能**解释等权与市值加权之间的差——两个指数和两个面板组合都持有 500 只，都同等地消除了这部分拖累。", "",
               "| 档位 | 横截面日均收益的平均 | 个股中位数 | 个股平均 | 组合波动 | 个股中位波动 |",
               "| --- | ---: | ---: | ---: | ---: | ---: |"]
     for row in payload["rows"]:
