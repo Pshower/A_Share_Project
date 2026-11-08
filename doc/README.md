@@ -60,6 +60,7 @@
 | [dividend_yield_20261108.md](dividend_yield_20261108.md) | ETF 拿得到股息：实测大/中/小盘股息率 **2.58% / 1.83% / 1.68%**，三 ETF 混合加股息 **+5.31% → +7.49%**（减费率约 7.0–7.3%）；与国证A指的缺口从 2.7pp 收窄到约 2.2pp 但**没有消失** |
 | [satellite_decision_20261108.md](satellite_decision_20261108.md) | 还需要个股吗：**不需要**。随机 30 只的 2019-2024 中位年化 **+10.62%** vs 反转书 **+10.70%**——信号贡献 **0.08pp**；随机书相对 ETF 混合的 +5pp 优势来自**静态选池 + 幸存者 + 等权**，正是已撤回过的偏差（真实指数 +8.01% vs 静态池构造 +10.62%，差 2.6pp） |
 | [fundamental_ic_20261108.md](fundamental_ic_20261108.md) | **估值与质量（此前 25 次检验的盲区）**：bp（账面/市值）IC **+0.0387（t 2.95）**、覆盖 76.5%，**是第一个过 0.031 门槛的基本面因子**；但拆开看 **2019-2021 t 1.09**、**2022-2024 t 6.09** → 是**风格暴露**不是稳定 alpha；ROE 与毛利率方向为负 |
+| [dividend_sleeve_20261108.md](dividend_sleeve_20261108.md) | 红利袖套：上证红利 000015（510880 追踪），价格口径下 40% 红利把波动 20.07% 降到 17.62%、回撤 -39.49% 降到 -31.14% 且收益不变；全收益按 3.5-5.34% 股息区间，Sharpe 0.283 升到 0.355 |
 | [bulk_download_runbook.md](bulk_download_runbook.md) | 批量选取、代码导入、进度、取消、重试和数据集扩充 |
 | [akshare_download_expansion.md](akshare_download_expansion.md) | 资料、资金流、分钟、指数和分红的独立归档；不自动入模 |
 | [training_data_linkage.md](training_data_linkage.md) | 多股日期交集、lookback、原始行情与下载批次关联 |
