@@ -48,6 +48,7 @@
 | [tail_exposure_20261108.md](tail_exposure_20261108.md) | 微盘尾的近似模拟：PIT 分档下尾部等权 +14.89%、市值加权 +13.18%，对三 ETF 基准 +5.27% 的 2.7pp 缺口确实来自 1,800 名之后；但 522 个缺失代码里 **355 个是北交所（68%）**，不是退市——缺口是**数据覆盖**不是幸存偏差 |
 | [e2_protocol_20261108.md](e2_protocol_20261108.md) | E2 预登记（写在运行前）：把 E1 的同一信号放到前 1,800 只 PIT 池上，只改票池一个变量；门槛提高到 **t ≥ 2.5 且两个窗口各自都要过**（因为这是同家族第二次检验）；失败则永久关闭该族，不设 E3 |
 | [feature_backtest_20261108.md](feature_backtest_20261108.md) | 1,799 只特征面板 + 特征筛选回测：选择窗 2019-2021 里 20 个特征方向全为负且无一显著（最强 body_ratio t −2.20、IC 0.0093）；|IC| 前 5 名建的书选择窗 **+15.60%**、测试窗 **−4.97%**，与随机 30 只（中位 −4.43%）无差别，击败率 47% |
+| [information_sources_20261108.md](information_sources_20261108.md) | 新信息源筛选：价格特征已榨干，按 PIT/覆盖率/可检测性三条硬约束排序——第一位限售解禁（日期规则算出、与价格正交）、第二位业绩预告（已实测有公告日期字段）、第三位资金流（需先测与反转的共线性）；门槛抬到 t ≥ 2.5 |
 | [bulk_download_runbook.md](bulk_download_runbook.md) | 批量选取、代码导入、进度、取消、重试和数据集扩充 |
 | [akshare_download_expansion.md](akshare_download_expansion.md) | 资料、资金流、分钟、指数和分红的独立归档；不自动入模 |
 | [training_data_linkage.md](training_data_linkage.md) | 多股日期交集、lookback、原始行情与下载批次关联 |
