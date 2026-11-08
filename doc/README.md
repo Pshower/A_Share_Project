@@ -45,6 +45,7 @@
 | [selection_diagnostics_20261108.md](selection_diagnostics_20261108.md) | 基准的两种角色与 E1 的诊断栏：池内归因基准必须同池同调仓同本金同整手，实盘底座必须是真实指数；工具实测 300 万本金下 30 只留存 32%、299 只留存 65%，且随机 30 只的规模暴露已达 t=11.14 |
 | [e1_reversal_20261108.md](e1_reversal_20261108.md) | E1 一次性 go/no-go：20 日机械截面反转书（298 池、20 特征全取负号、top30、跌出前 60 才换、300 万真成本）。**未通过**——V 净超额 +1.85%（t 0.42）、full +0.25%（t 0.07）；按预登记关闭"价格特征 alpha"这一族 |
 | [allocation_study_20261108.md](allocation_study_20261108.md) | 用 ETF 逼近全市场暴露（A 线）：菜单收敛为大/其余两桶；最小跟踪误差组合 300/500/1000 = 50/30/20，TE 0.98%（拟合）2.57%（检验），但年化稳定差 −2.7pp——全市场指数的超额在小微盘，无 ETF 覆盖 |
+| [tail_exposure_20261108.md](tail_exposure_20261108.md) | 微盘尾的近似模拟：PIT 分档下尾部等权 +14.89%、市值加权 +13.18%，对三 ETF 基准 +5.27% 的 2.7pp 缺口确实来自 1,800 名之后；但 522 个缺失代码里 **355 个是北交所（68%）**，不是退市——缺口是**数据覆盖**不是幸存偏差 |
 | [bulk_download_runbook.md](bulk_download_runbook.md) | 批量选取、代码导入、进度、取消、重试和数据集扩充 |
 | [akshare_download_expansion.md](akshare_download_expansion.md) | 资料、资金流、分钟、指数和分红的独立归档；不自动入模 |
 | [training_data_linkage.md](training_data_linkage.md) | 多股日期交集、lookback、原始行情与下载批次关联 |
