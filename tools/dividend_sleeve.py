@@ -35,20 +35,24 @@ CACHE = PROJECT_ROOT / "data" / "online" / "index_long"
 START, END = "2019-01-02", "2024-12-31"
 DIV_CODE = "000015"          # 上证红利：2005 起有全历史，且 510880 追踪它
 DIV_SYMBOL = "sh000015"
+# A second vessel for the same exposure, used only to check that the result is a property
+# of the style rather than the history of one index.
+SIBLINGS = {"000015": "sh000015", "399324": "sz399324"}
 BASE = {"000300": 0.5, "000905": 0.3, "000852": 0.2}
 SLEEVES = (0.0, 0.1, 0.2, 0.3, 0.4)
 COST = 0.0005
 
 
-def fetch_dividend_index(cache=CACHE):
+def fetch_dividend_index(code=None, cache=CACHE):
+    code = code or DIV_CODE
     cache = Path(cache)
     cache.mkdir(parents=True, exist_ok=True)
-    path = cache / f"{DIV_CODE}.csv"
+    path = cache / f"{code}.csv"
     if path.exists():
         frame = pd.read_csv(path)
     else:
         import akshare as ak
-        frame = ak.stock_zh_index_daily(symbol=DIV_SYMBOL)
+        frame = ak.stock_zh_index_daily(symbol=SIBLINGS[code])
         frame.to_csv(path, index=False)
     frame["date"] = pd.to_datetime(frame["date"])
     return frame.set_index("date")["close"].astype(float).sort_index()
@@ -83,9 +87,10 @@ def daily_from_annual(annual, index):
     return pd.Series(annual / capm.TRADING_DAYS, index=index)
 
 
-def measure(dividend_share=None):
+def measure(dividend_share=None, index=None):
+    code_used = index or DIV_CODE
     frame = pd.DataFrame({code: returns_of(code, START, END) for code in BASE}).dropna()
-    prices = fetch_dividend_index().loc[START:END]
+    prices = fetch_dividend_index(code_used).loc[START:END]
     dividend = prices.pct_change().dropna()
     shared = frame.index.intersection(dividend.index)
     frame, dividend = frame.loc[shared], dividend.loc[shared]
@@ -94,7 +99,7 @@ def measure(dividend_share=None):
     top = yields.nlargest(100, "mean_yield")["mean_yield"].mean()
     base_yields = {"000300": 0.0258, "000905": 0.0183, "000852": 0.0168}
     payload = dict(status="ready", window=dict(start=START, end=END), sessions=int(len(shared)),
-                   dividend_index=DIV_CODE, dividend_yield_estimate=float(top),
+                   dividend_index=code_used, dividend_yield_estimate=float(top),
                    base_yields=base_yields, rows=[], top_yield_names=int(len(yields)))
     for share in SLEEVES:
         blended = None
@@ -132,9 +137,10 @@ def _markdown(payload):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Add a dividend sleeve to the blend.")
+    parser.add_argument("--index", default=None, choices=sorted(SIBLINGS))
     parser.add_argument("--output", default=str(OUTPUT))
     args = parser.parse_args(argv)
-    payload = measure()
+    payload = measure(index=args.index)
     target = Path(args.output)
     target.mkdir(parents=True, exist_ok=True)
     from src.data.preprocess import write_json
