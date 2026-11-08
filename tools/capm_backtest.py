@@ -1,4 +1,4 @@
-﻿"""CAPM tests on the full-market panel: market portfolio, beta pricing, and 1/N.
+"""CAPM tests on the full-market panel: market portfolio, beta pricing, and 1/N.
 
 Three questions, in the order the protocol registers them:
 
@@ -658,6 +658,9 @@ def _markdown(payload):
             _fmt(summary.get("decile_alpha_t", {}).get(key), "+.2f")))
     lines += ["", f"α 极差 D10−D1：**{summary['alpha_spread']:+.4f}**（每 {payload['step']} 日）。", "",
               "## T3 市场组合 vs 1/N", "",
+              "> **这一节不能单独引用。** 面板按**当前**市值选股，等权把权重摊到每一只幸存者上，"
+              "会把这个筛选放大成好几个百分点的假溢价；同档真实指数（`000905` / `000982`）只有约 0.6pp 而面板给出约 8pp。"
+              "任何引用本节数字的结论都必须同时报出 `tools/equal_weight_crosscheck.py` 的对照。", "",
               "市值加权组合是**买入并持有**：价格变动按比例改变权重，不需要再平衡，因此几乎没有成本。"
               "1/N 每 20 日回到等权，按 31bp 往返扣费。", "",
               "| 组合 | 年化收益 | 年化波动 | 最大回撤 | 超额 Sharpe | 累计 |",

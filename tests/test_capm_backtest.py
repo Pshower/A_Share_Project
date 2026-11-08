@@ -284,3 +284,12 @@ def test_configuration_table_marks_missing_panels_instead_of_raising(tmp_path):
 def test_configuration_markdown_is_empty_without_ready_rows():
     assert capm._configuration_markdown([]) == ""
     assert capm._configuration_markdown([dict(status="skipped")]) == ""
+
+
+def test_t3_section_warns_that_the_panel_premium_needs_the_index_check():
+    # The equal-weight number is not trustworthy on its own; the generated report has to
+    # say so, otherwise the next reader quotes 3.99pp again.
+    import inspect
+    source = inspect.getsource(capm._markdown)
+    assert "equal_weight_crosscheck" in source
+    assert "不能单独引用" in source
