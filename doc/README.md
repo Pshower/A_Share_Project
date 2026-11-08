@@ -56,6 +56,7 @@
 | [research_direction_20261108.md](research_direction_20261108.md) | 研究方向：七次失败同源（截面排序 + 价格衍生 + 事后定符号 + 组合收益验收）；转向**供给侧事件**（日期事前确定、方向是卖出、用排除而非排序），S1 预登记配对设计 |
 | [supply_overlay_20261108.md](supply_overlay_20261108.md) | S1 配对检验：剔除 20 日内解禁，年化 +10.70%→**+12.50%**、回撤 −41.16%→**−37.92%**、Sharpe 0.338→0.408，配对差 **+1.80pp、t 2.25**（72 个不重叠块）→ **未过 2.5 门槛**，按预登记关闭供给侧这一族 |
 | [allocation_robustness_20261108.md](allocation_robustness_20261108.md) | 三个不需要预测的决策：**再平衡频率不重要**（五种规则差 0.19pp、成本 <0.25bp）；**现金是唯一诚实的回撤杠杆且提高 Sharpe**（100%→60% 回撤 −39.9%→−24.3%、Sharpe 0.165→0.206）；**波动目标有害**（回撤更深、换手升 40 倍） |
+| [return_context_20261108.md](return_context_20261108.md) | **5% 是否太低**：三层回答——①报的是**价格指数**，含分红约 +7.5~8%（估算未实测）；②5% 接近滚动 5 年中位（沪深300 中位 +5.18%，29% 的窗口为负），2010-2026 十六年沪深300 只有 +0.82%，而 20 年宽基是 9–10%；③真正的缺口是**买不到 8.01% 的国证A指**，2.7pp 全在无 ETF 的微盘 |
 | [bulk_download_runbook.md](bulk_download_runbook.md) | 批量选取、代码导入、进度、取消、重试和数据集扩充 |
 | [akshare_download_expansion.md](akshare_download_expansion.md) | 资料、资金流、分钟、指数和分红的独立归档；不自动入模 |
 | [training_data_linkage.md](training_data_linkage.md) | 多股日期交集、lookback、原始行情与下载批次关联 |
