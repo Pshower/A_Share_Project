@@ -58,6 +58,7 @@
 | [allocation_robustness_20261108.md](allocation_robustness_20261108.md) | 三个不需要预测的决策：**再平衡频率不重要**（五种规则差 0.19pp、成本 <0.25bp）；**现金是唯一诚实的回撤杠杆且提高 Sharpe**（100%→60% 回撤 −39.9%→−24.3%、Sharpe 0.165→0.206）；**波动目标有害**（回撤更深、换手升 40 倍） |
 | [return_context_20261108.md](return_context_20261108.md) | **5% 是否太低**：三层回答——①报的是**价格指数**，含分红约 +7.5~8%（估算未实测）；②5% 接近滚动 5 年中位（沪深300 中位 +5.18%，29% 的窗口为负），2010-2026 十六年沪深300 只有 +0.82%，而 20 年宽基是 9–10%；③真正的缺口是**买不到 8.01% 的国证A指**，2.7pp 全在无 ETF 的微盘 |
 | [dividend_yield_20261108.md](dividend_yield_20261108.md) | ETF 拿得到股息：实测大/中/小盘股息率 **2.58% / 1.83% / 1.68%**，三 ETF 混合加股息 **+5.31% → +7.49%**（减费率约 7.0–7.3%）；与国证A指的缺口从 2.7pp 收窄到约 2.2pp 但**没有消失** |
+| [satellite_decision_20261108.md](satellite_decision_20261108.md) | 还需要个股吗：**不需要**。随机 30 只的 2019-2024 中位年化 **+10.62%** vs 反转书 **+10.70%**——信号贡献 **0.08pp**；随机书相对 ETF 混合的 +5pp 优势来自**静态选池 + 幸存者 + 等权**，正是已撤回过的偏差（真实指数 +8.01% vs 静态池构造 +10.62%，差 2.6pp） |
 | [bulk_download_runbook.md](bulk_download_runbook.md) | 批量选取、代码导入、进度、取消、重试和数据集扩充 |
 | [akshare_download_expansion.md](akshare_download_expansion.md) | 资料、资金流、分钟、指数和分红的独立归档；不自动入模 |
 | [training_data_linkage.md](training_data_linkage.md) | 多股日期交集、lookback、原始行情与下载批次关联 |
