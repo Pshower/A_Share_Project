@@ -1,4 +1,4 @@
-"""Inventory the repository: what each script is for and whether anything refers to it.
+﻿"""Inventory the repository: what each script is for and whether anything refers to it.
 
 Deleting a research script is cheap until the day a report cites its output, so the rule
 here is to classify and report rather than to remove anything.  A tool counts as live if
@@ -29,6 +29,9 @@ LINES = {
                    "prior_attribution", "exposure_metrics", "exposure_stage2", "rebalance_sensitivity",
                    "reversal_backtest", "factor_baseline", "e1_reversal", "allocation_study",
                    "tail_exposure", "autocorrelation_probe"),
+    "资产配置与回撤": ("allocation_study", "allocation_robustness", "return_context", "dividend_yield",
+                       "dividend_sleeve", "drawdown_target", "global_frontier", "cppi_strategy",
+                       "cppi_gap_risk", "cppi_crisis", "trading_calendar"),
     "执行与撮合": ("daily_advice", "shadow_run"),
     "按时点干预（已结束）": ("research_timing", "analyze_timing", "audit_timing", "seal_timing",
                               "benchmark_timing_policy", "timing_phase", "timing_counterfactual",

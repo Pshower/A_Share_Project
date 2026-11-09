@@ -64,8 +64,16 @@ def equity_series():
 
 
 def drawdown_curve(returns):
-    nav = (1 + returns).cumprod()
-    return float((nav / nav.cummax() - 1).min())
+    """Worst peak-to-trough fall, with the opening value counted as a peak.
+
+    Taking the running maximum of the compounded series alone misses the case where the
+    loss starts on the first day: the first NAV is already below the one it was measured
+    from, so the peak would be taken from a level the account had already lost.  Prepending
+    the opening value fixes that and makes the first observation eligible as a trough.
+    """
+    nav = (1 + returns).cumprod().to_numpy(dtype=float)
+    peak = np.maximum.accumulate(np.concatenate(([1.0], nav)))[1:]
+    return float((nav / peak - 1).min())
 
 
 def evaluate(returns):
