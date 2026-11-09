@@ -1,4 +1,4 @@
-"""Track a broad all-share exposure with ETFs that actually exist.
+﻿"""Track a broad all-share exposure with ETFs that actually exist.
 
 The menu collapses faster than it looks.  Over 2019-2024 the daily correlation between
 CSI 500, CSI 1000 and the equal-weight 500 is 0.96 to 0.99, so "mid, small and equal
@@ -71,7 +71,7 @@ def blend(frame_, weights, rebalance=REBALANCE_DAYS, cost=COST):
         grown = current * (1.0 + values[position])
         total = grown.sum()
         current = grown / total if total > 0 else current
-        if (position + 1) % rebalance == 0:
+        if rebalance and (position + 1) % rebalance == 0:
             out[position] -= cost * 0.5 * float(np.abs(weight - current).sum())
             current = weight.copy()
     return pd.Series(out, index=frame_.index)
