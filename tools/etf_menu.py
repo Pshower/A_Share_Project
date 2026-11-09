@@ -35,6 +35,8 @@ LEGS = {
     "国债": dict(index="000012", keywords=("国债",)),
 }
 TOP = 5
+# Bond funds are absent from the equity board, so they are addressed by code.
+BOND_CODES = ("511010", "511260", "511020", "511090")
 
 
 def snapshot(cache=CACHE):
@@ -127,6 +129,68 @@ def tracking(code, key, start="2024-01-02", end="2024-12-31"):
                          gap=fund_annual - bench_annual,
                          tracking_error=float(active.std(ddof=1) * np.sqrt(capm.TRADING_DAYS)))
     return block
+
+
+def bond_products(codes=BOND_CODES):
+    """Bond ETFs cannot be found by name in the equity board, so they are named by code.
+
+    The spot snapshot carries 1,666 funds and not one of them contains the character for
+    bond, which means the board it reads is equities, cross-border and commodities only.
+    Bond funds have to come from a code list until a bond board is found.
+    """
+    rows = []
+    for code in codes:
+        try:
+            series = history(code)
+        except Exception as error:                     # noqa: BLE001 - provider varies
+            rows.append(dict(code=code, status="unavailable", error=type(error).__name__))
+            continue
+        if series.empty:
+            rows.append(dict(code=code, status="empty"))
+            continue
+        years = len(series) / capm.TRADING_DAYS
+        rows.append(dict(code=code, status="ready", rows=int(len(series)),
+                         first=str(series.index[0].date()), last=str(series.index[-1].date()),
+                         annual=float(series.iloc[-1] / series.iloc[0]) ** (1 / years) - 1))
+    return rows
+
+
+def nav_premium(code, start="20240101", end="20241231"):
+    """Premium measured against published net asset value rather than an intraday estimate.
+
+    A cross-border fund's intraday fair value is struck on the previous American close, so
+    the snapshot's discount field is unusable there: it reports double-digit discounts on
+    funds that were trading at a premium.  The published NAV is a day old by construction,
+    which is why the price is compared with the previous session's value and the difference
+    is reported as a range rather than a point.
+    """
+    try:
+        import akshare as ak
+        nav = ak.fund_etf_fund_info_em(fund=code, start_date=start, end_date=end)
+    except Exception as error:                         # noqa: BLE001
+        return dict(code=code, status="unavailable", error=type(error).__name__)
+    nav = nav.rename(columns={"净值日期": "date", "单位净值": "nav"})
+    if "date" not in nav.columns or "nav" not in nav.columns:
+        return dict(code=code, status="unexpected_columns", columns=list(nav.columns))
+    nav["date"] = pd.to_datetime(nav["date"], errors="coerce")
+    nav["nav"] = pd.to_numeric(nav["nav"], errors="coerce")
+    nav = nav.dropna(subset=["date", "nav"]).set_index("date")["nav"].sort_index()
+    if nav.empty:
+        return dict(code=code, status="empty")
+    try:
+        price = history(code)
+    except Exception as error:                         # noqa: BLE001
+        return dict(code=code, status="no_price", error=type(error).__name__)
+    joined = pd.concat([price.rename("price"), nav.rename("nav")], axis=1).dropna()
+    if len(joined) < 20:
+        joined = pd.concat([price.rename("price"), nav.rename("nav").shift(1)], axis=1).dropna()
+    if len(joined) < 20:
+        return dict(code=code, status="short", rows=int(len(joined)))
+    spread = joined["price"] / joined["nav"] - 1.0
+    return dict(code=code, status="ready", observations=int(len(joined)),
+                mean=float(spread.mean()), median=float(spread.median()),
+                first=str(joined.index[0].date()), last=str(joined.index[-1].date()),
+                latest=float(spread.iloc[-1]))
 
 
 def measure():
