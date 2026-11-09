@@ -1,4 +1,4 @@
-"""Does an impending lockup expiry predict the next twenty sessions?
+﻿"""Does an impending lockup expiry predict the next twenty sessions?
 
 Lockup expiry is the cleanest of the candidate sources: the date is fixed by rule when a
 placement or an IPO is priced, so it is known long before it happens and no disclosure
@@ -66,8 +66,14 @@ def forward_matrix(events, index, codes, horizon=HORIZON):
     for row in events.itertuples(index=False):
         if row.code not in matrix.columns:
             continue
-        later = index[(index >= row.date - pd.Timedelta(days=horizon * 2)) & (index < row.date)]
-        for date in later:
+        # The factor asks what unlocks inside the next `horizon` sessions, so the event is
+        # attributed to the `horizon` trading days immediately before it.  An earlier version
+        # used a calendar lookback of twice the horizon, which for a twenty-session window
+        # reached about twenty-eight sessions and quietly widened the factor.
+        before = index[index < row.date]
+        if before.empty:
+            continue
+        for date in before[-horizon:]:
             matrix.at[date, row.code] += row.ratio
     return matrix
 
