@@ -1,4 +1,4 @@
-"""S2: freeze E1's construction and record what it would decide, one day at a time.
+﻿"""S2: freeze E1's construction and record what it would decide, one day at a time.
 
 The point is not to win a backtest. Every sample in this repository is spent -- V was
 used on the exposure work, R was consumed by the September training, and E1 has just
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -107,6 +107,19 @@ def run(force=False, dataset=DATASET, log=print):
     features = list(manifest["feature_cols"])
     latest = panel.index.max()
     state = load_state()
+    from tools import trading_calendar
+    try:
+        trading = trading_calendar.is_trading_day()
+    except Exception:                                  # noqa: BLE001 - calendar is optional
+        trading = True
+    if not trading:
+        # A holiday and a broken feed look identical from the ledger, so the calendar answers
+        # the question before it is asked.  Nothing is appended: a non-trading day is not news.
+        record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), status="nontrading",
+                      panel_date=str(latest.date()),
+                      reason="not a trading day in the exchange calendar; no decision recorded")
+        log("nontrading: %s" % date.today())
+        return record
     if state.get("last_panel_date") == str(latest.date()) and not force:
         record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), status="stale",
                       panel_date=str(latest.date()),
