@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tools import archive_margin, gdhs_ic
+from tools import archive_margin, gdhs_ic, margin_ic
 
 
 def test_margin_normalize_reads_the_sse_layout():
@@ -37,6 +37,27 @@ def test_margin_normalize_reads_the_szse_layout_and_fills_the_date():
 def test_margin_normalize_rejects_a_table_without_codes():
     with pytest.raises(ValueError, match="No stock-code column"):
         archive_margin.normalize(pd.DataFrame({"融资余额": ["1"]}), pd.Timestamp("2024-01-02").date())
+
+
+def test_margin_growth_uses_the_lagged_balance():
+    index = pd.bdate_range("2024-01-01", periods=4)
+    balance = pd.DataFrame({"600000": [100.0, 110.0, 121.0, 133.1]}, index=index)
+    growth = margin_ic.growth_matrix(balance, lookback=1)
+    # Monday's balance is published after Monday's close, so Tuesday's decision sees it.
+    assert np.isnan(growth.loc[index[0], "600000"])
+    assert np.isnan(growth.loc[index[1], "600000"])
+    assert growth.loc[index[2], "600000"] == pytest.approx(0.10)
+
+
+def test_margin_balance_matrix_aligns_codes_and_dates():
+    index = pd.bdate_range("2024-01-01", periods=2)
+    events = pd.DataFrame({"code": ["600000", "600000", "000001"],
+                           "date": [index[0], index[0], index[0]],
+                           "balance": [100.0, 200.0, 50.0]})
+    matrix = margin_ic.balance_matrix(events, index, ["600000", "000001", "600002"])
+    assert matrix.loc[index[0], "600000"] == pytest.approx(200.0)     # last value of the day
+    assert matrix.loc[index[0], "000001"] == pytest.approx(50.0)
+    assert matrix["600002"].isna().all()                              # never appeared
 
 
 def test_asof_matrix_uses_the_announcement_date_not_the_cutoff():

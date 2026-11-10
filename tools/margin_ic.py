@@ -50,6 +50,11 @@ def balance_matrix(events, index, codes):
         .reindex(index=index, columns=codes)
 
 
+def growth_matrix(balance, lookback=LOOKBACK):
+    """Twenty-session change, shifted one session: published after the close."""
+    return balance.pct_change(lookback, fill_method=None).shift(1)
+
+
 def measure(panel_dir=PANEL, cache=CACHE, bar=BAR):
     manifest, panel, prices = load_panel(panel_dir)
     codes = list(prices.columns)
@@ -57,7 +62,7 @@ def measure(panel_dir=PANEL, cache=CACHE, bar=BAR):
     events = pd.read_parquet(cache)
     events["date"] = pd.to_datetime(events["date"])
     balance = balance_matrix(events, index, codes)
-    growth = balance.pct_change(LOOKBACK, fill_method=None).shift(1)      # published next morning
+    growth = growth_matrix(balance)
     labels = (prices.shift(-HORIZON) / prices - 1.0).reindex(index)
     decision = list(index[::HORIZON])
     series, coverage = {}, []

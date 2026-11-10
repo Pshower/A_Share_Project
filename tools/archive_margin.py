@@ -58,12 +58,39 @@ def trading_days(start, end):
     return [stamp.date() for stamp in window]
 
 
-def run(start="2019-01-02", end="2024-12-31", pause=0.0, log=print):
+def call_with_timeout(fn, timeout, **kwargs):
+    """Run one request in a daemon thread so a hung endpoint costs ``timeout``, not the run.
+
+    ``socket.setdefaulttimeout`` does not cover a name lookup or a server that accepts the
+    connection and then says nothing, and this archive has already frozen twice on exactly
+    that.  The thread is abandoned rather than joined: a daemon thread cannot block exit.
+    """
+    import threading
+    box = {}
+
+    def target():
+        try:
+            box["value"] = fn(**kwargs)
+        except BaseException as error:              # noqa: BLE001 - reported to the caller
+            box["error"] = error
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        raise TimeoutError("no response within %ss" % timeout)
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
+def run(start="2019-01-02", end="2024-12-31", pause=0.0, timeout=45, log=print):
     import akshare as ak
     import time
-    # akshare draws a tqdm bar on stderr for every request.  When the process runs under a
-    # captured pipe nobody drains it, and after a few dozen calls the child blocks on the
-    # write -- it looks exactly like a network hang.  Silence it at the source.
+    # Two ways this loop dies quietly, both fixed here.  akshare draws a tqdm bar on stderr
+    # for every request, and under a captured pipe nobody drains it, so the child eventually
+    # blocks on the write; and a request can hang with no timeout at all.  The first is
+    # silenced at the source, the second is bounded by ``call_with_timeout``.
     os.environ.setdefault("TQDM_DISABLE", "1")
     OUTPUT.mkdir(parents=True, exist_ok=True)
     path = OUTPUT / "margin.parquet"
@@ -74,11 +101,12 @@ def run(start="2019-01-02", end="2024-12-31", pause=0.0, log=print):
     frames = [existing] if len(existing) else []
     failures = []
     for position, day in enumerate(days, 1):
+        started = time.monotonic()
         collected = []
         for name, fetch in (("sse", ak.stock_margin_detail_sse), ("szse", ak.stock_margin_detail_szse)):
             try:
                 with open(os.devnull, "w") as sink, contextlib.redirect_stderr(sink):
-                    frame = fetch(date=day.strftime("%Y%m%d"))
+                    frame = call_with_timeout(fetch, timeout, date=day.strftime("%Y%m%d"))
                 if frame is not None and len(frame):
                     collected.append(normalize(frame, day))
             except Exception as error:                    # noqa: BLE001 - one exchange, one day
@@ -90,6 +118,8 @@ def run(start="2019-01-02", end="2024-12-31", pause=0.0, log=print):
             merged.to_parquet(path, index=False)
             frames = [merged]
             log("  %d/%d days, %d rows" % (position, len(days), len(merged)))
+        if time.monotonic() - started > 15:
+            log("  slow day %s: %.0fs" % (day, time.monotonic() - started))
         if pause:
             time.sleep(pause)
     merged = pd.concat(frames, ignore_index=True).drop_duplicates(subset=["code", "date"], keep="last")
