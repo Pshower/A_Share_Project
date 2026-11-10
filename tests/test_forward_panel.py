@@ -1,0 +1,63 @@
+"""The forward panel builder is data plumbing, so its guards are what get tested.
+
+The build itself is a download plus the repository's own preprocessor; the failure modes
+that matter are the ones that would let a rebuild quietly overwrite a dataset or silently
+change the pool.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from tools import forward_panel
+
+
+def write_manifest(path, codes):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"stock_codes": codes}), encoding="utf-8")
+    return path
+
+
+def test_pool_codes_reads_the_frozen_pool(tmp_path):
+    path = write_manifest(tmp_path / "manifest.json", ["600085", "002594", "000063"])
+    assert forward_panel.pool_codes(path) == ["600085", "002594", "000063"]
+
+
+def test_pool_codes_rejects_duplicates(tmp_path):
+    path = write_manifest(tmp_path / "manifest.json", ["600085", "600085"])
+    with pytest.raises(ValueError):
+        forward_panel.pool_codes(path)
+
+
+def test_stock_list_is_one_code_per_line(tmp_path):
+    path = forward_panel.write_stock_list(["600085", "002594"], tmp_path / "deep" / "pool.txt")
+    assert path.read_text(encoding="utf-8") == "600085\n002594\n"
+
+
+def test_build_refuses_to_rewrite_an_existing_dataset(tmp_path, monkeypatch):
+    existing = tmp_path / "forward_pool_20261110"
+    existing.mkdir()
+    monkeypatch.setattr(forward_panel, "CLEAN_DIR", tmp_path)
+    monkeypatch.setattr(forward_panel, "STOCK_LIST_DIR", tmp_path / "lists")
+    with pytest.raises(ValueError, match="Refusing to rewrite"):
+        forward_panel.build(tmp_path / "snapshot", ["600085"], "forward_pool_20261110", "2026-11-10")
+
+
+def test_build_reports_the_pool_it_actually_read(tmp_path, monkeypatch):
+    snapshot = tmp_path / "h_test" / "hfq"
+    snapshot.mkdir(parents=True)
+    codes = ["600085", "002594"]
+    dates = pd.bdate_range("2017-01-03", "2026-11-10")
+    for code in codes:
+        rows = ["date,code,open,close,high,low,volume,amount,turnover"]
+        rows += [f"{day.date()},{code},10.0,10.1,10.2,9.9,1000000,10100000,0.5" for day in dates]
+        (snapshot / f"{code}.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    monkeypatch.setattr(forward_panel, "CLEAN_DIR", tmp_path / "clean")
+    monkeypatch.setattr(forward_panel, "STOCK_LIST_DIR", tmp_path / "lists")
+    manifest = forward_panel.build(tmp_path / "h_test", codes, "forward_pool_test", "2026-11-10", log=lambda *_: None)
+    assert manifest["stock_codes"] == codes
+    assert manifest["forward"]["purpose"].startswith("forward extension")
+    assert (tmp_path / "clean" / "forward_pool_test" / "manifest.json").exists()

@@ -1,4 +1,4 @@
-﻿"""S2: freeze E1's construction and record what it would decide, one day at a time.
+"""S2: freeze E1's construction and record what it would decide, one day at a time.
 
 The point is not to win a backtest. Every sample in this repository is spent -- V was
 used on the exposure work, R was consumed by the September training, and E1 has just
@@ -25,7 +25,12 @@ import numpy as np
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATASET = PROJECT_ROOT / "data" / "clean" / "research_v3"
+# The forward panel, not ``research_v3``: the frozen dataset ends 2024-12-31 and can never
+# advance, so reading it only ever reported ``stale``.  ``research_v3`` is still the record
+# of what E1 decided in-sample and is left untouched; this is the same twenty features on
+# the same pool, captured every trading day from 2026-11-10 onward.  The construction
+# constants below are not affected by the switch.
+DATASET = PROJECT_ROOT / "data" / "clean" / "forward_pool_20261110"
 STATE = PROJECT_ROOT / "reports" / "shadow" / "e1_state.json"
 LOG = PROJECT_ROOT / "reports" / "shadow" / "e1_shadow.jsonl"
 TOP_K = 30
