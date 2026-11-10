@@ -46,6 +46,18 @@ def test_build_refuses_to_rewrite_an_existing_dataset(tmp_path, monkeypatch):
         forward_panel.build(tmp_path / "snapshot", ["600085"], "forward_pool_20261110", "2026-11-10")
 
 
+def test_prune_keeps_the_newest_panels_and_nothing_else(tmp_path):
+    for name in ["forward_pool_20261106", "forward_pool_20261109", "forward_pool_20261110"]:
+        (tmp_path / name).mkdir()
+    (tmp_path / "research_v3").mkdir()
+    removed = forward_panel.prune(2, root=tmp_path, log=lambda *_: None)
+    assert removed == ["forward_pool_20261106"]
+    assert (tmp_path / "forward_pool_20261109").exists()
+    assert (tmp_path / "forward_pool_20261110").exists()
+    assert (tmp_path / "research_v3").exists()
+    assert forward_panel.prune(0, root=tmp_path, log=lambda *_: None) == []
+
+
 def test_build_reports_the_pool_it_actually_read(tmp_path, monkeypatch):
     snapshot = tmp_path / "h_test" / "hfq"
     snapshot.mkdir(parents=True)

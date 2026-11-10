@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from datetime import date
 from pathlib import Path
 
@@ -89,11 +90,32 @@ def build(snapshot, codes, version, end, log=print):
     return manifest
 
 
+def prune(keep=5, root=CLEAN_DIR, log=print):
+    """Delete all but the newest ``keep`` forward panels.
+
+    A daily panel is 488 MB, most of it per-code and split files the recorder never reads.
+    Keeping every day would cost ~180 GB a year for data that is reproducible from the
+    capture snapshot in ``data/online/history``, which is the immutable one.  The panels
+    are caches; the captures are the record.
+    """
+    root = Path(root)
+    directories = sorted((d for d in root.glob("forward_pool_*") if d.is_dir()), key=lambda d: d.name)
+    doomed = directories[:-keep] if keep > 0 else []
+    for directory in doomed:
+        if directory.resolve().parent != root.resolve() or not directory.name.startswith("forward_pool_"):
+            raise ValueError("Refusing to delete outside the forward panel root: %s" % directory)
+        shutil.rmtree(directory)
+    if doomed:
+        log("pruned %d old panel(s): %s" % (len(doomed), ", ".join(d.name for d in doomed)))
+    return [d.name for d in doomed]
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Rebuild the E1 pool panel up to a given date.")
     parser.add_argument("--end", default=str(date.today()), help="Last date to capture (YYYY-MM-DD).")
     parser.add_argument("--version", default=None, help="Dataset name; defaults to forward_pool_<end>.")
     parser.add_argument("--snapshot", default=None, help="Reuse an existing capture instead of downloading.")
+    parser.add_argument("--keep", type=int, default=5, help="How many dated panels to keep; 0 keeps all.")
     args = parser.parse_args(argv)
     version = args.version or "forward_pool_%s" % args.end.replace("-", "")
     codes = pool_codes()
@@ -107,8 +129,10 @@ def main(argv=None):
         directory, ready, missing = capture(codes, args.end)
     kept = [code for code in codes if code in ready]
     manifest = build(directory, kept, version, args.end)
+    pruned = prune(args.keep)
     print(json.dumps(dict(version=version, codes=len(kept), skipped=missing,
-                          end=manifest["end_date"], dataset=str(CLEAN_DIR / version)),
+                          end=manifest["end_date"], dataset=str(CLEAN_DIR / version),
+                          pruned=pruned),
                      ensure_ascii=False, indent=2))
     return 0 if not missing else 1
 
