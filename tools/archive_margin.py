@@ -13,7 +13,9 @@ the second is the flow that moves it.  Nothing here interprets either.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -59,6 +61,10 @@ def trading_days(start, end):
 def run(start="2019-01-02", end="2024-12-31", pause=0.0, log=print):
     import akshare as ak
     import time
+    # akshare draws a tqdm bar on stderr for every request.  When the process runs under a
+    # captured pipe nobody drains it, and after a few dozen calls the child blocks on the
+    # write -- it looks exactly like a network hang.  Silence it at the source.
+    os.environ.setdefault("TQDM_DISABLE", "1")
     OUTPUT.mkdir(parents=True, exist_ok=True)
     path = OUTPUT / "margin.parquet"
     existing = pd.read_parquet(path) if path.exists() else pd.DataFrame(columns=["code", "date"])
@@ -71,7 +77,8 @@ def run(start="2019-01-02", end="2024-12-31", pause=0.0, log=print):
         collected = []
         for name, fetch in (("sse", ak.stock_margin_detail_sse), ("szse", ak.stock_margin_detail_szse)):
             try:
-                frame = fetch(date=day.strftime("%Y%m%d"))
+                with open(os.devnull, "w") as sink, contextlib.redirect_stderr(sink):
+                    frame = fetch(date=day.strftime("%Y%m%d"))
                 if frame is not None and len(frame):
                     collected.append(normalize(frame, day))
             except Exception as error:                    # noqa: BLE001 - one exchange, one day
