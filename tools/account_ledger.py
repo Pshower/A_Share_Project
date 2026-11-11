@@ -384,8 +384,9 @@ def main(argv=None):
         print(json.dumps(dict(state={k: row[k] for k in ("date", "nav", "peak", "drawdown", "cash")},
                               current=current, targets=targets["weights"], drift=drift,
                               band_triggered=bool(targets["traded"]),
-                              band=plan_orders.BAND, problems=problems,
-                              safe_to_send=not problems), ensure_ascii=False, indent=2, default=float))
+                              band=plan_orders.BAND, orders=targets["orders"],
+                              problems=problems, safe_to_send=not problems),
+                         ensure_ascii=False, indent=2, default=float))
     elif args.command == "report":
         print(json.dumps(monthly_report(args.month), ensure_ascii=False, indent=2, default=float))
     elif args.command == "sync-dividends":
