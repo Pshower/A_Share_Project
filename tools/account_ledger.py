@@ -297,8 +297,15 @@ def main(argv=None):
         row = state(prices=prices, cfg=cfg, trades=trades, dates=args.date)
         targets = plan_orders.decide(row["nav"], row["peak"], prices, held=book["positions"])
         problems = gate(targets["orders"], prices, dates, row)
+        current = {}
+        for code in LEGS:
+            value = float(book["positions"].get(code, 0)) * float(prices[code])
+            current[code] = round(value / row["nav"], 6) if row["nav"] else 0.0
+        drift = {code: round(current[code] - targets["weights"][code], 6) for code in LEGS}
         print(json.dumps(dict(state={k: row[k] for k in ("date", "nav", "peak", "drawdown", "cash")},
-                              targets=targets["weights"], problems=problems,
+                              current=current, targets=targets["weights"], drift=drift,
+                              band_triggered=bool(targets["traded"]),
+                              band=plan_orders.BAND, problems=problems,
                               safe_to_send=not problems), ensure_ascii=False, indent=2, default=float))
     elif args.command == "report":
         print(json.dumps(monthly_report(args.month), ensure_ascii=False, indent=2, default=float))
