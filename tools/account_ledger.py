@@ -233,7 +233,13 @@ def record_trade(stamp, code, action, shares, price, decision_price=None, path=N
 
 
 def mark(stamp, prices=None, path=None, cfg=None):
-    """Record what the account was worth on a day; prices default to the latest ETF closes."""
+    """Record what the account was worth on a day; prices default to the latest ETF closes.
+
+    Idempotent per date: the daily job can run twice, or a re-mark can follow a late fill, and
+    the curve must still have one point per day.  The newest write wins and the file is
+    rewritten, which is the one place this tool is not append-only -- a duplicate NAV would
+    silently double-count a day in every return computed from it.
+    """
     cfg = cfg or config()
     path = Path(path) if path is not None else SNAPSHOTS
     if prices is None:
@@ -242,8 +248,35 @@ def mark(stamp, prices=None, path=None, cfg=None):
     value = nav(book["positions"], book["cash"], prices)
     row = dict(date=str(stamp), nav=value, cash=book["cash"], positions=dict(book["positions"]),
                prices={code: float(prices[code]) for code in book["positions"]})
-    _append(path, row)
+    rows = [existing for existing in _read(path) if str(existing["date"]) != str(stamp)]
+    rows.append(row)
+    rows.sort(key=lambda item: str(item["date"]))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n"
+                            for item in rows), encoding="utf-8")
     return row
+
+
+def curve(snapshots=None, cfg=None):
+    """The running record: cumulative return, peak, drawdown and the worst one so far."""
+    cfg = cfg or config()
+    snapshots = _read(SNAPSHOTS) if snapshots is None else snapshots
+    if not snapshots:
+        return dict(status="no_snapshots", note="run mark after the first trading day")
+    rows = sorted(snapshots, key=lambda item: str(item["date"]))
+    navs = pd.Series({pd.Timestamp(row["date"]): float(row["nav"]) for row in rows}).sort_index()
+    peak = navs.cummax()
+    drawdown = navs / peak - 1.0
+    capital = float(cfg["capital"])
+    years = max(len(navs) - 1, 1) / 242.0
+    return dict(status="ready", first=str(navs.index[0].date()), last=str(navs.index[-1].date()),
+                days=int(len(navs)), nav=float(navs.iloc[-1]),
+                total_return=float(navs.iloc[-1] / capital - 1.0),
+                annualised=float((navs.iloc[-1] / capital) ** (1 / years) - 1) if years >= 0.25 else None,
+                peak=float(peak.iloc[-1]), drawdown=float(drawdown.iloc[-1]),
+                worst_drawdown=float(drawdown.min()),
+                days_in_drawdown=int((drawdown < 0).sum()),
+                series={str(stamp.date()): round(float(value), 2) for stamp, value in navs.items()}).copy()
 
 
 def gate(orders, prices, price_dates, state_row, floor=plan_orders.FLOOR):
@@ -347,6 +380,8 @@ def main(argv=None):
     check.add_argument("--date", default=str(date_type.today()))
     check.add_argument("--prices", default=None, help='JSON {"510300": price, ...}; omit to fetch.')
 
+    sub.add_parser("curve", help="Running return, peak and drawdown.")
+
     report = sub.add_parser("report", help="Monthly statement.")
     report.add_argument("--month", required=True)
 
@@ -387,6 +422,8 @@ def main(argv=None):
                               band=plan_orders.BAND, orders=targets["orders"],
                               problems=problems, safe_to_send=not problems),
                          ensure_ascii=False, indent=2, default=float))
+    elif args.command == "curve":
+        print(json.dumps(curve(), ensure_ascii=False, indent=2, default=float))
     elif args.command == "report":
         print(json.dumps(monthly_report(args.month), ensure_ascii=False, indent=2, default=float))
     elif args.command == "sync-dividends":
