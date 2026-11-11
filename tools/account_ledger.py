@@ -77,9 +77,17 @@ def fee_for(amount, broker=None):
 
 
 def replay(trades, capital):
-    """Cash and positions implied by the trade log.  The only source of truth."""
+    """Cash and positions implied by the trade log.  The only source of truth.
+
+    A distribution is cash in with no change in shares, and it has to be in this log or the
+    account understates itself on every ex-date: the price drops by the distribution and
+    nothing replaces it.  The treasury leg pays quarterly, so that is 2% a year of missing cash.
+    """
     cash, positions = float(capital), {}
     for row in trades:
+        if row["action"] == "dividend":
+            cash += float(row["amount"])
+            continue
         shares, price = int(row["shares"]), float(row["price"])
         amount = shares * price
         fee = float(row.get("fee", fee_for(amount)))
@@ -94,6 +102,18 @@ def replay(trades, capital):
         if positions[row["code"]] == 0:
             del positions[row["code"]]
     return dict(cash=cash, positions=positions)
+
+
+def shares_held_at(trades, code, stamp):
+    """Shares of ``code`` held strictly before ``stamp`` -- what an ex-date rewards."""
+    held = 0
+    for row in trades:
+        if row["code"] != code or row["action"] == "dividend":
+            continue
+        if str(row["date"]) >= str(stamp):
+            continue
+        held += int(row["shares"]) if row["action"] == "buy" else -int(row["shares"])
+    return held
 
 
 def nav(positions, cash, prices):
@@ -127,6 +147,59 @@ def state(dates=None, prices=None, cfg=None, trades=None, snapshots=None):
     return dict(date=stamp, cash=book["cash"], positions=book["positions"], nav=value,
                 nav_source=source, peak=peak, drawdown=value / peak - 1.0,
                 unmarked_trades=len(trailing))
+
+
+def distributions(code, start=None, end=None):
+    """Every cash distribution per unit for one ETF, from the Sina fund history.
+
+    The interface publishes the **cumulative** amount per unit, so the per-event figure is
+    the difference between consecutive rows; the first row is its own event.
+    """
+    import akshare as ak
+    frame = ak.fund_etf_dividend_sina(symbol=plan_orders.prefix_for(code) + code)
+    if frame is None or not len(frame):
+        return []
+    frame = frame.copy()
+    frame["日期"] = pd.to_datetime(frame["日期"])
+    frame = frame.sort_values("日期")
+    frame["per_unit"] = frame["累计分红"].diff().fillna(frame["累计分红"])
+    rows = []
+    for _, row in frame.iterrows():
+        stamp = row["日期"].date()
+        if start is not None and stamp < pd.Timestamp(start).date():
+            continue
+        if end is not None and stamp > pd.Timestamp(end).date():
+            continue
+        if float(row["per_unit"]) > 0:
+            rows.append((stamp, float(row["per_unit"])))
+    return rows
+
+
+def sync_dividends(start=None, end=None, codes=None, path=None, cfg=None):
+    """Append every distribution the log does not have yet, using the shares held then."""
+    cfg = cfg or config()
+    path = Path(path) if path is not None else TRADES
+    codes = list(codes or LEGS)
+    start = start or cfg["start_date"]
+    end = end or str(date_type.today())
+    trades = _read(path)
+    known = {(str(row["date"]), row["code"]) for row in trades if row["action"] == "dividend"}
+    added = []
+    for code in codes:
+        for stamp, per_unit in distributions(code, start, end):
+            if (str(stamp), code) in known:
+                continue
+            held = shares_held_at(trades, code, stamp)
+            if held <= 0:
+                continue
+            row = dict(recorded_at=pd.Timestamp.utcnow().isoformat(), date=str(stamp), code=code,
+                       action="dividend", shares=held, cash_per_share=per_unit,
+                       amount=round(held * per_unit, 2), fee=0.0, source="fund_etf_dividend_sina")
+            _append(path, row)
+            trades.append(row)
+            known.add((str(stamp), code))
+            added.append(row)
+    return added
 
 
 def record_trade(stamp, code, action, shares, price, decision_price=None, path=None, cfg=None):
@@ -229,13 +302,15 @@ def monthly_report(month, snapshots=None, trades=None, cfg=None):
         after = float(last.get("positions", {}).get(code, 0)) * float(last.get("prices", {}).get(code, 0))
         legs[code] = round(after - before, 2)
     peak = peak_of([row for row in snapshots if str(row["date"]) <= last["date"]], cfg["capital"])
-    fills = [row for row in trades if str(row["date"]).startswith(month)]
+    fills = [row for row in trades if str(row["date"]).startswith(month) and row["action"] != "dividend"]
+    paid = [row for row in trades if str(row["date"]).startswith(month) and row["action"] == "dividend"]
     return dict(status="ready", month=month, days=len(window),
                 nav_start=float(first["nav"]), nav_end=float(last["nav"]),
                 return_pct=float(last["nav"] / first["nav"] - 1.0),
                 peak=peak, drawdown=float(last["nav"] / peak - 1.0),
                 leg_change=legs, trades=len(fills),
                 fees=round(sum(float(row.get("fee", 0.0)) for row in fills), 2),
+                dividends=round(sum(float(row.get("amount", 0.0)) for row in paid), 2),
                 slippage=slippage(fills))
 
 
@@ -275,6 +350,10 @@ def main(argv=None):
     report = sub.add_parser("report", help="Monthly statement.")
     report.add_argument("--month", required=True)
 
+    sync = sub.add_parser("sync-dividends", help="Append distributions the log is missing.")
+    sync.add_argument("--start", default=None)
+    sync.add_argument("--end", default=None)
+
     args = parser.parse_args(argv)
     if args.command == "init":
         print(json.dumps(init(args.capital, args.date), ensure_ascii=False, indent=2))
@@ -309,6 +388,9 @@ def main(argv=None):
                               safe_to_send=not problems), ensure_ascii=False, indent=2, default=float))
     elif args.command == "report":
         print(json.dumps(monthly_report(args.month), ensure_ascii=False, indent=2, default=float))
+    elif args.command == "sync-dividends":
+        added = sync_dividends(args.start, args.end)
+        print(json.dumps(dict(added=len(added), records=added), ensure_ascii=False, indent=2, default=str))
     return 0
 
 
