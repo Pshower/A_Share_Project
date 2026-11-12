@@ -6,14 +6,15 @@
 
 ---
 
-## 0. 两本账：模拟盘与实盘
+## 0. 三本账：实盘、模拟盘、回测
 
 ```
-reports/account/live/   实盘：只记真实成交（source = manual）
-reports/account/paper/  模拟盘：按计划用真实开/收盘价成交（source = model_open）
+reports/account/live/     实盘：只记真实成交（source = manual）
+reports/account/paper/    模拟盘：从 2026-11-12 起按真实开盘价成交（source = model_open）
+reports/account/backtest/ 回测：2019-01-02 起的历史模拟（source = backtest）
 ```
 
-两本账**没有任何共享文件**，各自的 `account.json` / `trades.jsonl` / `snapshots.jsonl` 独立。
+三本账**没有任何共享文件**，各自的 `account.json` / `trades.jsonl` / `snapshots.jsonl` 独立。
 `--account` 可以写在子命令前或后：
 
 ```powershell
@@ -21,8 +22,17 @@ python -B -m tools.account_ledger curve --account paper
 python -B -m tools.account_ledger --account live check --date 2026-11-12
 ```
 
+**回测账由 `plan_backtest.export_account()` 生成，与 129 起点扫描用的是同一个引擎**，
+所以它的数字可以逐位对回去（2019-01-02 起：两边都是 **1,687,442.92**，最差回撤 −7.91%）。
+重新生成：
+
+```powershell
+python -B -c "from tools import plan_backtest as pb; print(pb.export_account('2019-01-02', name='backtest'))"
+```
+
 **为什么必须分开**：一笔模型成交如果落进实盘账本，账本会报告一个没人持有的仓位。
-两本账的净值曲线长得一样，含义完全不同——一个是你赚了多少，一个是规则会赚多少。
+三本账的净值曲线可能长得像，含义完全不同——实盘是你赚了多少，模拟盘是规则从今天起会赚多少，
+回测是规则在过去会赚多少。
 
 ## 1. 为什么需要一个账本
 

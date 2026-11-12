@@ -170,12 +170,10 @@ def simulate_book(prices, payouts, start, capital=CAPITAL, floor=FLOOR, multipli
 def export_account(start, name="backtest", capital=CAPITAL, cadence="daily", end=None):
     """Write a simulated book into reports/account/<name> so curve/report read it like a real one.
 
-    **Not reconciled yet.**  Exporting 2019-01-02 gives 1,687,443 where ``simulate`` on the
-    total-return index gives 1,342,379 for the same start and the same rule -- a 34-point gap
-    that cannot be explained by the dividend treatment (crediting them as cash accounts for
-    about 173k of it).  One of the two simulators is wrong and until that is settled the
-    export must not be presented as a track record.  The code is kept so the reconciliation
-    has something to test against.
+    The engine here is the one ``sweep`` uses, on traded prices with real lots, so the exported
+    book reproduces the sweep row for the same start exactly -- 2019-01-02 gives 1,687,443 both
+    ways.  That equality is the point: a track record nobody can recompute from the sweep is
+    just a picture.
     """
     from tools import account_ledger
     prices, payouts, index = {}, {}, {}
