@@ -6,6 +6,24 @@
 
 ---
 
+## 0. 两本账：模拟盘与实盘
+
+```
+reports/account/live/   实盘：只记真实成交（source = manual）
+reports/account/paper/  模拟盘：按计划用真实开/收盘价成交（source = model_open）
+```
+
+两本账**没有任何共享文件**，各自的 `account.json` / `trades.jsonl` / `snapshots.jsonl` 独立。
+`--account` 可以写在子命令前或后：
+
+```powershell
+python -B -m tools.account_ledger curve --account paper
+python -B -m tools.account_ledger --account live check --date 2026-11-12
+```
+
+**为什么必须分开**：一笔模型成交如果落进实盘账本，账本会报告一个没人持有的仓位。
+两本账的净值曲线长得一样，含义完全不同——一个是你赚了多少，一个是规则会赚多少。
+
 ## 1. 为什么需要一个账本
 
 `plan_orders` 的输入里有 **峰值**，而峰值错一格，风险腿就全错（净值 300 万、峰值 310 万 → 42%；
@@ -74,8 +92,8 @@ python -B -m tools.account_ledger report --month 2026-11
 四条腿的"变化"是**市值变化**（持仓变化 + 价格变化），不是纯收益贡献——这条必须记住，
 否则会把它当成归因。
 
-**已排定每月 1 日 20:00 自动执行**（schedule `schedule-08fde740`）：非交易日顺延；
-顺序是 `mark` → `check` → `report <上月>`；只出信号、不下单；账户未开账时只提示、不创建。
+**已排定每交易日 20:15 自动执行**（schedule `schedule-08fde740`）：非交易日顺延；
+顺序是 `sync-dividends` → `mark` → `check`，**两本账各跑一遍**；只出信号、不下单；账户未开账时只提示、不创建。
 `check` 的 `safe_to_send` 为 false 时逐条列出问题，不许绕过。
 
 ## 6. 分红：不是价格波动，是现金

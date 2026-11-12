@@ -22,14 +22,33 @@ from datetime import date as date_type
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 
 from tools import plan_orders
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ACCOUNT_DIR = PROJECT_ROOT / "reports" / "account"
-CONFIG = ACCOUNT_DIR / "account.json"
-TRADES = ACCOUNT_DIR / "trades.jsonl"
-SNAPSHOTS = ACCOUNT_DIR / "snapshots.jsonl"
+ACCOUNTS = ("live", "paper")
+DEFAULT_ACCOUNT = "live"
+CONFIG = ACCOUNT_DIR / DEFAULT_ACCOUNT / "account.json"
+TRADES = ACCOUNT_DIR / DEFAULT_ACCOUNT / "trades.jsonl"
+SNAPSHOTS = ACCOUNT_DIR / DEFAULT_ACCOUNT / "snapshots.jsonl"
+ACTIVE = DEFAULT_ACCOUNT
+
+
+def use(name):
+    """Point the module at one account. A paper book and a real book must never share a file.
+
+    Two books that look alike are exactly the failure this separation prevents: a modelled fill
+    landing in the real ledger makes the account report a position nobody owns.
+    """
+    global ACTIVE, CONFIG, TRADES, SNAPSHOTS
+    if name not in ACCOUNTS:
+        raise ValueError("Unknown account %r; expected one of %s" % (name, ", ".join(ACCOUNTS)))
+    ACTIVE = name
+    base = ACCOUNT_DIR / name
+    CONFIG, TRADES, SNAPSHOTS = base / "account.json", base / "trades.jsonl", base / "snapshots.jsonl"
+    return name
 LEGS = list(plan_orders.LEGS) + [plan_orders.SAFE]
 RISKY = list(plan_orders.LEGS)
 LOT = plan_orders.LOT
@@ -292,9 +311,12 @@ def curve(snapshots=None, cfg=None):
         return dict(status="no_snapshots", note="run mark after the first trading day")
     rows = sorted(snapshots, key=lambda item: str(item["date"]))
     navs = pd.Series({pd.Timestamp(row["date"]): float(row["nav"]) for row in rows}).sort_index()
-    peak = navs.cummax()
-    drawdown = navs / peak - 1.0
     capital = float(cfg["capital"])
+    # The starting capital is the first peak: a first day that loses money is a drawdown, and
+    # measuring only from the recorded NAVs would report it as flat.
+    peak_values = np.maximum.accumulate(np.r_[capital, navs.to_numpy(dtype=float)])[1:]
+    peak = pd.Series(peak_values, index=navs.index)
+    drawdown = navs / peak - 1.0
     years = max(len(navs) - 1, 1) / 242.0
     return dict(status="ready", first=str(navs.index[0].date()), last=str(navs.index[-1].date()),
                 days=int(len(navs)), nav=float(navs.iloc[-1]),
@@ -415,6 +437,8 @@ def _prices_with_dates(codes, stamp=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Account ledger for the plan.")
     sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--account", default=DEFAULT_ACCOUNT, choices=list(ACCOUNTS),
+                        help="Which book to act on: live (real fills) or paper (modelled fills).")
 
     sub.add_parser("init", help="Start an account.").add_argument("--capital", type=float, required=True)
     sub.choices["init"].add_argument("--date", default=str(date_type.today()))
@@ -450,7 +474,13 @@ def main(argv=None):
     sync.add_argument("--start", default=None)
     sync.add_argument("--end", default=None)
 
+    # Accept --account on either side of the subcommand: "init --account paper" reads the way
+    # people type it, and refusing that would only teach them to look up the syntax.
+    for child in sub.choices.values():
+        child.add_argument("--account", default=argparse.SUPPRESS, choices=list(ACCOUNTS))
+
     args = parser.parse_args(argv)
+    use(args.account)
     if args.command == "init":
         print(json.dumps(init(args.capital, args.date), ensure_ascii=False, indent=2))
     elif args.command == "trade":
@@ -465,17 +495,17 @@ def main(argv=None):
     elif args.command == "check":
         cfg = config()
         trades = _read(TRADES)
-        book = replay(trades, cfg["capital"])
+        ledger_book = replay(trades, cfg["capital"])
         if args.prices:
             prices, dates = json.loads(args.prices), {code: args.date for code in LEGS}
         else:
             prices, dates = _prices_with_dates(LEGS)
         row = state(prices=prices, cfg=cfg, trades=trades, dates=args.date)
-        targets = plan_orders.decide(row["nav"], row["peak"], prices, held=book["positions"])
+        targets = plan_orders.decide(row["nav"], row["peak"], prices, held=ledger_book["positions"])
         problems = gate(targets["orders"], prices, dates, row)
         current = {}
         for code in LEGS:
-            value = float(book["positions"].get(code, 0)) * float(prices[code])
+            value = float(ledger_book["positions"].get(code, 0)) * float(prices[code])
             current[code] = round(value / row["nav"], 6) if row["nav"] else 0.0
         drift = {code: round(current[code] - targets["weights"][code], 6) for code in LEGS}
         print(json.dumps(dict(state={k: row[k] for k in ("date", "nav", "peak", "drawdown", "cash")},
