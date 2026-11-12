@@ -202,10 +202,36 @@ def sync_dividends(start=None, end=None, codes=None, path=None, cfg=None):
     return added
 
 
-def record_trade(stamp, code, action, shares, price, decision_price=None, path=None, cfg=None):
+def market_price(code, stamp, field="open"):
+    """The traded price on one day, from the same Sina history the plan is priced from.
+
+    This is what makes a fill recordable without typing a number: the plan executes at the
+    next open, so the next open is the honest stand-in for a fill that has already happened.
+    It is still a model price -- it assumes you got the open with no queue and no partial
+    fill -- which is why every row carries a ``source``.
+    """
+    import akshare as ak
+    frame = ak.fund_etf_hist_sina(symbol=plan_orders.prefix_for(code) + code)
+    if frame is None or not len(frame):
+        raise ValueError("No history for %s" % code)
+    frame = frame.copy()
+    frame["date"] = pd.to_datetime(frame["date"]).dt.date
+    row = frame[frame["date"] == pd.Timestamp(stamp).date()]
+    if row.empty:
+        raise ValueError("No bar for %s on %s" % (code, stamp))
+    return float(row[field].iloc[0])
+
+
+def record_trade(stamp, code, action, shares, price=None, decision_price=None,
+                 path=None, cfg=None, field="open", source=None):
     """Validate one fill against the log, then append it.  Never silently adjusts."""
     cfg = cfg or config()
     path = Path(path) if path is not None else TRADES
+    if price is None:
+        price = market_price(code, stamp, field)
+        source = source or ("model_" + field)
+    else:
+        source = source or "manual"
     shares = int(shares)
     if shares <= 0 or shares % LOT:
         raise ValueError("Shares must be a positive multiple of %d" % LOT)
@@ -225,7 +251,8 @@ def record_trade(stamp, code, action, shares, price, decision_price=None, path=N
     else:
         raise ValueError("Unknown action %r" % action)
     row = dict(recorded_at=pd.Timestamp.utcnow().isoformat(), date=str(stamp), code=code,
-               action=action, shares=shares, price=float(price), fee=round(fee, 2))
+               action=action, shares=shares, price=float(price), fee=round(fee, 2),
+               source=source)
     if decision_price is not None:
         row["decision_price"] = float(decision_price)
     _append(path, row)
@@ -320,6 +347,34 @@ def slippage(trades):
                 worst_bps=float(series.min() * 10000), share_adverse=float((series > 0).mean()))
 
 
+def book(stamp, field="open", path=None, cfg=None):
+    """Execute the current plan inside the ledger at that day's traded prices.
+
+    Sells are recorded before buys so the proceeds can fund the purchases, and every row is
+    tagged with the price field it came from.  This is a *model* execution: it assumes the
+    open (or close) was available for the whole size.  Running it on a day you did not trade
+    turns the account into a paper account, which is a legitimate thing to want and a
+    dishonest thing to discover later -- so the rows say ``model_open``, not ``manual``.
+    """
+    cfg = cfg or config()
+    path = Path(path) if path is not None else TRADES
+    trades = _read(path)
+    current = replay(trades, cfg["capital"])
+    prices = {code: market_price(code, stamp, field) for code in LEGS}
+    row = state(prices=prices, cfg=cfg, trades=trades, dates=stamp)
+    targets = plan_orders.decide(row["nav"], row["peak"], prices, held=current["positions"])
+    ordered = sorted(targets["orders"], key=lambda item: item["delta"] > 0)
+    booked = []
+    for item in ordered:
+        if item["delta"] == 0:
+            continue
+        booked.append(record_trade(stamp, item["code"], "buy" if item["delta"] > 0 else "sell",
+                                   abs(item["delta"]), price=prices[item["code"]],
+                                   path=path, cfg=cfg, source="model_" + field))
+    return dict(date=str(stamp), field=field, booked=len(booked), weights=targets["weights"],
+                prices=prices, trades=booked)
+
+
 def monthly_report(month, snapshots=None, trades=None, cfg=None):
     """NAV, drawdown and per-leg contribution for one calendar month."""
     cfg = cfg or config()
@@ -367,7 +422,9 @@ def main(argv=None):
     trade = sub.add_parser("trade", help="Record a fill.")
     for name, kwargs in (("--date", dict(default=str(date_type.today()))), ("--code", dict(required=True)),
                          ("--action", dict(required=True, choices=["buy", "sell"])),
-                         ("--shares", dict(type=int, required=True)), ("--price", dict(type=float, required=True)),
+                         ("--shares", dict(type=int, required=True)),
+                         ("--price", dict(type=float, default=None)),
+                         ("--field", dict(default="open", choices=["open", "close"])),
                          ("--decision-price", dict(type=float, default=None))):
         trade.add_argument(name, **kwargs)
 
@@ -379,6 +436,10 @@ def main(argv=None):
     check = sub.add_parser("check", help="Pre-trade gate for the plan's orders.")
     check.add_argument("--date", default=str(date_type.today()))
     check.add_argument("--prices", default=None, help='JSON {"510300": price, ...}; omit to fetch.')
+
+    book_cmd = sub.add_parser("book", help="Execute the plan inside the ledger at that day's prices.")
+    book_cmd.add_argument("--date", default=str(date_type.today()))
+    book_cmd.add_argument("--field", default="open", choices=["open", "close"])
 
     sub.add_parser("curve", help="Running return, peak and drawdown.")
 
@@ -394,7 +455,8 @@ def main(argv=None):
         print(json.dumps(init(args.capital, args.date), ensure_ascii=False, indent=2))
     elif args.command == "trade":
         print(json.dumps(record_trade(args.date, args.code, args.action, args.shares,
-                                      args.price, args.decision_price), ensure_ascii=False, indent=2))
+                                      args.price, args.decision_price, field=args.field),
+                         ensure_ascii=False, indent=2))
     elif args.command == "mark":
         print(json.dumps(mark(args.date), ensure_ascii=False, indent=2))
     elif args.command == "status":
@@ -422,6 +484,8 @@ def main(argv=None):
                               band=plan_orders.BAND, orders=targets["orders"],
                               problems=problems, safe_to_send=not problems),
                          ensure_ascii=False, indent=2, default=float))
+    elif args.command == "book":
+        print(json.dumps(book(args.date, args.field), ensure_ascii=False, indent=2, default=float))
     elif args.command == "curve":
         print(json.dumps(curve(), ensure_ascii=False, indent=2, default=float))
     elif args.command == "report":
