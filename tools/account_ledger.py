@@ -28,7 +28,7 @@ from tools import plan_orders
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ACCOUNT_DIR = PROJECT_ROOT / "reports" / "account"
-ACCOUNTS = ("live", "paper")
+ACCOUNTS = ("live", "paper", "backtest")
 DEFAULT_ACCOUNT = "live"
 CONFIG = ACCOUNT_DIR / DEFAULT_ACCOUNT / "account.json"
 TRADES = ACCOUNT_DIR / DEFAULT_ACCOUNT / "trades.jsonl"
@@ -438,7 +438,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Account ledger for the plan.")
     sub = parser.add_subparsers(dest="command", required=True)
     parser.add_argument("--account", default=DEFAULT_ACCOUNT, choices=list(ACCOUNTS),
-                        help="Which book to act on: live (real fills) or paper (modelled fills).")
+                        help="Which book: live (real fills), paper (modelled, from today) or backtest (simulated history).")
 
     sub.add_parser("init", help="Start an account.").add_argument("--capital", type=float, required=True)
     sub.choices["init"].add_argument("--date", default=str(date_type.today()))

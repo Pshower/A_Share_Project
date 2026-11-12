@@ -85,6 +85,126 @@ def total_return(frame, paid, split=SPLIT, payout=PAYOUT):
     return index, events
 
 
+def price_and_payouts(frame, paid, split=SPLIT, payout=PAYOUT):
+    """A split-repaired price series plus the cash each unit paid, kept separate.
+
+    ``total_return`` reinvests distributions, which is right for measuring an index but wrong
+    for a ledger: the account holds units and receives cash.  This is the same repair with the
+    cash left as cash, so the simulator can mark a book the way the account does.
+    """
+    prices = frame.astype(float).copy()
+    payouts = {}
+    for date in list(prices.index)[1:]:
+        prior = prices.index[prices.index < date]
+        if not len(prior):
+            continue
+        before, now = float(prices.loc[prior[-1]]), float(prices.loc[date])
+        move = now / before
+        recorded = float(paid.get(date, 0.0))
+        if recorded > 0:
+            payouts[date] = recorded
+        elif move <= 1 - split:
+            prices.loc[prior] = prices.loc[prior] * move          # unit split
+        elif move <= 1 - payout:
+            payouts[date] = round(before - now, 4)                # interface lost the payout
+    return prices, payouts
+
+
+def simulate_book(prices, payouts, start, capital=CAPITAL, floor=FLOOR, multiplier=MULTIPLIER,
+                  band=BAND, end=None, cadence="daily"):
+    """The plan as a book: units, cash, distributions and a daily mark, like the live ledger.
+
+    Returns the NAV series and every fill, so a backtest can be written into an account and
+    read back with the same ``curve`` and ``report`` the real book uses.
+    """
+    window = prices.loc[pd.Timestamp(start):]
+    if end:
+        window = window.loc[:pd.Timestamp(end)]
+    if len(window) < 30:
+        return None
+    units = {code: 0 for code in CODES}
+    cash = float(capital)
+    peak = float(capital)
+    marks = set(month_starts(window.index)) if cadence == "monthly" else set(window.index)
+    nav_rows, fills, fees = [], [], 0.0
+    for day in window.index:
+        row = window.loc[day]
+        for code in CODES:
+            if day in payouts.get(code, {}) and units[code] > 0:
+                cash += units[code] * float(payouts[code][day])
+        value = cash + sum(units[code] * float(row[code]) for code in CODES)
+        peak = max(peak, value)
+        if day in marks and value > 0:
+            target = min(max(multiplier * (value - floor * peak) / value, 0.0), 1.0)
+            held = sum(units[code] * float(row[code]) for code in RISKY) / value
+            if abs(target - held) >= band:
+                wanted = {code: target * plan_orders.LEGS[code] * value for code in RISKY}
+                wanted[SAFE] = (1.0 - target) * value
+                for side in ("sell", "buy"):
+                    for code in CODES:
+                        price = float(row[code])
+                        goal = int(wanted[code] // price // LOT * LOT)
+                        delta = goal - units[code]
+                        if (side == "sell" and delta >= 0) or (side == "buy" and delta <= 0):
+                            continue
+                        amount, fee = abs(delta) * price, fee_for(abs(delta) * price)
+                        if side == "sell":
+                            cash += amount * (1 - SLIPPAGE) - fee
+                        else:
+                            if amount * (1 + SLIPPAGE) + fee > cash:
+                                continue
+                            cash -= amount * (1 + SLIPPAGE) + fee
+                        fees += fee
+                        units[code] += delta
+                        fills.append(dict(date=str(day.date()), code=code, action=side,
+                                          shares=abs(int(delta)), price=round(price, 4),
+                                          fee=round(fee, 2)))
+                value = cash + sum(units[code] * float(row[code]) for code in CODES)
+        nav_rows.append((day, value, cash, dict(units), {code: float(row[code])
+                                                         for code in CODES if units[code]}))
+    series = pd.Series({day: value for day, value, _, _, _ in nav_rows}).sort_index()
+    return dict(series=series, rows=nav_rows, fills=fills, fees=round(fees, 2),
+                final=float(series.iloc[-1]))
+
+
+def export_account(start, name="backtest", capital=CAPITAL, cadence="daily", end=None):
+    """Write a simulated book into reports/account/<name> so curve/report read it like a real one.
+
+    **Not reconciled yet.**  Exporting 2019-01-02 gives 1,687,443 where ``simulate`` on the
+    total-return index gives 1,342,379 for the same start and the same rule -- a 34-point gap
+    that cannot be explained by the dividend treatment (crediting them as cash accounts for
+    about 173k of it).  One of the two simulators is wrong and until that is settled the
+    export must not be presented as a track record.  The code is kept so the reconciliation
+    has something to test against.
+    """
+    from tools import account_ledger
+    prices, payouts, index = {}, {}, {}
+    for code in CODES:
+        frame, paid = raw_series(code, start, end or END)
+        prices[code], payouts[code] = price_and_payouts(frame, paid)
+    frame = pd.DataFrame(prices).sort_index().dropna()
+    frame = frame.loc[frame.index >= pd.Timestamp(start)]
+    result = simulate_book(frame, payouts, start, capital=capital, cadence=cadence, end=end)
+    if result is None:
+        raise ValueError("Window too short to simulate")
+    base = account_ledger.ACCOUNT_DIR / name
+    base.mkdir(parents=True, exist_ok=True)
+    (base / "account.json").write_text(json.dumps(dict(capital=capital, start_date=str(start)),
+                                                  ensure_ascii=False, indent=2), encoding="utf-8")
+    with (base / "trades.jsonl").open("w", encoding="utf-8") as stream:
+        for fill in result["fills"]:
+            row = dict(fill, recorded_at="backtest", source="backtest")
+            stream.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+    with (base / "snapshots.jsonl").open("w", encoding="utf-8") as stream:
+        for day, value, cash, units, held_prices in result["rows"]:
+            row = dict(date=str(day.date()), nav=round(value, 2), cash=round(cash, 2),
+                       positions={code: count for code, count in units.items() if count},
+                       prices=held_prices)
+            stream.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+    return dict(name=name, start=str(start), days=len(result["rows"]),
+                fills=len(result["fills"]), fees=result["fees"], final=result["final"])
+
+
 def universe(start=START, end=END, log=print):
     index, repairs = {}, {}
     for code in CODES:
