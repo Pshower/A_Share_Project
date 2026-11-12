@@ -205,6 +205,24 @@ def export_account(start, name="backtest", capital=CAPITAL, cadence="daily", end
                 fills=len(result["fills"]), fees=result["fees"], final=result["final"])
 
 
+def universe_book(start=START, end=END, log=print):
+    """Real traded prices plus the cash distributions, for a book that holds units.
+
+    This is the honest price source for a 1,000,000 account: 511010 trades near 140, so one
+    100-unit lot is 1.2% of NAV.  The normalised total-return index starts at 1.0, which makes
+    a lot worth 100 yuan -- a fractional-share account in disguise.  Running the same rule on
+    the two changes the seven-year outcome by 25%, entirely through when the band fires.
+    """
+    prices, payouts, repairs = {}, {}, {}
+    for code in CODES:
+        frame, paid = raw_series(code, start, end)
+        prices[code], payouts[code] = price_and_payouts(frame, paid)
+        if payouts[code]:
+            repairs[code] = sorted(str(stamp.date()) for stamp in payouts[code])[:4]
+    frame = pd.DataFrame(prices).sort_index().dropna()
+    return frame.loc[frame.index >= pd.Timestamp(start)], payouts, repairs
+
+
 def universe(start=START, end=END, log=print):
     index, repairs = {}, {}
     for code in CODES:
@@ -277,17 +295,26 @@ def simulate(index, start, capital=CAPITAL, floor=FLOOR, multiplier=MULTIPLIER,
                 years=round(years, 2), final=round(final, 2),
                 annual=float((final / capital) ** (1 / years) - 1) if years > 0 else float("nan"),
                 drawdown=float((series / series.cummax() - 1).min()),
-                trades=int(trades), fees=round(fees, 2),
+                trades=int(trades), fees=round(fees, 2), series=series,
                 vol=float(returns.std(ddof=1) * np.sqrt(242)) if len(returns) > 2 else None)
 
 
-def sweep(index, capital=CAPITAL, start=START, step_months=1, cadence="monthly"):
-    starts = month_starts(index.loc[pd.Timestamp(start):].index)
+def sweep(prices, payouts, capital=CAPITAL, start=START, step_months=1, cadence="monthly"):
+    """Run every monthly start on real prices, so the 100-unit lot is the real one."""
+    starts = month_starts(prices.loc[pd.Timestamp(start):].index)
     rows = []
     for stamp in starts[::max(int(step_months), 1)]:
-        result = simulate(index, stamp, capital=capital, cadence=cadence)
+        result = simulate_book(prices, payouts, stamp, capital=capital, cadence=cadence)
         if result:
-            rows.append(result)
+            rows.append(dict(start=str(pd.Timestamp(stamp).date()),
+                             end=str(result["series"].index[-1].date()),
+                             years=round(len(result["series"]) / 242.0, 2),
+                             final=round(result["final"], 2),
+                             annual=float((result["final"] / capital) **
+                                          (242.0 / len(result["series"])) - 1),
+                             drawdown=float((result["series"] /
+                                             result["series"].cummax() - 1).min()),
+                             trades=len(result["fills"]), fees=result["fees"]))
     return rows
 
 
@@ -312,14 +339,15 @@ def main(argv=None):
     parser.add_argument("--cadence", default="monthly", choices=["monthly", "daily"])
     parser.add_argument("--output", default=str(OUTPUT))
     args = parser.parse_args(argv)
-    index, repairs = universe(args.start)
-    rows = sweep(index, capital=args.capital, start=args.start, cadence=args.cadence)
+    prices, payouts, payout_dates = universe_book(args.start)
+    rows = sweep(prices, payouts, capital=args.capital, start=args.start, cadence=args.cadence)
     summary = summarize(rows)
     target = Path(args.output)
     target.mkdir(parents=True, exist_ok=True)
     payload = dict(status="ready", capital=args.capital, codes=CODES, cadence=args.cadence,
-                   floor=FLOOR, multiplier=MULTIPLIER, band=BAND, repairs=repairs,
-                   window=dict(first=str(index.index[0].date()), last=str(index.index[-1].date())),
+                   floor=FLOOR, multiplier=MULTIPLIER, band=BAND, payout_dates=payout_dates,
+                   prices="traded prices with 100-unit lots",
+                   window=dict(first=str(prices.index[0].date()), last=str(prices.index[-1].date())),
                    summary=summary, runs=rows)
     (target / f"plan_backtest_{args.cadence}.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, default=float), encoding="utf-8")
