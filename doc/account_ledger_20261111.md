@@ -102,9 +102,12 @@ python -B -m tools.account_ledger report --month 2026-11
 四条腿的"变化"是**市值变化**（持仓变化 + 价格变化），不是纯收益贡献——这条必须记住，
 否则会把它当成归因。
 
-**已排定每交易日 20:15 自动执行**（schedule `schedule-08fde740`）：非交易日顺延；
+**已排定每交易日 21:00 自动执行**（schedule `schedule-08fde740`；2026-11-13 由 20:15 推后，因为新浪基金历史约在 20:30 才落地当日收盘价）：非交易日顺延；
 顺序是 `sync-dividends` → `mark` → `check`，**两本账各跑一遍**；只出信号、不下单；账户未开账时只提示、不创建。
-`check` 的 `safe_to_send` 为 false 时逐条列出问题，不许绕过。
+`check` 的 `safe_to_send` 为 false 时逐条列出问题，不许绕过。若 `mark` 报 `quotes are not from <今天>` 说明报价未发布，
+**不要用 `--allow-stale` 硬写**（那会造出一天假平盘），改用 `tools.mark_when_ready` 等报价发布再补写。
+每隔一段时间用 `tools.audit_marks --account <acct> [--repair]` 把每一行按当日真实收盘价重算一遍——快照与成交都查，
+漂移的会说明"这个价其实是哪一天的"，并只盖日期、不动净值地把老行补上 `price_dates`。
 
 ## 6. 分红：不是价格波动，是现金
 
