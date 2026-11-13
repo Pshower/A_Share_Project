@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from tools import forward_panel
+from tools import forward_panel, shadow_run
 
 
 def write_manifest(path, codes):
@@ -56,6 +56,27 @@ def test_prune_keeps_the_newest_panels_and_nothing_else(tmp_path):
     assert (tmp_path / "forward_pool_20261110").exists()
     assert (tmp_path / "research_v3").exists()
     assert forward_panel.prune(0, root=tmp_path, log=lambda *_: None) == []
+
+
+def test_the_recorder_follows_the_newest_panel(tmp_path):
+    """The daily job renames its dataset every day and prunes the old one; a hard-coded
+    default goes stale the first time it is pruned and then reports a false ``stale``."""
+    for name in ["forward_pool_20261110", "forward_pool_20261112", "forward_pool_20261113"]:
+        (tmp_path / name).mkdir()
+    assert shadow_run.latest_panel(tmp_path).name == "forward_pool_20261113"
+    forward_panel.prune(1, root=tmp_path, log=lambda *_: None)
+    assert shadow_run.latest_panel(tmp_path).name == "forward_pool_20261113"
+
+
+def test_the_recorder_has_no_default_panel_when_none_exists(tmp_path):
+    assert shadow_run.latest_panel(tmp_path) is None
+
+
+def test_the_default_dataset_is_a_panel_that_exists_today():
+    """Whatever the default resolves to must be a directory the recorder can actually open."""
+    if shadow_run.latest_panel() is not None:
+        assert shadow_run.DATASET.is_dir()
+        assert shadow_run.DATASET.name.startswith("forward_pool_")
 
 
 def test_build_reports_the_pool_it_actually_read(tmp_path, monkeypatch):

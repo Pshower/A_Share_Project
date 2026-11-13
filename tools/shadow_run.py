@@ -30,12 +30,26 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # of what E1 decided in-sample and is left untouched; this is the same twenty features on
 # the same pool, captured every trading day from 2026-11-10 onward.  The construction
 # constants below are not affected by the switch.
-DATASET = PROJECT_ROOT / "data" / "clean" / "forward_pool_20261110"
+#
+# The default follows the newest panel on disk rather than naming one: the daily job renames
+# its dataset every trading day and prunes the old ones, so a hard-coded path goes stale the
+# first time it is pruned -- and then the tool reports ``stale`` for a reason that has nothing
+# to do with the data.  ``--dataset`` still overrides this.
+CLEAN_DIR = PROJECT_ROOT / "data" / "clean"
 STATE = PROJECT_ROOT / "reports" / "shadow" / "e1_state.json"
 LOG = PROJECT_ROOT / "reports" / "shadow" / "e1_shadow.jsonl"
 TOP_K = 30
 BUFFER = 60
 HOLD = 20
+
+
+def latest_panel(root=CLEAN_DIR):
+    """The newest ``forward_pool_<date>`` on disk, or None when there is none."""
+    panels = sorted(path for path in Path(root).glob("forward_pool_*") if path.is_dir())
+    return panels[-1] if panels else None
+
+
+DATASET = latest_panel() or (CLEAN_DIR / "forward_pool_20261110")
 
 
 def load_state():

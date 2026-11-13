@@ -90,13 +90,15 @@ def build(snapshot, codes, version, end, log=print):
     return manifest
 
 
-def prune(keep=5, root=CLEAN_DIR, log=print):
+def prune(keep=3, root=CLEAN_DIR, log=print):
     """Delete all but the newest ``keep`` forward panels.
 
     A daily panel is 488 MB, most of it per-code and split files the recorder never reads.
     Keeping every day would cost ~180 GB a year for data that is reproducible from the
     capture snapshot in ``data/online/history``, which is the immutable one.  The panels
-    are caches; the captures are the record.
+    are caches; the captures are the record.  Three is the default so the steady state is
+    about 1.4 GB: the newest panel the recorder reads, plus two days of history to compare
+    against when a decision looks wrong.
     """
     root = Path(root)
     directories = sorted((d for d in root.glob("forward_pool_*") if d.is_dir()), key=lambda d: d.name)
@@ -115,7 +117,7 @@ def main(argv=None):
     parser.add_argument("--end", default=str(date.today()), help="Last date to capture (YYYY-MM-DD).")
     parser.add_argument("--version", default=None, help="Dataset name; defaults to forward_pool_<end>.")
     parser.add_argument("--snapshot", default=None, help="Reuse an existing capture instead of downloading.")
-    parser.add_argument("--keep", type=int, default=5, help="How many dated panels to keep; 0 keeps all.")
+    parser.add_argument("--keep", type=int, default=3, help="How many dated panels to keep; 0 keeps all.")
     args = parser.parse_args(argv)
     version = args.version or "forward_pool_%s" % args.end.replace("-", "")
     codes = pool_codes()

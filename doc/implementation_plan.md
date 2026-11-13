@@ -41,6 +41,14 @@
 
 ## 当前研究结论
 
+### 2026-11-14：仓库清理 —— 删 2.34 GB，并自纠一条错判
+- 见[仓库清理记录](repository_cleanup_20261114.md)。**`data/` 9.93 → 7.59 GB**，`reports/runs/` 一个没动。
+- 删掉 14 个目录：`research_v2`（与 `research_v3` **逐文件同哈希**，只有 `manifest.json` 版本名不同）、9 个**零引用**的覆盖率扫描面板（`panel_scale/4850/4150/3400/3000/2000/1500/1000/partial`）、3 个过期前向面板（`forward_pool_20261110/11/12`）、1 个 2026-11-07 就标为废弃的抓取（`.h_cb7d263ffefd4d8b`）。删除前逐条校验父目录、白名单，并断言不得命中 6 个保留项。
+- 保留：`reports/runs` 的 810 个 `model.zip`（2.93 GB）与 3.44 GB `orders.jsonl*` 属 **T1 证据**；`panel_full/4550`、`e2_dynamic1800`、`feature_top1800`、`margin_pool`、9 月 PPO 的数据集都有引用；`data/clean` 根目录 2026-07-01 旧构建**按你 2026-07 的决定继续保留**（口径早就不用了，但那是你的决定）；`web/node_modules`、`data/online/plans`、`.workbench/jobs` 本轮未选入。
+- **我自己说错了一句，记为自纠**：先前报告里"每个交易日 466 MiB、一年约 110 GB、需要做滚动保留"是错的——`forward_panel.prune()` 从建成起就在 `main()` 末尾执行，默认 `--keep 5`，稳态一直是 2.3 GiB，测试里也早有它自己的用例。错在只数了目录、没读 `main()` 最后一行。
+- 真正修掉的是相邻的两处：① `shadow_run.DATASET` **硬编码 `forward_pool_20261110`**，正是本次删掉的那块——硬编码路径在第一次轮换后就指向不存在的面板，届时会报与数据无关的 `stale`；已改为跟随磁盘最新的 `forward_pool_*`（`latest_panel()`），`--dataset` 仍可覆盖，新增 4 项测试；② `keep` 5 → 3（稳态约 1.4 GB，仍留两天历史用于对照）。
+- 另删 3 个空目录（`data/history_data`、`reports/benchmarks`、`src/data/raw`，代码无引用）。**未改任何预登记协议的头部**：本仓约定是协议保持运行前字节、完成情况记在[文档索引](README.md)第 132–146 行，因此"7 份协议停在尚未运行"是约定而非缺陷。
+
 ### 2026-11-07/08：全市场 CAPM 检验与等权溢价指数对照（已完成）
 
 - **协议与报告**：预登记见[CAPM 预登记](capm_protocol_20261107.md)（判据在数据到手前写定），最终结果见[全市场 CAPM 检验](capm_full_market_20261108.md)、[等权溢价的指数对照](equal_weight_crosscheck_20261108.md)及[等权效果复核与建议](equal_weight_review_20261108.md)。
