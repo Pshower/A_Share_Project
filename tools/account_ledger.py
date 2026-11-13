@@ -278,8 +278,14 @@ def record_trade(stamp, code, action, shares, price=None, decision_price=None,
     return row
 
 
-def mark(stamp, prices=None, path=None, cfg=None):
+def mark(stamp, prices=None, price_dates=None, allow_stale=False, path=None, cfg=None):
     """Record what the account was worth on a day; prices default to the latest ETF closes.
+
+    A mark is only honest if the quotes belong to the day being marked.  The daily job runs at
+    20:15 and the Sina fund history sometimes still ends on the previous session then, which
+    used to write "today" against yesterday's close -- a flat day that never happened, with no
+    trace of the substitution left in the file.  So the quote date is now part of the row and a
+    stale quote is refused unless the caller explicitly asks for a provisional mark.
 
     Idempotent per date: the daily job can run twice, or a re-mark can follow a late fill, and
     the curve must still have one point per day.  The newest write wins and the file is
@@ -288,12 +294,24 @@ def mark(stamp, prices=None, path=None, cfg=None):
     """
     cfg = cfg or config()
     path = Path(path) if path is not None else SNAPSHOTS
-    if prices is None:
-        prices = plan_orders.fetch_prices(LEGS)[0]
     book = replay(_read(TRADES), cfg["capital"])
+    if prices is None:
+        prices, price_dates = _prices_with_dates(LEGS)
+    # Only a leg the book actually holds prices the NAV, so only those quotes can be stale.
+    stale = {code: day for code, day in (price_dates or {}).items()
+             if code in book["positions"] and str(day) != str(stamp)}
+    if stale and not allow_stale:
+        detail = ", ".join("%s %s" % (code, day) for code, day in sorted(stale.items()))
+        raise ValueError("quotes are not from %s (%s); re-run once the session is published, or "
+                         "pass allow_stale to record the day as provisional" % (stamp, detail))
     value = nav(book["positions"], book["cash"], prices)
     row = dict(date=str(stamp), nav=value, cash=book["cash"], positions=dict(book["positions"]),
                prices={code: float(prices[code]) for code in book["positions"]})
+    if price_dates:
+        row["price_dates"] = {code: str(price_dates[code]) for code in book["positions"]
+                              if code in price_dates}
+        if stale:
+            row["provisional"] = True
     rows = [existing for existing in _read(path) if str(existing["date"]) != str(stamp)]
     rows.append(row)
     rows.sort(key=lambda item: str(item["date"]))
@@ -332,7 +350,9 @@ def gate(orders, prices, price_dates, state_row, floor=plan_orders.FLOOR):
     """Pre-trade checks.  Returns the list of things that must stop the order going out."""
     problems = []
     stamp = str(state_row["date"])
-    for code in plan_orders.LEGS:
+    # Every leg, the safe one included: 511010 is 40% of the book, and when this loop walked
+    # ``plan_orders.LEGS`` (the three risky legs) a stale safe-leg quote passed the gate silently.
+    for code in LEGS:
         quoted = price_dates.get(code)
         if quoted and quoted != stamp:
             problems.append("%s quote is from %s, not %s" % (code, quoted, stamp))
@@ -454,6 +474,8 @@ def main(argv=None):
 
     mark_cmd = sub.add_parser("mark", help="Record the day's NAV.")
     mark_cmd.add_argument("--date", default=str(date_type.today()))
+    mark_cmd.add_argument("--allow-stale", action="store_true",
+                          help="Record a day whose quotes are from an earlier session (provisional).")
 
     sub.add_parser("status", help="Current holdings, NAV and drawdown.")
 
@@ -488,7 +510,8 @@ def main(argv=None):
                                       args.price, args.decision_price, field=args.field),
                          ensure_ascii=False, indent=2))
     elif args.command == "mark":
-        print(json.dumps(mark(args.date), ensure_ascii=False, indent=2))
+        print(json.dumps(mark(args.date, allow_stale=args.allow_stale),
+                         ensure_ascii=False, indent=2, default=float))
     elif args.command == "status":
         row = state()
         print(json.dumps(row, ensure_ascii=False, indent=2, default=float))
