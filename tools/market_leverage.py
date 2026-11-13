@@ -29,6 +29,9 @@ from tools.alpha_ic import nw_se
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MARGIN = PROJECT_ROOT / "data" / "online" / "margin" / "margin.parquet"
 SSE_TOTAL = PROJECT_ROOT / "data" / "online" / "margin" / "sse_margin_total.csv"
+MACRO_SH = PROJECT_ROOT / "data" / "online" / "margin" / "macro_margin_sh.csv"
+MACRO_SZ = PROJECT_ROOT / "data" / "online" / "margin" / "macro_margin_sz.csv"
+MACRO_SZ_PATCH = PROJECT_ROOT / "data" / "online" / "margin" / "macro_margin_sz_patch.csv"
 PANEL = PROJECT_ROOT / "data" / "clean" / "panel_full"
 INDEX_DIR = PROJECT_ROOT / "data" / "online" / "index_long"
 OUTPUT_ROOT = PROJECT_ROOT / "reports" / "runs" / "market_leverage"
@@ -44,10 +47,14 @@ SUBS = (("2019-01-01", "2021-12-31"), ("2022-01-01", "2024-12-31"))
 V_START, V_END = "2019-01-01", "2024-12-31"
 R_END = "2026-06-30"          # P (2026-07 onward) stays untouched
 
-# ``stock_margin_sse`` returns these columns in this order; the header comes back in whatever
-# encoding the endpoint felt like, so the mapping is by position and checked against magnitudes.
+# The two sources order their columns differently, and reading one with the other's mapping
+# silently swaps "daily margin purchases" for "outstanding margin balance" -- a 13x error that
+# still produces a plausible-looking series.  Verified against magnitudes on 2026-11-04:
+# SSE detail: balance 1.1776e12, buy 9.03e10;  macro: buy 9.03e10, balance 1.1776e12.
 SSE_COLUMNS = ("date", "margin_balance", "margin_buy", "short_volume",
                "short_value", "short_sell_volume", "margin_total")
+MACRO_COLUMNS = ("date", "margin_buy", "margin_balance", "short_sell_volume",
+                 "short_volume", "short_value", "margin_total")
 
 
 # ----------------------------------------------------------------------------- data
@@ -78,6 +85,58 @@ def sse_float_cap(cap):
     """Float cap of the Shanghai-listed universe the SSE margin total is measured against."""
     codes = [code for code in cap.columns if str(code).startswith(("6",))]
     return cap[codes].sum(axis=1), codes
+
+
+def macro_totals(sh_path=MACRO_SH, sz_path=MACRO_SZ, patch_path=MACRO_SZ_PATCH):
+    """Both exchanges' official margin totals, 2010 onward -- the repair for the SSE-only run.
+
+    The two files agree with the SSE per-stock detail by exactly zero on their 1,901 overlapping
+    days, so the aggregate is the number the exchange publishes; what the macro series adds is
+    history back to 2010-03-31 (the 2015 leverage episode) and the Shenzhen book.
+
+    The Shenzhen macro file is missing 2024-10-19 .. 2025-06-18 entirely -- an inner join silently
+    truncates the sample there, which is how a 244-day hole can look like "the sample just ends".
+    Those days are patched from ``stock_margin_szse(date)``, the exchange's own daily summary
+    (reported in 100-million units, converted to yuan), and the patch is counted in the result so
+    the provenance of every added day is visible.
+    """
+    frames = []
+    for path, name in ((sh_path, "sh"), (sz_path, "sz")):
+        frame = pd.read_csv(path)
+        frame.columns = list(MACRO_COLUMNS)
+        frame["date"] = pd.to_datetime(frame["date"])
+        frame = frame.drop_duplicates("date").set_index("date").sort_index()
+        frames.append(frame.add_prefix(name + "_"))
+    sz = frames[1]
+    patched = 0
+    patch_path = Path(patch_path)
+    if patch_path.exists():
+        extra = pd.read_csv(patch_path)
+        extra.columns = list(MACRO_COLUMNS)
+        extra["date"] = pd.to_datetime(extra["date"])
+        extra = extra.drop_duplicates("date").set_index("date").sort_index().add_prefix("sz_")
+        new = extra.loc[extra.index.difference(sz.index)]
+        patched = int(len(new))
+        if patched:
+            sz = pd.concat([sz, new]).sort_index()
+    joined = frames[0].join(sz, how="inner")
+    joined["margin_balance"] = joined["sh_margin_balance"] + joined["sz_margin_balance"]
+    joined["short_value"] = joined["sh_short_value"].fillna(0) + joined["sz_short_value"].fillna(0)
+    joined.attrs["sz_patched_days"] = patched
+    return joined
+
+
+def macro_leverage(cap, sh_path=MACRO_SH, sz_path=MACRO_SZ):
+    totals = macro_totals(sh_path, sz_path)
+    value = cap.sum(axis=1)                        # both boards: the total is both exchanges
+    frame = pd.DataFrame(dict(balance=totals["margin_balance"], cap=value))
+    frame.attrs["sz_patched_days"] = totals.attrs.get("sz_patched_days", 0)
+    frame = frame.dropna()
+    frame = frame[frame["cap"] > 0]
+    frame["lev"] = 100.0 * frame["balance"] / frame["cap"]
+    frame["short_lev"] = 100.0 * totals["short_value"].reindex(frame.index) / frame["cap"]
+    frame["codes"] = np.nan
+    return frame, sorted(cap.columns)
 
 
 def sse_leverage(cap, path):
@@ -200,7 +259,7 @@ def guards(frame, cap, basket, source="archive", threshold=GUARD_COVER,
     is a statement about the data source, not a waiver of the guard.  The archive-based numbers are
     kept in the result file so both readings stay visible.
     """
-    if source == "sse":
+    if source in ("sse", "both"):
         coverage = None
         applicable = False
         contaminated = False
@@ -285,10 +344,13 @@ def slice_window(frame, window):
     raise ValueError("unknown window %r" % window)
 
 
-def run(source="sse", window="v", output=None, sse_path=None, log=print):
+def run(source="both", window="v", output=None, sse_path=None, sh_path=None, sz_path=None,
+        log=print):
     cap = float_cap()
     if source == "sse":
         basket_frame, basket = sse_leverage(cap, sse_path or SSE_TOTAL)
+    elif source == "both":
+        basket_frame, basket = macro_leverage(cap, sh_path or MACRO_SH, sz_path or MACRO_SZ)
     elif source == "archive":
         margin = load_margin()
         basket = select_basket(margin, cap)
@@ -303,13 +365,23 @@ def run(source="sse", window="v", output=None, sse_path=None, log=print):
     secondary = slice_window(build(basket_frame, index_close("399317")), window)
     guard = guards(primary, cap, basket, source=source)
     tests = evaluate(primary, secondary)
+    # Diagnostic only: 2017-2018 is the design window, never part of V, and the ratio exists
+    # there because panel_full starts in 2017.  It is reported and carries no verdict.
+    early = build(basket_frame, index_close("000300"))
+    early = early.loc[(early.index >= pd.Timestamp("2017-01-01"))
+                      & (early.index <= pd.Timestamp("2018-12-31"))]
+    pre_v = nw_slope(early["r20"], early["fwd"])
     result = dict(protocol="doc/market_leverage_protocol_20261114.md", source=source, window=window,
                   basket=dict(size=len(basket), codes=(basket[:5] + ["..."]) if len(basket) > 5 else basket),
                   observations=dict(rows=int(len(primary)),
                                     first=str(primary.index[0].date()),
                                     last=str(primary.index[-1].date()),
                                     effective_blocks=round(len(primary) / HORIZON, 2)),
-                  guards=guard, tests=tests, diagnostics=diagnostics(primary, basket_frame),
+                  guards=guard, tests=tests,
+                  diagnostics=dict(combined=diagnostics(primary, basket_frame),
+                                   pre_v_2017_2018=dict(n=pre_v["n"], slope=pre_v["slope"],
+                                                        t=pre_v["t"], corr=pre_v["corr"],
+                                                        note="design window, not V; no verdict")),
                   verdict=verdict(guard, tests))
     if output:
         path = Path(output) / ("gate_%s_%s.json" % (source, window))
@@ -322,13 +394,15 @@ def run(source="sse", window="v", output=None, sse_path=None, log=print):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Market-level leverage gate (pre-registered).")
-    parser.add_argument("--source", default="sse", choices=["sse", "archive"])
+    parser.add_argument("--source", default="both", choices=["both", "sse", "archive"])
     parser.add_argument("--window", default="v", choices=["v", "v_r"])
     parser.add_argument("--sse", default=None, help="Path to the official SSE total CSV.")
+    parser.add_argument("--sh", default=None, help="Path to the SSE macro total CSV.")
+    parser.add_argument("--sz", default=None, help="Path to the SZSE macro total CSV.")
     parser.add_argument("--output", default=None)
     parser.add_argument("--stage", default="gate", choices=["gate"])
     args = parser.parse_args(argv)
-    print(json.dumps(run(args.source, args.window, args.output, args.sse),
+    print(json.dumps(run(args.source, args.window, args.output, args.sse, args.sh, args.sz),
                      ensure_ascii=False, indent=2, default=float))
     return 0
 
