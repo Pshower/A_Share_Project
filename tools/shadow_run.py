@@ -24,6 +24,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from tools import e1_rule as rule
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # The forward panel, not ``research_v3``: the frozen dataset ends 2024-12-31 and can never
 # advance, so reading it only ever reported ``stale``.  ``research_v3`` is still the record
@@ -70,37 +72,19 @@ def append(record):
 
 
 def composite(panel, codes, features, date):
-    """Negated rank-equal-weighted score on ``date``; lower is better."""
-    block = panel.loc[date]
-    ranks, usable = np.zeros(len(codes)), 0
-    for name in features:
-        try:
-            values = block.xs(name, level=1).reindex(codes).to_numpy(dtype=float)
-        except KeyError:
-            continue
-        if not np.isfinite(values).any():
-            continue
-        ordered = pd.Series(values).rank(method="average", pct=True).to_numpy()
-        ranks += np.nan_to_num(ordered, nan=0.5)
-        usable += 1
-    if not usable:
-        return None
-    score = ranks / usable          # mean percentile; the smallest are the reversal buy
-    return pd.Series(score, index=codes)
+    """Negated rank-equal-weighted score on ``date``; lower is better.
+
+    Delegates to ``tools.e1_rule`` so the recorder and the backtest cannot drift apart.
+    """
+    return rule.composite(panel, codes, features, date)
 
 
 def decide(score, held, top_k=TOP_K, buffer=BUFFER):
-    """The frozen rule: keep whatever is still inside the buffer, then fill."""
-    order = score.sort_values(kind="stable")
-    rank_of = {code: position for position, code in enumerate(order.index)}
-    keep = [code for code in held if rank_of.get(code, 10 ** 9) < buffer]
-    keep = sorted(keep, key=lambda code: rank_of.get(code, 10 ** 9))[:top_k]
-    for code in order.index:
-        if len(keep) >= top_k:
-            break
-        if code not in keep:
-            keep.append(code)
-    return keep
+    """The frozen rule: keep whatever is still inside the buffer, then fill.
+
+    Same delegation as ``composite``: one implementation, two callers.
+    """
+    return rule.decide(score, held, top_k=top_k, buffer=buffer)
 
 
 def mark(panel_prices, holdings, date):
