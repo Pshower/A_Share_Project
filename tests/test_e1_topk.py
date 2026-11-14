@@ -166,3 +166,19 @@ def test_capital_and_lot_change_the_position_sizes(tmp_path):
                       end=str(index[-1].date()), costs=sweep.Costs(capital=2_000_000.0),
                       log=lambda *_: None)
     assert "capital" in small["costs"] and small["costs"]["capital"] != large["costs"]["capital"]
+
+
+def test_a_suspended_name_is_carried_at_its_last_price_not_zero(tmp_path):
+    """`nan or 0.0` is nan (NaN is truthy), so the old valuation printed a fake crash."""
+    import numpy as np
+    import pandas as pd
+    from tools import e1_rule
+    days = pd.bdate_range("2020-01-01", periods=40)
+    panel = pd.DataFrame({("a", "f1"): np.full(40, 9.0), ("b", "f1"): np.zeros(40)}, index=days)
+    panel.columns = pd.MultiIndex.from_tuples(panel.columns, names=["code", "feature"])
+    close = pd.DataFrame({"a": np.full(40, 10.0), "b": np.full(40, 20.0)}, index=days)
+    close.loc[days[25], "b"] = np.nan
+    score = e1_rule.composite_frame(panel, ["a", "b"], ["f1"])
+    book = sweep.backtest(panel, score, close, close, 1, days[0], days[-1])
+    assert not book["series"].isna().any()
+    assert book["series"].iloc[24] == pytest.approx(book["series"].iloc[25])

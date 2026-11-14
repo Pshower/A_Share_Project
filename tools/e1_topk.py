@@ -118,6 +118,7 @@ def backtest(panel, score, open_, close, top_k, start, end, costs=None, interval
     if len(days) < 30:
         raise ValueError("window too short: %d sessions between %s and %s" % (len(days), start, end))
     held, units, cash = [], {}, cost_capital(costs)
+    last_close, carried = {}, 0
     nav_rows, trades, holdings = [], [], []
     for index, day in enumerate(days[:-1]):
         row = score.loc[day] if day in score.index else None
@@ -164,8 +165,16 @@ def backtest(panel, score, open_, close, top_k, start, end, costs=None, interval
                 trades.append(dict(date=str(next_day.date()), code=code, action="buy",
                                    shares=shares, price=price * (1 + costs.slippage),
                                    fee=round(fee, 2)))
-        value = cash + sum(units[code] * float(close.loc[next_day].get(code, np.nan) or 0.0)
-                           for code in units)
+        # A suspended name has no close today but is still owned: marking it at zero (or letting a
+        # NaN through, which is what ``nan or 0.0`` does -- NaN is truthy) would print a fake crash.
+        for code, price in close.loc[next_day].items():
+            if np.isfinite(price):
+                last_close[code] = float(price)
+        missing_mark = [code for code in units if code not in last_close]
+        if missing_mark:
+            raise ValueError("no price has ever been seen for %s" % ", ".join(sorted(missing_mark)))
+        carried += sum(1 for code in units if not np.isfinite(close.loc[next_day].get(code, np.nan)))
+        value = cash + sum(units[code] * last_close[code] for code in units)
         nav_rows.append((next_day, value, cash, len(units)))
         holdings.append(dict(date=str(next_day.date()), names=" ".join(sorted(held))))
     series = pd.Series({day: value for day, value, _, _ in nav_rows}).sort_index()

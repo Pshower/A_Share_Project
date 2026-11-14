@@ -52,6 +52,7 @@ def use(name):
 LEGS = list(plan_orders.LEGS) + [plan_orders.SAFE]
 RISKY = list(plan_orders.LEGS)
 LOT = plan_orders.LOT
+SELL_TAX = 0.0005
 
 
 def _read(path):
@@ -366,9 +367,20 @@ def gate(orders, prices, price_dates, state_row, floor=plan_orders.FLOOR):
             problems.append("NAV %.2f is at or below the %.2f floor; risky legs must not be bought"
                             % (state_row["nav"], floor * state_row["peak"]))
     cash_left = state_row["cash"]
+    # Sells fund the buys in the same order set, so the proceeds have to land in the balance before
+    # the buys are checked.  Without this the gate reported "needs more cash" on every rebalance that
+    # sold the safe leg to add risk -- which is exactly the move the plan makes after a rally, so the
+    # single most important order of the year would have been reported as unsendable.
     for row in orders:
         if row["delta"] % LOT:
             problems.append("%s order is not a whole lot" % row["code"])
+        if not price_dates.get(row["code"]):
+            problems.append("%s has no quote date; cannot tell whether the price is today's"
+                            % row["code"])
+        if row["delta"] < 0:
+            proceeds = -row["delta"] * float(prices[row["code"]])
+            cash_left += proceeds - fee_for(proceeds) - proceeds * SELL_TAX
+    for row in orders:
         if row["delta"] > 0:
             cost = row["delta"] * float(prices[row["code"]])
             cash_left -= cost + fee_for(cost)

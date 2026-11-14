@@ -64,3 +64,11 @@ def test_orders_report_the_delta_against_what_is_held():
 def test_a_missing_price_is_an_error_not_a_free_position():
     with pytest.raises(ValueError, match="No price"):
         plan_orders.orders({"510300": 0.5}, nav=1000.0, prices={}, held={})
+
+
+def test_a_holding_outside_the_plan_is_refused_not_silently_ignored():
+    """The target weights know nothing about it, so the orders would buy on top of it."""
+    from tools import plan_orders
+    prices = {"510300": 4.0, "510500": 6.0, "513500": 2.0, "511010": 140.0}
+    with pytest.raises(ValueError, match="does not allocate"):
+        plan_orders.decide(1_000_000.0, peak=1_000_000.0, prices=prices, held={"510330": 1000})

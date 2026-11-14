@@ -56,6 +56,13 @@ def target_weights(nav, peak, held_risky=None, band=BAND, floor=FLOOR, multiplie
 def orders(weights, nav, prices, held=None, lot=LOT):
     """Lot-rounded share targets and the deltas needed to reach them."""
     held = held or {}
+    # A holding outside the four legs is invisible to the target weights, so the orders would buy the
+    # full allocation on top of it and the reported cash would be fiction.  Refuse instead of guessing:
+    # the caller either sells it or tells the tool it is part of NAV deliberately.
+    off_plan = sorted(code for code, shares in held.items() if int(shares) > 0 and code not in weights)
+    if off_plan:
+        raise ValueError("account holds %s, which the plan does not allocate; sell it first"
+                         % ", ".join(off_plan))
     missing = [code for code in weights if code not in prices or not prices[code] > 0]
     if missing:
         raise ValueError("No price for %s" % ", ".join(sorted(missing)))

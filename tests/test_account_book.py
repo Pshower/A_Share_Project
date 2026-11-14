@@ -46,3 +46,23 @@ def test_sells_are_booked_before_buys(monkeypatch, tmp_path):
     result = ledger.book("2026-11-12", path=trades, cfg=CFG)
     actions = [row["action"] for row in result["trades"]]
     assert actions and actions[0] == "sell"
+
+
+def test_the_gate_lets_sells_fund_the_buys(tmp_path):
+    """Rotating out of the safe leg into risk must not read as 'no cash'."""
+    from tools import plan_orders
+    prices = {"510300": 4.0, "510500": 6.0, "513500": 2.0, "511010": 140.0}
+    order = plan_orders.decide(1_000_000.0, peak=1_000_000.0, prices=prices,
+                               held={"511010": 6000})
+    dates = {code: "2026-11-13" for code in prices}
+    row = dict(date="2026-11-13", nav=1_000_000.0, peak=1_000_000.0, cash=160_000.0)
+    assert ledger.gate(order["orders"], prices, dates, row) == []
+
+
+def test_the_gate_refuses_when_a_quote_date_is_missing():
+    from tools import plan_orders
+    prices = {"510300": 4.0, "510500": 6.0, "513500": 2.0, "511010": 140.0}
+    order = plan_orders.decide(1_000_000.0, peak=1_000_000.0, prices=prices, held={})
+    row = dict(date="2026-11-13", nav=1_000_000.0, peak=1_000_000.0, cash=1_000_000.0)
+    problems = ledger.gate(order["orders"], prices, {}, row)
+    assert any("no quote date" in problem for problem in problems)
