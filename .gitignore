@@ -19,13 +19,10 @@ __pycache__
 web/.vite/
 web/coverage/
 
-# Versioned research artifacts and detailed local experiment outputs
+# 版本化研究产物：面板、抓取归档与工作台依赖都可由 tools / 下载重建
 data/clean/*/
 reports/runs/
 .workbench/
 data/online/
 web/node_modules/
 web/dist/
-web/test-results/
-web/test-results-online/
-web/playwright-report/
