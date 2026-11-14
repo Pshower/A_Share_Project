@@ -131,7 +131,15 @@ def simulate_book(prices, payouts, start, capital=CAPITAL, floor=FLOOR, multipli
         row = window.loc[day]
         for code in CODES:
             if day in payouts.get(code, {}) and units[code] > 0:
-                cash += units[code] * float(payouts[code][day])
+                per_unit = float(payouts[code][day])
+                cash += units[code] * per_unit
+                # The distribution goes into the fill stream as well.  Without it the exported
+                # book's cash cannot be rebuilt from its own log -- replay came out 69,742 lower
+                # than the snapshots, and marking the book with today's prices then produced a
+                # negative cash balance that looked like a trading loss.
+                fills.append(dict(date=str(day.date()), code=code, action="dividend",
+                                  shares=int(units[code]), cash_per_share=per_unit,
+                                  amount=units[code] * per_unit, fee=0.0))
         value = cash + sum(units[code] * float(row[code]) for code in CODES)
         peak = max(peak, value)
         if day in marks and value > 0:
@@ -156,9 +164,14 @@ def simulate_book(prices, payouts, start, capital=CAPITAL, floor=FLOOR, multipli
                             cash -= amount * (1 + SLIPPAGE) + fee
                         fees += fee
                         units[code] += delta
+                        # The fill is written at the price the cash actually moved at, slippage
+                        # included, with the untouched quote kept as ``decision_price``.  Storing
+                        # the raw price made the exported book unrebuildable: replay came out
+                        # 28,220 higher than the snapshots, one slippage tick per fill.
+                        moved = price * (1 + SLIPPAGE) if side == "buy" else price * (1 - SLIPPAGE)
                         fills.append(dict(date=str(day.date()), code=code, action=side,
-                                          shares=abs(int(delta)), price=round(price, 4),
-                                          fee=round(fee, 2)))
+                                          shares=abs(int(delta)), price=moved,
+                                          decision_price=round(price, 4), fee=round(fee, 2)))
                 value = cash + sum(units[code] * float(row[code]) for code in CODES)
         nav_rows.append((day, value, cash, dict(units), {code: float(row[code])
                                                          for code in CODES if units[code]}))
@@ -187,7 +200,10 @@ def export_account(start, name="backtest", capital=CAPITAL, cadence="daily", end
         raise ValueError("Window too short to simulate")
     base = account_ledger.ACCOUNT_DIR / name
     base.mkdir(parents=True, exist_ok=True)
-    (base / "account.json").write_text(json.dumps(dict(capital=capital, start_date=str(start)),
+    # ``sealed`` keeps the daily job from marking a finished export with today's prices: the book
+    # ends where the sweep ended, and adding a row for a later day rewrites what the export proved.
+    (base / "account.json").write_text(json.dumps(dict(capital=capital, start_date=str(start),
+                                                       sealed=True, source="backtest"),
                                                   ensure_ascii=False, indent=2), encoding="utf-8")
     with (base / "trades.jsonl").open("w", encoding="utf-8") as stream:
         for fill in result["fills"]:

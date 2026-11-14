@@ -294,6 +294,10 @@ def mark(stamp, prices=None, price_dates=None, allow_stale=False, path=None, cfg
     """
     cfg = cfg or config()
     path = Path(path) if path is not None else SNAPSHOTS
+    if cfg.get("sealed"):
+        raise ValueError("%s is a closed book (sealed export); marking it with a later date "
+                         "would add a day the export never proved -- re-run the export instead"
+                         % cfg.get("source", "this account"))
     book = replay(_read(TRADES), cfg["capital"])
     if prices is None:
         prices, price_dates = _prices_with_dates(LEGS)

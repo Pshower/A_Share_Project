@@ -34,6 +34,7 @@ import {
   Square,
   Target,
   Radio,
+  Wallet,
   X,
 } from 'lucide-react'
 import { api, post, percent, number, dateTime, statusName, kindName, phaseName } from './api'
@@ -45,6 +46,7 @@ import TrainingDiagnostics from './TrainingDiagnostics'
 const AsyncChart = lazy(() => import('./Chart'))
 const MarketPage = lazy(() => import('./MarketPage'))
 const ExperimentsPage = lazy(() => import('./ExperimentsPage'))
+const ExecutionPage = lazy(() => import('./ExecutionPage'))
 function Chart(props: ComponentProps<typeof AsyncChart>) {
   return (
     <Suspense
@@ -62,6 +64,7 @@ function Chart(props: ComponentProps<typeof AsyncChart>) {
 type Row = Record<string, any>
 type Route = { view: string; query: URLSearchParams }
 const views = [
+  { id: 'execution', name: '执行层', icon: Wallet },
   { id: 'experiments', name: '实验流程', icon: FlaskConical },
   { id: 'training', name: '训练工作台', icon: Activity },
   { id: 'data', name: '数据管理', icon: Database },
@@ -361,6 +364,11 @@ export default function App() {
                 ) : (
                   <Dashboard {...shared} active={active} />
                 ))}
+              {route.view === 'execution' && (
+                <Suspense fallback={<Empty>读取账本…</Empty>}>
+                  <ExecutionPage fail={fail} />
+                </Suspense>
+              )}
               {route.view === 'data' && (
                 <DataPage {...shared} initial={route.query.get('dataset') || ''} />
               )}

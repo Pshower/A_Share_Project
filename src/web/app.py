@@ -100,6 +100,21 @@ def create_app(root=ROOT, start_workers=True):
         return dict(ppo=read_config(root / "configs/ppo.json"),
                     light_codes=read_config(root / "configs/ppo_lightweight.json")["stock_codes"])
 
+    @app.get("/api/execution/books")
+    def execution_books():
+        from . import execution
+        return execution.books(root)
+
+    @app.get("/api/execution/books/{name}")
+    def execution_book(name: str):
+        from . import execution
+        return execution.book(root, name)
+
+    @app.get("/api/execution/shadow")
+    def execution_shadow():
+        from . import execution
+        return execution.shadow(root)
+
     @app.get("/api/experiments")
     def experiments():
         return store.experiments()
