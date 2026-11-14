@@ -186,3 +186,8 @@ python -B -m tools.account_ledger book --date 2026-11-12
 ```powershell
 python -B -m pytest -q tests/test_account_ledger.py tests/test_account_dividends.py
 ```
+
+> **2026-11-14 修正**：闸门原先只检查买单的现金，**不把同一批卖单的进款算进去**，
+> 于是"卖安全腿、加风险腿"这种调仓会被报成"钱不够"（实测：现金 16 万 + 卖出 44.8 万完全够买 60 万，却被判 `safe_to_send: false`）。
+> 现在先结卖出（扣佣金与印花税）再检查买入。同一天补上的另外两条：某个腿**没有报价日期**现在会拦住（原来被当成"新鲜"跳过）；
+> 账户若持有四腿之外的代码，`plan_orders` 直接拒绝而不是按全额买入。

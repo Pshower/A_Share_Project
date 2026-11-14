@@ -140,3 +140,19 @@ def test_index_return_needs_two_sessions(monkeypatch):
     days = pd.bdate_range("2020-01-01", periods=2)
     monkeypatch.setattr(shadow_run, "index_close", lambda *a, **k: pd.Series([100.0], index=days[:1]))
     assert shadow_run.index_return("sh000300", days[0], days[1]) is None
+
+
+def test_a_truncated_pool_is_refused_rather_than_scored(tmp_path, monkeypatch):
+    """A download that lost half the codes must not silently record a different universe."""
+    days = pd.bdate_range("2020-01-01", periods=30)
+    codes = ["00000%d" % index for index in range(1, 6)]
+    dataset = tmp_path / "toy"
+    monkeypatch.setattr(shadow_run, "STATE", tmp_path / "state.json")
+    monkeypatch.setattr(shadow_run, "LOG", tmp_path / "log.jsonl")
+    monkeypatch.setattr(trading_calendar, "is_trading_day", lambda *a, **k: True)
+    write_dataset(dataset, days, codes[:2], upto=6)      # only 2 of the 5 declared codes
+    (dataset / "manifest.json").write_text(
+        json.dumps(dict(stock_codes=codes, feature_cols=["f1"])), encoding="utf-8")
+    record = shadow_run.run(dataset=dataset, log=lambda *_: None)
+    assert record["status"] == "bad_data"
+    assert "truncated" in record["reason"]

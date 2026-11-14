@@ -94,3 +94,22 @@ def test_build_reports_the_pool_it_actually_read(tmp_path, monkeypatch):
     assert manifest["stock_codes"] == codes
     assert manifest["forward"]["purpose"].startswith("forward extension")
     assert (tmp_path / "clean" / "forward_pool_test" / "manifest.json").exists()
+
+
+def test_prune_sorts_by_name_so_the_newest_panels_survive(tmp_path):
+    from tools import forward_panel
+    for name in ("forward_pool_20261110", "forward_pool_20261111", "forward_pool_20261112"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "manifest.json").write_text("{}", encoding="utf-8")
+    removed = forward_panel.prune(keep=2, root=tmp_path, log=lambda *_: None)
+    assert removed == ["forward_pool_20261110"]
+    assert sorted(path.name for path in tmp_path.glob("forward_pool_*")) == [
+        "forward_pool_20261111", "forward_pool_20261112"]
+
+
+def test_prune_refuses_directories_that_are_not_forward_panels(tmp_path):
+    from tools import forward_panel
+    (tmp_path / "forward_pool_20261110").mkdir()
+    (tmp_path / "research_v3").mkdir()
+    forward_panel.prune(keep=0, root=tmp_path, log=lambda *_: None)
+    assert (tmp_path / "research_v3").exists()

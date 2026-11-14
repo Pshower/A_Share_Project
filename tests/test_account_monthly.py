@@ -49,3 +49,22 @@ def test_drawdown_uses_the_peak_inside_the_account():
                                    cfg=dict(capital=3_000_000.0))
     assert report["peak"] == pytest.approx(3_200_000.0)
     assert report["drawdown"] == pytest.approx(3_040_000.0 / 3_200_000.0 - 1.0)
+
+
+def test_a_month_string_must_be_exact_or_the_window_widens(tmp_path):
+    """'2026-1' matches October, November and December; the report would cover three months."""
+    with pytest.raises(ValueError, match="YYYY-MM"):
+        ledger.monthly_report("2026-1", snapshots=[], trades=[])
+
+
+def test_contribution_is_net_of_what_was_invested(tmp_path):
+    """A leg bought this month must not show its whole cost as a gain."""
+    snapshots = [
+        dict(date="2026-11-02", nav=1_000_000.0, positions={}, prices={}),
+        dict(date="2026-11-30", nav=1_010_000.0, positions={"510300": 1000},
+             prices={"510300": 4.0}),
+    ]
+    trades = [dict(date="2026-11-10", code="510300", action="buy", shares=1000, price=3.9, fee=5.0)]
+    report = ledger.monthly_report("2026-11", snapshots=snapshots, trades=trades)
+    # 4,000 of market value minus 3,905 of cash put in = 95 of real profit, not 4,000.
+    assert report["leg_change"]["510300"] == pytest.approx(95.0, abs=0.01)

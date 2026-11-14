@@ -190,6 +190,17 @@ def run(force=False, dataset=DATASET, log=print):
     features = list(manifest["feature_cols"])
     latest = panel.index.max()
     state = load_state()
+    # A truncated download would silently shrink the pool and the recorded book would come from a
+    # different universe than the one the rule was frozen on.  Refuse instead of recording.
+    expected = len(manifest["stock_codes"])
+    if len(codes) < 0.9 * expected:
+        record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), status="bad_data",
+                      panel_date=str(latest.date()),
+                      reason="panel only has %d of %d pool codes; a truncated download, not a decision"
+                             % (len(codes), expected))
+        append(record)
+        log("bad_data: %d of %d codes" % (len(codes), expected))
+        return record
     from tools import trading_calendar
     try:
         trading = trading_calendar.is_trading_day()

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import date as date_type
 from pathlib import Path
 
@@ -436,6 +437,10 @@ def book(stamp, field="open", path=None, cfg=None):
 def monthly_report(month, snapshots=None, trades=None, cfg=None):
     """NAV, drawdown and per-leg contribution for one calendar month."""
     cfg = cfg or config()
+    # "2026-1" also matches 2026-10, 2026-11 and 2026-12: the prefix test would silently widen the
+    # window and report three months as one.
+    if not re.fullmatch(r"\d{4}-\d{2}", str(month)):
+        raise ValueError("month must be YYYY-MM, got %r" % (month,))
     snapshots = _read(SNAPSHOTS) if snapshots is None else snapshots
     trades = _read(TRADES) if trades is None else trades
     window = [row for row in snapshots if str(row["date"]).startswith(month)]
@@ -446,7 +451,22 @@ def monthly_report(month, snapshots=None, trades=None, cfg=None):
     for code in LEGS:
         before = float(first.get("positions", {}).get(code, 0)) * float(first.get("prices", {}).get(code, 0))
         after = float(last.get("positions", {}).get(code, 0)) * float(last.get("prices", {}).get(code, 0))
-        legs[code] = round(after - before, 2)
+        # Contribution, not position value: a leg bought this month must not show its whole cost as a
+        # gain, so the cash put into it is subtracted before the difference is called profit.
+        invested = 0.0
+        for row in trades:
+            if row["code"] != code or row["action"] == "dividend":
+                continue
+            if not str(row["date"]).startswith(month):
+                continue
+            # A fill on the first snapshot's own date is already inside ``before``; counting it again
+            # would report a purchase as a loss of its entire cost.
+            if str(row["date"]) <= str(first["date"]):
+                continue
+            amount = float(row["shares"]) * float(row["price"])
+            fee = float(row.get("fee", 0.0))
+            invested += (amount + fee) if row["action"] == "buy" else -(amount - fee)
+        legs[code] = round(after - before - invested, 2)
     peak = peak_of([row for row in snapshots if str(row["date"]) <= last["date"]], cfg["capital"])
     fills = [row for row in trades if str(row["date"]).startswith(month) and row["action"] != "dividend"]
     paid = [row for row in trades if str(row["date"]).startswith(month) and row["action"] == "dividend"]

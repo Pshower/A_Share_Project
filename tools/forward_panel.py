@@ -130,6 +130,14 @@ def main(argv=None):
     else:
         directory, ready, missing = capture(codes, args.end)
     kept = [code for code in codes if code in ready]
+    # A truncated capture must not cost the good panels: prune runs only after a build whose coverage
+    # is high enough for the recorder to accept it (the recorder refuses below 90% as well).
+    coverage = len(kept) / max(len(codes), 1)
+    if coverage < 0.9:
+        print(json.dumps(dict(error="capture coverage too low; nothing built or pruned",
+                              codes=len(kept), pool=len(codes), coverage=round(coverage, 4),
+                              missing=missing), ensure_ascii=False, indent=2))
+        return 2
     manifest = build(directory, kept, version, args.end)
     pruned = prune(args.keep)
     print(json.dumps(dict(version=version, codes=len(kept), skipped=missing,

@@ -1,4 +1,4 @@
-﻿"""Official A-share trading days, cached so the daily jobs can tell a holiday from a fault.
+"""Official A-share trading days, cached so the daily jobs can tell a holiday from a fault.
 
 The exchange publishes the calendar a year ahead, so a scheduled job can ask the question in
 advance rather than inferring it from whether data arrived.  That distinction matters: a job
@@ -19,7 +19,7 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CACHE = PROJECT_ROOT / "data" / "online" / "calendar"
-HORIZON = 30          # refresh when fewer than this many days of calendar remain
+HORIZON = 365         # refresh when fewer than a year of calendar remains: the exchange publishes a year ahead
 
 
 def load(refresh=False, cache=CACHE):
@@ -39,8 +39,17 @@ def load(refresh=False, cache=CACHE):
 
 
 def is_trading_day(when=None, calendar=None):
+    """True/False for a date the calendar covers; refuse beyond it instead of answering "holiday".
+
+    The cache ends on a date, and past that date every day looks like a public holiday.  Both daily
+    jobs treat False as "do nothing today", so a stale calendar would make them go quiet for a year
+    without a single error -- the exact confusion this module exists to prevent.
+    """
     stamp = pd.Timestamp(when or date.today()).normalize()
     dates = calendar if calendar is not None else load()
+    if stamp > dates.max():
+        raise ValueError("trading calendar ends %s, before %s; refresh it"
+                         % (dates.max().date(), stamp.date()))
     return bool((dates == stamp).any())
 
 
