@@ -136,8 +136,17 @@ def shadow(root, limit=8):
         recent.append(dict(recorded_at=row.get("recorded_at"), status=row.get("status"),
                            panel_date=row.get("panel_date"), holdings=len(row.get("book") or []),
                            held_from=row.get("held_from"), rebalance_due=row.get("rebalance_due"),
+                           decision=row.get("decision") or "legacy",
+                           sessions_held=row.get("sessions_held"),
                            reason=row.get("reason"), construction=row.get("construction")))
     days, previous = [], set()
+    level, chain = 1.0, []
+    for row in rows:
+        change = (row.get("interval") or {}).get("return")
+        if change is not None:
+            level *= 1.0 + float(change)
+        chain.append(level)
+    index = 0
     for row in rows:
         if row.get("status") != "decided" or not row.get("book"):
             continue
@@ -151,10 +160,16 @@ def shadow(root, limit=8):
         scores = row.get("score") or {}
         ordered = sorted(book, key=lambda code: scores.get(code, float("inf")))
         current = set(book)
+        interval = row.get("interval") or {}
         days.append(dict(
             panel_date=str(row.get("panel_date") or ""),
             recorded_at=row.get("recorded_at"),
             held_from=row.get("held_from"),
+            decision=row.get("decision") or "legacy",   # rows written before the 20-session cadence
+            sessions_held=row.get("sessions_held"),
+            interval_from=interval.get("from"),
+            interval_return=interval.get("return"),
+            chained_nav=round(chain[index], 6),
             rebalance_due=bool(row.get("rebalance_due")),
             names=[dict(code=code, name=lookup.get(code, ""), score=round(float(scores[code]), 4)
                         if code in scores else None, change="in" if previous and code not in previous
@@ -167,9 +182,11 @@ def shadow(root, limit=8):
             overlap=len(current & previous) if previous else None,
         ))
         previous = current
+        index += 1
     return dict(rows=len(rows), decided=len([row for row in rows if row.get("status") == "decided"]),
                 stale=len([row for row in rows if row.get("status") == "stale"]),
                 recent=recent, days=days,
+                chained_nav=round(level, 6),
                 state=dict(holdings=len(state.get("holdings") or []),
                            entry_date=state.get("entry_date"),
                            last_panel_date=state.get("last_panel_date"),

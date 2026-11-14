@@ -101,6 +101,49 @@ def mark(panel_prices, holdings, date):
                 equal_weight_nav=float(np.nanmean(values)))
 
 
+def sessions_between(index, start, end):
+    """Trading sessions in the panel strictly after ``start``, up to and including ``end``."""
+    if not start:
+        return None
+    return int(((index > pd.Timestamp(start)) & (index <= pd.Timestamp(end))).sum())
+
+
+def basket_return(close, codes, start, end):
+    """Equal-weight return of a basket between two dates, ignoring names without both prices."""
+    if close is None or not codes or not start:
+        return None
+    window = close.loc[:end]
+    if window.empty:
+        return None
+    ends = window.iloc[-1]
+    starts = window.loc[:start]
+    if starts.empty:
+        return None
+    begin = starts.iloc[-1]
+    ratios = []
+    for code in codes:
+        first, last = begin.get(code, np.nan), ends.get(code, np.nan)
+        if np.isfinite(first) and np.isfinite(last) and first > 0:
+            ratios.append(float(last) / float(first) - 1.0)
+    return float(np.mean(ratios)) if ratios else None
+
+
+def chain(records):
+    """Turn the log's interval returns into an index, starting at 1.0 before the first decision.
+
+    ``mark`` alone cannot answer "how much has this book earned" because its level jumps whenever
+    the composition changes; chaining the interval returns is immune to that.
+    """
+    level = 1.0
+    out = []
+    for record in records:
+        change = (record.get("interval") or {}).get("return")
+        if change is not None:
+            level *= 1.0 + float(change)
+        out.append(level)
+    return out
+
+
 def run(force=False, dataset=DATASET, log=print):
     directory = Path(dataset)
     manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
@@ -130,29 +173,42 @@ def run(force=False, dataset=DATASET, log=print):
         append(record)
         log("stale: panel still ends %s" % latest.date())
         return record
-    score = composite(panel, codes, features, latest)
-    if score is None:
-        record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), status="no_score",
-                      panel_date=str(latest.date()), reason="no usable feature at the last date")
-        append(record)
-        log("no score at %s" % latest.date())
-        return record
-    book = decide(score, state.get("holdings", []))
+    held = state.get("holdings", [])
+    sessions = sessions_between(panel.index, state.get("entry_date"), latest)
+    # The frozen rule holds a book for twenty sessions; deciding every session is what turned a
+    # 15x-a-year turnover into 105x (doc/e1_topk_20261114.md).  So the recorder only re-decides when
+    # the entry date is at least HOLD sessions old -- which is what "20 日持有" was always meant to be.
+    due = state.get("entry_date") is None or (sessions is not None and sessions >= HOLD)
+    if due:
+        score = composite(panel, codes, features, latest)
+        if score is None:
+            record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), status="no_score",
+                          panel_date=str(latest.date()), reason="no usable feature at the last date")
+            append(record)
+            log("no score at %s" % latest.date())
+            return record
+        book = decide(score, held)
+    else:
+        score, book = None, list(held)
     close = prices.xs("close", axis=1, level=1) if "close" in set(prices.columns.get_level_values(1)) else None
-    nav = mark(close if close is not None else prices.xs(prices.columns.get_level_values(1)[0], axis=1, level=1),
-               book, latest)
-    due = state.get("entry_date") is None or (
-        (latest - pd.Timestamp(state["entry_date"])).days >= HOLD * 1.4)
+    close = close if close is not None else prices.xs(prices.columns.get_level_values(1)[0], axis=1, level=1)
+    nav = mark(close, book, latest)
+    interval = dict(**{"from": state.get("last_panel_date"), "to": str(latest.date()),
+                       "sessions": sessions,
+                       "return": basket_return(close, held, state.get("last_panel_date"), latest)}
+                    ) if held and state.get("last_panel_date") else None
     record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), status="decided",
                   panel_date=str(latest.date()), book=book,
-                  score={code: round(float(score[code]), 6) for code in book},
+                  score={code: round(float(score[code]), 6) for code in book} if score is not None else None,
                   nav=nav, held_from=state.get("entry_date"),
-                  rebalance_due=bool(due), construction="e1 reversal v1")
+                  decision="rebalance" if due else "hold",
+                  rebalance_due=bool(due), sessions_held=sessions,
+                  interval=interval, construction="e1 reversal v1")
     append(record)
     save_state(dict(status="running", last_panel_date=str(latest.date()),
                     holdings=book, entry_date=str(latest.date()) if due else state.get("entry_date"),
                     runs=int(state.get("runs", 0)) + 1))
-    log("decided on %s: %d names" % (latest.date(), len(book)))
+    log("%s on %s: %d names" % ("rebalance" if due else "hold", latest.date(), len(book)))
     return record
 
 

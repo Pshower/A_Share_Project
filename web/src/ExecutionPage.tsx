@@ -21,6 +21,7 @@ const statusNames: Record<string, string> = {
   no_score: '无可用分',
 }
 const changeNames: Record<string, string> = { held: '持有', in: '换入', new: '新开' }
+const decisionNames: Record<string, string> = { rebalance: '再平衡', hold: '持有不动', legacy: '旧日频' }
 const TOP_CHOICES = [5, 10, 20, 30]
 
 export default function ExecutionPage({
@@ -314,6 +315,22 @@ export default function ExecutionPage({
                       {selected.overlap === null ? '开仓日' : `与上一日重合 ${selected.overlap}`}
                     </small>
                   </div>
+                  <div className="stat">
+                    <span>决策</span>
+                    <strong>{decisionNames[selected.decision] || selected.decision}</strong>
+                    <small>
+                      {selected.sessions_held === null ? '未记交易日数' : `已持有 ${selected.sessions_held} 个交易日`}
+                    </small>
+                  </div>
+                  <div className="stat">
+                    <span>链式净值</span>
+                    <strong>{number(selected.chained_nav, 4)}</strong>
+                    <small>
+                      {selected.interval_return === null
+                        ? '区间收益未记'
+                        : `本段 ${percent(selected.interval_return)}`}
+                    </small>
+                  </div>
                 </div>
               </section>
 
@@ -392,6 +409,10 @@ export default function ExecutionPage({
                 <span>记录行数</span>
                 <strong>{number(shadow?.rows)}</strong>
               </div>
+              <div>
+                <span>链式净值</span>
+                <strong>{number(shadow?.chained_nav, 4)}</strong>
+              </div>
             </div>
           </section>
 
@@ -407,6 +428,7 @@ export default function ExecutionPage({
                     <th>记录时间</th>
                     <th>面板日期</th>
                     <th>状态</th>
+                    <th>决策</th>
                     <th>持仓</th>
                     <th>入场日</th>
                     <th>说明</th>
@@ -421,6 +443,7 @@ export default function ExecutionPage({
                         <td>{String(row.recorded_at || '').slice(0, 19).replace('T', ' ')}</td>
                         <td>{row.panel_date || '—'}</td>
                         <td>{statusNames[row.status] || row.status}</td>
+                        <td>{decisionNames[row.decision] || row.decision || '—'}</td>
                         <td>{number(row.holdings)}</td>
                         <td>{row.held_from || '—'}</td>
                         <td>{row.reason || '—'}</td>
