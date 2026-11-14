@@ -128,6 +128,43 @@ def basket_return(close, codes, start, end):
     return float(np.mean(ratios)) if ratios else None
 
 
+def index_close(symbol="sh000300", start=None, end=None):
+    """Daily close of a benchmark index, or None when the feed is unreachable.
+
+    The recorder must never fail because a benchmark is missing: a book without a comparison is
+    still a recorded book, and ``null`` in the log is honest about the gap.
+    """
+    try:
+        import akshare as ak
+
+        frame = ak.stock_zh_index_daily(symbol=symbol)
+        frame["date"] = pd.to_datetime(frame["date"])
+        series = frame.set_index("date").sort_index()["close"].astype(float)
+        if start:
+            series = series.loc[series.index >= pd.Timestamp(start)]
+        if end:
+            series = series.loc[series.index <= pd.Timestamp(end)]
+        return series
+    except Exception:                                  # noqa: BLE001 - the feed is optional
+        return None
+
+
+def index_return(symbol, start, end):
+    if not start or not end:
+        return None
+    series = index_close(symbol, start, end)
+    if series is None or len(series) < 2:
+        return None
+    return float(series.iloc[-1] / series.iloc[0] - 1.0)
+
+
+def benchmarks(close, pool_codes, start, end):
+    """The two comparisons a shadow book needs: the pool it picks from, and the index."""
+    return dict(**{"from": start, "to": end},
+                pool_equal=basket_return(close, pool_codes, start, end),
+                hs300=index_return("sh000300", start, end))
+
+
 def chain(records):
     """Turn the log's interval returns into an index, starting at 1.0 before the first decision.
 
@@ -197,13 +234,15 @@ def run(force=False, dataset=DATASET, log=print):
                        "sessions": sessions,
                        "return": basket_return(close, held, state.get("last_panel_date"), latest)}
                     ) if held and state.get("last_panel_date") else None
+    comparison = benchmarks(close, codes, state.get("last_panel_date"), str(latest.date())) \
+        if state.get("last_panel_date") else None
     record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), status="decided",
                   panel_date=str(latest.date()), book=book,
                   score={code: round(float(score[code]), 6) for code in book} if score is not None else None,
                   nav=nav, held_from=state.get("entry_date"),
                   decision="rebalance" if due else "hold",
                   rebalance_due=bool(due), sessions_held=sessions,
-                  interval=interval, construction="e1 reversal v1")
+                  interval=interval, benchmark=comparison, construction="e1 reversal v1")
     append(record)
     save_state(dict(status="running", last_panel_date=str(latest.date()),
                     holdings=book, entry_date=str(latest.date()) if due else state.get("entry_date"),

@@ -140,12 +140,18 @@ def shadow(root, limit=8):
                            sessions_held=row.get("sessions_held"),
                            reason=row.get("reason"), construction=row.get("construction")))
     days, previous = [], set()
-    level, chain = 1.0, []
+    level, pool_level, index_level = 1.0, 1.0, 1.0
+    chain = []
     for row in rows:
         change = (row.get("interval") or {}).get("return")
         if change is not None:
             level *= 1.0 + float(change)
-        chain.append(level)
+        comparison = row.get("benchmark") or {}
+        if comparison.get("pool_equal") is not None:
+            pool_level *= 1.0 + float(comparison["pool_equal"])
+        if comparison.get("hs300") is not None:
+            index_level *= 1.0 + float(comparison["hs300"])
+        chain.append((level, pool_level, index_level))
     index = 0
     for row in rows:
         if row.get("status") != "decided" or not row.get("book"):
@@ -167,9 +173,13 @@ def shadow(root, limit=8):
             held_from=row.get("held_from"),
             decision=row.get("decision") or "legacy",   # rows written before the 20-session cadence
             sessions_held=row.get("sessions_held"),
-            interval_from=interval.get("from"),
-            interval_return=interval.get("return"),
-            chained_nav=round(chain[index], 6),
+            interval=interval,
+            int_return=interval.get("return"),
+            chained_nav=round(chain[index][0], 6),
+            chained_pool=round(chain[index][1], 6),
+            chained_hs300=round(chain[index][2], 6),
+            pool_return=(row.get("benchmark") or {}).get("pool_equal"),
+            hs300_return=(row.get("benchmark") or {}).get("hs300"),
             rebalance_due=bool(row.get("rebalance_due")),
             names=[dict(code=code, name=lookup.get(code, ""), score=round(float(scores[code]), 4)
                         if code in scores else None, change="in" if previous and code not in previous
@@ -187,6 +197,8 @@ def shadow(root, limit=8):
                 stale=len([row for row in rows if row.get("status") == "stale"]),
                 recent=recent, days=days,
                 chained_nav=round(level, 6),
+                chained_pool=round(pool_level, 6),
+                chained_hs300=round(index_level, 6),
                 state=dict(holdings=len(state.get("holdings") or []),
                            entry_date=state.get("entry_date"),
                            last_panel_date=state.get("last_panel_date"),

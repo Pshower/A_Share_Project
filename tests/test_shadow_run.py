@@ -115,3 +115,28 @@ def test_twenty_sessions_later_it_rebalances_again(tmp_path, monkeypatch):
     assert later["held_from"] == first["panel_date"]       # the book it is leaving
     state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
     assert state["entry_date"] == later["panel_date"]
+
+
+def test_benchmarks_report_the_pool_and_the_index(monkeypatch):
+    days = pd.bdate_range("2020-01-01", periods=3)
+    close = pd.DataFrame({"a": [10.0, 11.0, 12.0], "b": [20.0, 20.0, 22.0]}, index=days)
+    monkeypatch.setattr(shadow_run, "index_close",
+                        lambda symbol, start=None, end=None: pd.Series([100.0, 101.0, 102.0], index=days))
+    row = shadow_run.benchmarks(close, ["a", "b"], days[0], days[2])
+    assert row["pool_equal"] == pytest.approx((0.2 + 0.1) / 2)
+    assert row["hs300"] == pytest.approx(0.02)
+
+
+def test_a_missing_index_leaves_the_comparison_null_rather_than_failing(monkeypatch):
+    days = pd.bdate_range("2020-01-01", periods=3)
+    close = pd.DataFrame({"a": [10.0, 11.0, 12.0]}, index=days)
+    monkeypatch.setattr(shadow_run, "index_close", lambda *a, **k: None)
+    row = shadow_run.benchmarks(close, ["a"], days[0], days[2])
+    assert row["hs300"] is None
+    assert row["pool_equal"] == pytest.approx(0.2)
+
+
+def test_index_return_needs_two_sessions(monkeypatch):
+    days = pd.bdate_range("2020-01-01", periods=2)
+    monkeypatch.setattr(shadow_run, "index_close", lambda *a, **k: pd.Series([100.0], index=days[:1]))
+    assert shadow_run.index_return("sh000300", days[0], days[1]) is None

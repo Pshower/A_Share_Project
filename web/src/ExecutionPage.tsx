@@ -323,12 +323,24 @@ export default function ExecutionPage({
                     </small>
                   </div>
                   <div className="stat">
+                    <span>本段收益</span>
+                    <strong>
+                      {selected.int_return === null ? '未记' : percent(selected.int_return)}
+                    </strong>
+                    <small>自 {selected.interval_from || '—'}</small>
+                  </div>
+                  <div className="stat">
                     <span>链式净值</span>
                     <strong>{number(selected.chained_nav, 4)}</strong>
+                    <small>同池 {number(selected.chained_pool, 4)}</small>
+                  </div>
+                  <div className="stat">
+                    <span>沪深300</span>
+                    <strong>{number(selected.chained_hs300, 4)}</strong>
                     <small>
-                      {selected.interval_return === null
-                        ? '区间收益未记'
-                        : `本段 ${percent(selected.interval_return)}`}
+                      {selected.hs300_return === null
+                        ? '本段未取到指数'
+                        : `本段 ${percent(selected.hs300_return)}`}
                     </small>
                   </div>
                 </div>

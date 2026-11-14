@@ -121,3 +121,24 @@ def test_each_days_names_are_ordered_so_a_topk_slice_is_meaningful():
         scores = [item["score"] for item in day["names"] if item["score"] is not None]
         assert scores == sorted(scores), day["panel_date"]
         assert len(set(item["code"] for item in day["names"])) == len(day["names"])
+
+
+def test_the_api_chains_the_benchmark_columns_too(tmp_path):
+    """The page draws three lines; the API must carry three chained levels."""
+    row = dict(status="decided", panel_date="2026-11-13", held_from="2026-11-10",
+               book=["000001"], score={"000001": 0.2},
+               interval=dict(**{"return": 0.02}),
+               benchmark=dict(**{"from": "2026-11-10", "to": "2026-11-13",
+                                 "pool_equal": 0.01, "hs300": -0.01}))
+    log = tmp_path / "reports" / "shadow" / "e1_shadow.jsonl"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("\n".join(json.dumps(item, ensure_ascii=False) for item in (row,)) + "\n",
+                   encoding="utf-8")
+    (log.parent / "e1_state.json").write_text("{}", encoding="utf-8")
+    data = execution.shadow(tmp_path)
+    assert data["chained_nav"] == pytest.approx(1.02)
+    assert data["chained_pool"] == pytest.approx(1.01)
+    assert data["chained_hs300"] == pytest.approx(0.99)
+    day = data["days"][0]
+    assert day["int_return"] == pytest.approx(0.02)
+    assert day["pool_return"] == pytest.approx(0.01)
