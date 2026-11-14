@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -89,3 +90,43 @@ def test_the_default_destination_is_outside_the_project():
     destination = backup.default_dest()
     assert backup.PROJECT_ROOT not in destination.parents or destination != backup.PROJECT_ROOT
     assert not str(destination).startswith(str(backup.PROJECT_ROOT) + "\\reports")
+
+
+def test_an_unplugged_disk_is_skipped_not_fatal(tmp_path, monkeypatch):
+    """The external disk is the best copy and absent most of the time; that must not fail a run."""
+    source = tmp_path / "project"
+    tree(source)
+    live = tmp_path / "live"
+    missing = tmp_path / "unplugged" / "a_share_project"
+    written = []
+
+    def fake_destinations(explicit=None):
+        written.append(missing)
+        return [live] if tmp_path.exists() else [live]
+
+    monkeypatch.setattr(backup, "destinations", fake_destinations)
+    result = backup.backup(root=source, log=lambda *_: None)
+    assert result["paths"] == [str(live / Path(result["path"]).name)]
+    assert result["files"] == 3
+
+
+def test_every_reachable_destination_gets_a_copy(tmp_path, monkeypatch):
+    source = tmp_path / "project"
+    tree(source)
+    first, second = tmp_path / "disk", tmp_path / "cloud"
+    monkeypatch.setattr(backup, "destinations", lambda explicit=None: [first, second])
+    result = backup.backup(root=source, log=lambda *_: None)
+    assert len(result["paths"]) == 2
+    for path in result["paths"]:
+        assert Path(path).exists()
+
+
+def test_status_reports_each_destination_and_skips_unreachable(tmp_path, monkeypatch):
+    source = tmp_path / "project"
+    tree(source)
+    monkeypatch.setattr(backup, "_candidates", lambda: [tmp_path / "gone", tmp_path / "here"])
+    backup.backup(tmp_path / "here", root=source, log=lambda *_: None)
+    rows = backup.status()["destinations"]
+    assert [row["reachable"] for row in rows] == [False, True]
+    assert rows[1]["archives"] == 1
+    assert backup.status()["freshest"] == 0

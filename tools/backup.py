@@ -72,51 +72,90 @@ def writable(path):
         return False
 
 
-def default_dest():
-    """A synced folder first, then a sibling of the project.
+REMOVABLE = ("E:/", "F:/", "G:/")     # an external disk is the only copy that leaves this machine
 
-    A backup on the same disk survives a mistaken delete (which is what happened on 2026-11-14) but
-    not a disk failure, so a OneDrive folder wins when one is configured.
+
+def _candidates():
+    """Where a copy could go, most valuable first.
+
+    * a removable disk, when it happens to be plugged in -- that copy survives this machine dying;
+    * the synced folder, which is always there but lives on the same disk;
+    * a sibling directory, which only survives a mistaken delete.
     """
-    candidates = []
+    roots = []
     if os.environ.get("ASHR_BACKUP_DIR"):
-        candidates.append(Path(os.environ["ASHR_BACKUP_DIR"]))
+        roots.append(Path(os.environ["ASHR_BACKUP_DIR"]))
+    for drive in REMOVABLE:
+        roots.append(Path(drive) / "a_share_backups" / "a_share_project")
     if os.environ.get("OneDrive"):
-        candidates.append(Path(os.environ["OneDrive"]) / "a_share_backups" / "a_share_project")
-    candidates.append(PROJECT_ROOT.parent / "_backups")
-    for candidate in candidates:
-        if writable(candidate):
-            return candidate
-    raise RuntimeError("no writable backup destination; set ASHR_BACKUP_DIR")
+        roots.append(Path(os.environ["OneDrive"]) / "a_share_backups" / "a_share_project")
+    roots.append(PROJECT_ROOT.parent / "_backups")
+    return roots
+
+
+def destinations(explicit=None):
+    """Every reachable destination.  An unplugged disk is skipped, not an error."""
+    if explicit:
+        return [Path(explicit)]
+    return [root for root in _candidates() if writable(root)]
+
+
+def reachable_now(path):
+    """Writable *without creating it* -- a status check must not conjure the directory it tests."""
+    path = Path(path)
+    if not path.exists():
+        return False
+    try:
+        probe = path / ".write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def default_dest():
+    """The first reachable destination, kept for callers that want a single path."""
+    found = destinations()
+    if not found:
+        raise RuntimeError("no writable backup destination; set ASHR_BACKUP_DIR")
+    return found[0]
 
 
 def backup(dest=None, root=PROJECT_ROOT, keep=KEEP, stamp=None, log=print):
+    """Write one archive per reachable destination; an unplugged disk is skipped, not fatal."""
     root = Path(root).resolve()
-    dest = Path(dest or default_dest()).resolve()
-    if dest == root or root in dest.parents:
-        raise ValueError("refusing to write the backup inside the project: %s" % dest)
+    targets = destinations(dest)
+    if not targets:
+        raise RuntimeError("no writable backup destination; set ASHR_BACKUP_DIR")
+    for target in targets:
+        resolved = Path(target).resolve()
+        if resolved == root or root in resolved.parents:
+            raise ValueError("refusing to write the backup inside the project: %s" % resolved)
     files = collect(root)
     if not files:
         raise ValueError("nothing to back up under %s" % root)
-    dest.mkdir(parents=True, exist_ok=True)
     moment = stamp or datetime.now(timezone.utc)
     name = "a_share_%s.zip" % moment.strftime("%Y%m%d_%H%M%S")
-    target = dest / name
     manifest = dict(created_at=moment.isoformat(), project=str(root), sources=list(SOURCES),
                     files=[dict(path=path.relative_to(root).as_posix(), size=path.stat().st_size,
                                 sha256=digest(path)) for path in files])
-    partial = dest / (name + ".part")
-    with zipfile.ZipFile(partial, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for item in manifest["files"]:
-            archive.write(root / item["path"], item["path"])
-        archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
-    partial.replace(target)
-    log("backed up %d files (%d sources) -> %s" % (len(files), len(manifest["sources"]), target))
-    pruned = prune(dest, keep)
-    if pruned:
-        log("pruned %d old archive(s)" % pruned)
-    return dict(path=str(target), files=len(files), bytes=target.stat().st_size,
-                manifest=manifest, pruned=pruned)
+    written, pruned_total = [], 0
+    for target in targets:
+        target = Path(target)
+        target.mkdir(parents=True, exist_ok=True)
+        archive_path = target / name
+        partial = target / (name + ".part")
+        with zipfile.ZipFile(partial, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for item in manifest["files"]:
+                archive.write(root / item["path"], item["path"])
+            archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+        partial.replace(archive_path)
+        written.append(str(archive_path))
+        log("backed up %d files -> %s" % (len(files), archive_path))
+        pruned_total += prune(target, keep)
+    return dict(paths=written, path=written[0], files=len(files),
+                bytes=Path(written[0]).stat().st_size, manifest=manifest, pruned=pruned_total)
 
 
 def prune(dest, keep=KEEP, log=None):
@@ -155,11 +194,28 @@ def latest(dest=None):
 
 
 def status(dest=None):
-    archives = sorted(Path(dest or default_dest()).glob("a_share_*.zip"))
-    return dict(dest=str(dest or default_dest()), archives=len(archives),
-                latest=str(archives[-1]) if archives else None,
-                latest_at=datetime.fromtimestamp(archives[-1].stat().st_mtime,
-                                                 tz=timezone.utc).isoformat() if archives else None)
+    """Per destination: is it reachable right now, how many archives, and how old is the newest.
+
+    A removable disk is usually unplugged, so "unreachable" is not a failure -- but "reachable and
+    stale" is, and that is what the age column is for.
+    """
+    reachable = set(str(Path(path)) for path in (destinations(dest) if dest else []))
+    rows = []
+    for root in ([Path(dest)] if dest else _candidates()):
+        root = Path(root)
+        archives = sorted(root.glob("a_share_*.zip")) if root.exists() else []
+        newest = archives[-1] if archives else None
+        age_days = ((datetime.now(timezone.utc) -
+                     datetime.fromtimestamp(newest.stat().st_mtime, tz=timezone.utc)).days
+                    if newest else None)
+        rows.append(dict(dest=str(root), reachable=str(root) in reachable or reachable_now(root),
+                         archives=len(archives),
+                         latest=str(newest) if newest else None,
+                         age_days=age_days))
+    return dict(destinations=rows,
+                ready=any(row["reachable"] for row in rows),
+                freshest=min((row["age_days"] for row in rows if row["age_days"] is not None),
+                             default=None))
 
 
 def main(argv=None):
