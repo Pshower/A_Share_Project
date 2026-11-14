@@ -113,3 +113,11 @@ def test_consecutive_days_agree_with_their_own_overlap():
         entry_codes = {item["code"] for item in day["entries"]}
         exit_codes = {item["code"] for item in day["exits"]}
         assert not entry_codes & exit_codes
+
+
+def test_each_days_names_are_ordered_so_a_topk_slice_is_meaningful():
+    """The page shows the first K entries, so the order is part of the contract."""
+    for day in execution.shadow(ROOT)["days"]:
+        scores = [item["score"] for item in day["names"] if item["score"] is not None]
+        assert scores == sorted(scores), day["panel_date"]
+        assert len(set(item["code"] for item in day["names"])) == len(day["names"])

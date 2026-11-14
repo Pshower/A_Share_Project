@@ -1315,3 +1315,48 @@ footer {
   display: block;
   margin: 12px 0;
 }
+
+/* 二级菜单：父项不可点，子项是路由 */
+.nav-parent {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 43px;
+  padding: 0 20px;
+  color: #eef8f1;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.nav-sub {
+  display: flex;
+  flex-direction: column;
+  border-left: 2px solid #254436;
+  margin: 2px 0 8px 29px;
+}
+
+.nav-sub a {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 14px;
+  color: #aebfb6;
+  font-size: 12.5px;
+  text-decoration: none;
+  border-radius: 0 6px 6px 0;
+}
+
+.nav-sub a:hover {
+  background: #1c3329;
+  color: #fff;
+}
+
+.nav-sub a.active {
+  background: #254436;
+  color: #eef8f1;
+}
+
+.breadcrumb span {
+  color: #9fb3a8;
+  margin: 0 4px;
+}
