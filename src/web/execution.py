@@ -19,6 +19,31 @@ from tools import account_ledger as ledger
 BOOKS = ledger.ACCOUNTS
 SHADOW = Path("reports") / "shadow" / "e1_shadow.jsonl"
 SHADOW_STATE = Path("reports") / "shadow" / "e1_state.json"
+NAMES = Path("data") / "stock_list" / "stock_names.csv"
+
+_name_cache = {"key": None, "map": {}}
+
+
+def names(root):
+    """Code to Chinese short name, from the one local snapshot; empty when it is absent.
+
+    The shadow ledger stores codes only -- that is the right unit for the record and the wrong
+    unit for a person reading a list of thirty of them.
+    """
+    path = Path(root) / NAMES
+    if not path.exists():
+        return {}
+    try:
+        stamp = path.stat().st_mtime
+    except OSError:
+        return {}
+    if _name_cache["key"] != (str(path), stamp):
+        import pandas as pd
+        frame = pd.read_csv(path)
+        frame["code"] = frame["code"].astype(str).str.zfill(6)
+        _name_cache["map"] = dict(zip(frame["code"], frame["name"].astype(str)))
+        _name_cache["key"] = (str(path), stamp)
+    return _name_cache["map"]
 
 
 def _read(path):
@@ -96,19 +121,56 @@ def book(root, name):
 
 
 def shadow(root, limit=8):
-    """The S2 recorder's most recent decisions and what state it is holding."""
+    """The S2 recorder's decisions, the names it picked, and what state it is holding.
+
+    ``days`` is the list a reader actually wants: every session that produced a book, the thirty
+    names in it, and what was bought/dropped against the previous decision.  The recorder stores
+    codes and scores; names are joined from the local snapshot when it exists.
+    """
     rows = _read(Path(root) / SHADOW)
     state_path = Path(root) / SHADOW_STATE
     state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
+    lookup = names(root)
     recent = []
     for row in rows[-limit:]:
         recent.append(dict(recorded_at=row.get("recorded_at"), status=row.get("status"),
                            panel_date=row.get("panel_date"), holdings=len(row.get("book") or []),
                            held_from=row.get("held_from"), rebalance_due=row.get("rebalance_due"),
                            reason=row.get("reason"), construction=row.get("construction")))
+    days, previous = [], set()
+    for row in rows:
+        if row.get("status") != "decided" or not row.get("book"):
+            continue
+        # A row whose ``held_from`` is empty is a book being opened, not a book being rotated:
+        # the first entry in the ledger is the archived 2024-12-31 seed, and diffing the forward
+        # run against it would report 26 spurious "buy" decisions.
+        fresh = not row.get("held_from")
+        if fresh:
+            previous = set()
+        book = list(row["book"])
+        scores = row.get("score") or {}
+        ordered = sorted(book, key=lambda code: scores.get(code, float("inf")))
+        current = set(book)
+        days.append(dict(
+            panel_date=str(row.get("panel_date") or ""),
+            recorded_at=row.get("recorded_at"),
+            held_from=row.get("held_from"),
+            rebalance_due=bool(row.get("rebalance_due")),
+            names=[dict(code=code, name=lookup.get(code, ""), score=round(float(scores[code]), 4)
+                        if code in scores else None, change="in" if previous and code not in previous
+                        else ("held" if previous else "new"))
+                   for code in ordered],
+            entries=[dict(code=code, name=lookup.get(code, ""))
+                     for code in (sorted(current - previous) if previous else [])],
+            exits=[dict(code=code, name=lookup.get(code, ""))
+                   for code in (sorted(previous - current) if previous else [])],
+            overlap=len(current & previous) if previous else None,
+        ))
+        previous = current
     return dict(rows=len(rows), decided=len([row for row in rows if row.get("status") == "decided"]),
                 stale=len([row for row in rows if row.get("status") == "stale"]),
-                recent=recent, state=dict(holdings=len(state.get("holdings") or []),
-                                          entry_date=state.get("entry_date"),
-                                          last_panel_date=state.get("last_panel_date"),
-                                          runs=state.get("runs")))
+                recent=recent, days=days,
+                state=dict(holdings=len(state.get("holdings") or []),
+                           entry_date=state.get("entry_date"),
+                           last_panel_date=state.get("last_panel_date"),
+                           runs=state.get("runs")))

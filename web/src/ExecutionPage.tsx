@@ -27,6 +27,7 @@ export default function ExecutionPage({ fail }: { fail: (error: unknown) => void
   const [detail, setDetail] = useState<Row | null>(null)
   const [shadow, setShadow] = useState<Row | null>(null)
   const [busy, setBusy] = useState(false)
+  const [day, setDay] = useState('')
 
   async function load() {
     setBusy(true)
@@ -37,6 +38,10 @@ export default function ExecutionPage({ fail }: { fail: (error: unknown) => void
       ])
       setBooks(list)
       setShadow(sh)
+      const days = sh.days || []
+      if (days.length && !days.some((d: Row) => d.panel_date === day)) {
+        setDay(days[days.length - 1].panel_date)
+      }
       const picked = list.find((b) => b.name === name)?.opened ? name : list.find((b) => b.opened)?.name
       if (picked) {
         setName(picked)
@@ -224,6 +229,85 @@ export default function ExecutionPage({ fail }: { fail: (error: unknown) => void
           <p className="empty">这本账还没有开账。</p>
         </section>
       )}
+
+      <section className="section">
+        <div className="section-heading">
+          <h2>每日推荐股票</h2>
+          <span>
+            {(shadow?.days || []).length} 个交易日有决策 · 最新{' '}
+            {(shadow?.days || []).slice(-1)[0]?.panel_date || '—'}
+          </span>
+        </div>
+        <div className="button-group">
+          {(shadow?.days || []).map((d: Row) => (
+            <button
+              key={d.panel_date}
+              className={day === d.panel_date ? 'primary' : ''}
+              onClick={() => setDay(d.panel_date)}
+            >
+              {String(d.panel_date).slice(5)}
+            </button>
+          ))}
+        </div>
+        {(() => {
+          const selected = (shadow?.days || []).find((d: Row) => d.panel_date === day)
+          if (!selected) return <p className="empty">还没有产生过决策。</p>
+          const changeName: Record<string, string> = { held: '持有', in: '换入', new: '新开' }
+          return (
+            <>
+              <div className="stats-band">
+                <div className="stat">
+                  <span>名单</span>
+                  <strong>{selected.names.length} 只</strong>
+                  <small>面板 {selected.panel_date}</small>
+                </div>
+                <div className="stat">
+                  <span>换入</span>
+                  <strong>{selected.entries.length}</strong>
+                  <small>{selected.overlap === null ? '新开仓' : `与上一日重合 ${selected.overlap}`}</small>
+                </div>
+                <div className="stat">
+                  <span>换出</span>
+                  <strong>{selected.exits.length}</strong>
+                  <small>{selected.held_from ? `持有自 ${selected.held_from}` : '本日为开仓日'}</small>
+                </div>
+              </div>
+              {selected.exits.length > 0 && (
+                <p className="eyebrow">
+                  换出：
+                  {selected.exits
+                    .map((x: Row) => `${x.code} ${x.name || ''}`.trim())
+                    .join('、')}
+                </p>
+              )}
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>名次</th>
+                      <th>代码</th>
+                      <th>名称</th>
+                      <th>分数</th>
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selected.names.map((item: Row, index: number) => (
+                      <tr key={item.code}>
+                        <td>{index + 1}</td>
+                        <td>{item.code}</td>
+                        <td>{item.name || '—'}</td>
+                        <td>{item.score === null ? '—' : number(item.score, 4)}</td>
+                        <td>{changeName[item.change] || item.change}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )
+        })()}
+      </section>
 
       <section className="section">
         <div className="section-heading">

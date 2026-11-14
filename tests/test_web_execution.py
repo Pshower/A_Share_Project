@@ -76,3 +76,40 @@ def test_a_cash_only_book_has_no_prices_to_show(tmp_path):
         json.dumps(dict(date="2026-11-11", nav=1e6, cash=1e6, positions={}, prices={})) + "\n")
     row = execution.book(tmp_path, "live")
     assert row["navs"] == [1e6] and row["positions"] == [] and row["trades"]["count"] == 0
+
+
+def test_each_decision_day_carries_its_thirty_names():
+    row = execution.shadow(ROOT)
+    assert row["days"], "the recorder has decisions but the view exposed none"
+    for day in row["days"]:
+        assert len(day["names"]) == 30
+        assert all(item["code"] and "score" in item for item in day["names"])
+    latest = row["days"][-1]
+    assert latest["panel_date"] == "2026-11-13"
+    assert [item["change"] for item in latest["names"]].count("in") == len(latest["entries"])
+
+
+def test_names_are_joined_from_the_local_snapshot():
+    lookup = execution.names(ROOT)
+    if not lookup:
+        pytest.skip("no local code-name snapshot")
+    assert lookup["601633"] == "\u957f\u57ce\u6c7d\u8f66"
+    assert lookup["600905"] == "\u4e09\u5ce1\u80fd\u6e90"
+
+
+def test_a_fresh_book_reports_no_entries_and_no_overlap():
+    """The 2024-12-31 seed and the 11-10 restart are books being opened, not rotated."""
+    for day in execution.shadow(ROOT)["days"]:
+        if not day["held_from"]:
+            assert day["entries"] == [] and day["exits"] == [] and day["overlap"] is None
+
+
+def test_consecutive_days_agree_with_their_own_overlap():
+    days = [day for day in execution.shadow(ROOT)["days"] if day["held_from"]]
+    assert days, "expected at least one rotated day"
+    for day in days:
+        assert len(day["entries"]) == 30 - day["overlap"]
+        assert len(day["exits"]) == len(day["entries"])
+        entry_codes = {item["code"] for item in day["entries"]}
+        exit_codes = {item["code"] for item in day["exits"]}
+        assert not entry_codes & exit_codes
