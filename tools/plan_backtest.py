@@ -58,9 +58,16 @@ def raw_series(code, start=START, end=END):
 
 
 def total_return(frame, paid, split=SPLIT, payout=PAYOUT):
-    """Price series to a reinvested index, repairing splits and lost payouts."""
+    """Price series to a reinvested index, repairing splits and small lost payouts.
+
+    Same discipline as ``price_and_payouts``: a gap only becomes a split if it lands on a simple
+    split ratio, and only a *small* gap may be guessed to be a lost distribution.  Anything larger
+    is a real fall and stays in the index -- the alternative silently deletes crashes, which is
+    what a -10% tariff day in April 2025 was.
+    """
     prices = frame.copy()
     events = []
+    guessed = {}
     for date in list(prices.index)[1:]:
         prior = prices.index[prices.index < date]
         if not len(prior):
@@ -68,32 +75,50 @@ def total_return(frame, paid, split=SPLIT, payout=PAYOUT):
         before, now = float(prices.loc[prior[-1]]), float(prices.loc[date])
         move = now / before
         recorded = float(paid.get(date, 0.0))
-        if recorded == 0.0 and move <= 1 - split:
+        if recorded > 0:
+            continue
+        if move <= 1 - split and looks_like_a_split(move):
             prices.loc[prior] = prices.loc[prior] * move
             events.append(dict(date=str(date.date()), kind="split", factor=round(move, 4)))
-        elif recorded == 0.0 and move <= 1 - payout:
-            events.append(dict(date=str(date.date()), kind="payout",
-                               amount=round(before - now, 4)))
+        elif move <= 1 - split:
+            events.append(dict(date=str(date.date()), kind="unrepaired_fall", factor=round(move, 4)))
     index = pd.Series(1.0, index=prices.index)
     for position in range(1, len(prices.index)):
         date, previous = prices.index[position], prices.index[position - 1]
         now, before = float(prices.loc[date]), float(prices.loc[previous])
         cash = float(paid.get(date, 0.0))
-        if cash == 0.0 and (now / before - 1.0) <= -payout:
-            cash = before - now
         index.iloc[position] = index.iloc[position - 1] * (now + cash) / before
     return index, events
 
 
+SIMPLE_RATIOS = (0.5, 0.25, 1 / 3, 2 / 3, 0.75, 0.2, 0.1)     # share splits a fund actually does
+# Distributions come from the fund's published table; nothing is inferred from a gap.  A gap that is
+# not a simple split ratio is a real fall and stays in the series.
+
+
+def looks_like_a_split(move, tolerance=0.03):
+    """A gap that lands on a simple split ratio, not any large fall.
+
+    Treating "the price dropped 30%" as a split is how a real crash gets silently erased from a
+    backtest: 513500 did split 1:2 on 2022-03-30 (move = 0.508), and a crash of the same size would
+    look identical to the old rule.  Restricting repairs to simple ratios, and recording every one
+    of them, keeps the repair auditable instead of invisible.
+    """
+    return any(abs(move - ratio) <= tolerance * ratio for ratio in SIMPLE_RATIOS)
+
+
 def price_and_payouts(frame, paid, split=SPLIT, payout=PAYOUT):
-    """A split-repaired price series plus the cash each unit paid, kept separate.
+    """A split-repaired price series plus the cash each unit paid, plus what was repaired.
 
     ``total_return`` reinvests distributions, which is right for measuring an index but wrong
     for a ledger: the account holds units and receives cash.  This is the same repair with the
     cash left as cash, so the simulator can mark a book the way the account does.
+
+    Returns ``(prices, payouts, events)``; every repair is listed so a reader can see that the
+    series was changed, and a fall that does not look like a split is **left alone** and reported.
     """
     prices = frame.astype(float).copy()
-    payouts = {}
+    payouts, events = {}, []
     for date in list(prices.index)[1:]:
         prior = prices.index[prices.index < date]
         if not len(prior):
@@ -103,11 +128,12 @@ def price_and_payouts(frame, paid, split=SPLIT, payout=PAYOUT):
         recorded = float(paid.get(date, 0.0))
         if recorded > 0:
             payouts[date] = recorded
-        elif move <= 1 - split:
+        elif move <= 1 - split and looks_like_a_split(move):
             prices.loc[prior] = prices.loc[prior] * move          # unit split
-        elif move <= 1 - payout:
-            payouts[date] = round(before - now, 4)                # interface lost the payout
-    return prices, payouts
+            events.append(dict(date=str(date.date()), kind="split", factor=round(move, 4)))
+        elif move <= 1 - split:
+            events.append(dict(date=str(date.date()), kind="unrepaired_fall", factor=round(move, 4)))
+    return prices, payouts, events
 
 
 def simulate_book(prices, payouts, start, capital=CAPITAL, floor=FLOOR, multiplier=MULTIPLIER,
@@ -192,7 +218,7 @@ def export_account(start, name="backtest", capital=CAPITAL, cadence="daily", end
     prices, payouts, index = {}, {}, {}
     for code in CODES:
         frame, paid = raw_series(code, start, end or END)
-        prices[code], payouts[code] = price_and_payouts(frame, paid)
+        prices[code], payouts[code], _ = price_and_payouts(frame, paid)
     frame = pd.DataFrame(prices).sort_index().dropna()
     frame = frame.loc[frame.index >= pd.Timestamp(start)]
     result = simulate_book(frame, payouts, start, capital=capital, cadence=cadence, end=end)
@@ -230,9 +256,9 @@ def universe_book(start=START, end=END, log=print):
     prices, payouts, repairs = {}, {}, {}
     for code in CODES:
         frame, paid = raw_series(code, start, end)
-        prices[code], payouts[code] = price_and_payouts(frame, paid)
-        if payouts[code]:
-            repairs[code] = sorted(str(stamp.date()) for stamp in payouts[code])[:4]
+        prices[code], payouts[code], events = price_and_payouts(frame, paid)
+        if payouts[code] or events:
+            repairs[code] = events
     frame = pd.DataFrame(prices).sort_index().dropna()
     return frame.loc[frame.index >= pd.Timestamp(start)], payouts, repairs
 
