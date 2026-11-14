@@ -68,3 +68,23 @@ def test_every_catalogue_entry_declares_one_of_the_three_categories():
 def test_the_catalogue_has_no_duplicate_ids():
     ids = [entry[0] for entry in data_catalog.CATALOG]
     assert len(ids) == len(set(ids))
+
+
+def test_nested_szse_rows_are_counted_not_just_the_outer_list():
+    """SZSE wraps its table as [{"data": [...]}]; counting the outer list said one row for 4,036."""
+    payload = [{"metadata": {"catalogid": "1837_xxpl"}, "data": [{"a": 1}, {"a": 2}, {"a": 3}]}]
+    assert data_catalog.rows_of(payload) == 3
+    assert data_catalog.rows_of([{"a": 1}, {"a": 2}]) == 2
+    assert data_catalog.rows_of({"data": [1, 2]}) == 2
+    assert data_catalog.rows_of({"code": "400"}) == 0
+
+
+def test_a_console_preview_cannot_carry_a_bom():
+    """A BOM in a payload preview aborted the run before the JSON was written."""
+    assert data_catalog.safe("\ufeff净值曲线") == "净值曲线"
+
+
+def test_the_primary_catalogue_probes_the_exchanges_themselves():
+    ids = {entry[0] for entry in data_catalog.PRIMARY}
+    assert {"sse_margin", "szse_margin", "chinabond_yield"} <= ids
+    assert all(entry[3].startswith("http") for entry in data_catalog.PRIMARY)

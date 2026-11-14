@@ -86,6 +86,16 @@ CATALOG = [
 ]
 
 
+def safe(text, width=60):
+    """A preview fit for a console: payload bytes can carry BOMs or CJK that GBK cannot encode.
+
+    Printing one of those aborted the whole run before the JSON was written, which is how a probe
+    succeeded and its result was lost.
+    """
+    cleaned = "".join(character for character in str(text) if character.isprintable())
+    return cleaned.encode("gbk", "replace").decode("gbk")[:width]
+
+
 def probes():
     """A list of (entry, callable) so a probe can run without knowing the argument shapes."""
     return list(CATALOG)
@@ -227,7 +237,7 @@ def run(entries=None, timeout=30, output=OUTPUT, log=print):
         rows.append(row)
         log("%-14s %-6s %-10s %5d rows  %-10s %s" % (
             row["id"], row["category"], row["status"], row["rows"],
-            row["last_date"] or "-", (row["error"] or "")[:60]))
+            row["last_date"] or "-", safe(row["error"] or "")))
     result = dict(generated_at=date.today().isoformat(), probes=len(rows),
                   summary=summarise(rows), rows=rows)
     if output:
@@ -239,6 +249,118 @@ def run(entries=None, timeout=30, output=OUTPUT, log=print):
     return result
 
 
+
+# --------------------------------------------------------------------------------------------
+# Primary sources: the exchanges and agencies themselves, not an akshare wrapper.
+# (id, category, family, url, params, note)
+SSE = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+       "Referer": "http://www.sse.com.cn/"}
+SZSE = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Referer": "http://www.szse.cn/market/overview/index.html"}
+PLAIN = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+PRIMARY = [
+    ("sse_margin", "宏观", "一手·两融", "http://query.sse.com.cn/marketdata/tradedata/queryMargin.do",
+     {"sqlId": "GP_TAJ01", "beginDate": "20261101", "endDate": "20261113"}, SSE, "沪市两融（交易所口径）"),
+    ("sse_overview", "技术", "一手·市场统计", "http://query.sse.com.cn/commonQuery.do",
+     {"sqlId": "COMMON_SSE_SJ_GPSJ_CJGK_MRGK_C"}, SSE, "沪市概况（交易所口径）"),
+    ("sse_etf_list", "技术", "一手·ETF 清单", "http://query.sse.com.cn/commonQuery.do",
+     {"sqlId": "COMMON_SSE_ZQPZ_ETFZL_XXPL_ETFGM_SEARCH_L", "pageHelp.pageSize": "10"},
+     SSE, "沪市 ETF 列表（交易所口径）"),
+    ("szse_market", "技术", "一手·市场统计",
+     "http://www.szse.cn/api/report/ShowReport/data",
+     {"SHOWTYPE": "JSON", "CATALOGID": "1803_sczm", "TABKEY": "tab1", "PAGENO": "1"}, SZSE, "深市市场统计"),
+    ("szse_margin", "宏观", "一手·两融",
+     "http://www.szse.cn/api/report/ShowReport/data",
+     {"SHOWTYPE": "JSON", "CATALOGID": "1837_xxpl", "TABKEY": "tab1", "PAGENO": "1"}, SZSE,
+     "深市融资融券（交易所口径，体积大）"),
+    ("chinabond_yield", "宏观", "一手·国债收益率", "https://yield.chinabond.com.cn/cbweb-mn/yield_main",
+     {"zblx": "gjz"}, PLAIN, "中债收益率（HTML）"),
+    ("pbc_stats", "宏观", "一手·货币统计", "http://www.pbc.gov.cn/diaochatongjisi/116219/index.html",
+     {}, PLAIN, "央行调查统计司（HTML 列表）"),
+    ("fund_pingzhong", "基本面", "一手·基金净值与规模",
+     "https://fund.eastmoney.com/pingzhongdata/510300.js", {}, PLAIN,
+     "基金页 JS：净值曲线、规模变动、分红（ETF 也适用）"),
+    ("csindex_perf", "技术", "一手·指数", "https://www.csindex.com.cn/csindex-home/perf/index-perf",
+     {"indexCode": "000300"}, PLAIN, "中证指数行情（接口在，参数待校准）"),
+    ("nbs_data", "宏观", "一手·统计", "https://data.stats.gov.cn/easyquery.htm",
+     {"m": "QueryData", "dbcode": "hgyd", "rowcode": "zb", "colcode": "sj", "wds": "[]",
+      "dfwds": '[{"wdcode":"zb","valuecode":"A01"}]'}, PLAIN, "国家统计局（需要 cookie）"),
+]
+
+
+def rows_of(payload):
+    """How many records a JSON body carries, without knowing the schema.
+
+    SZSE wraps its table as ``[{"data": [...]}]``, so counting the outer list reports one row for a
+    four-hundred-kilobyte table.  Nested ``data`` lists are inspected before giving up.
+    """
+    if isinstance(payload, list):
+        if len(payload) == 1 and isinstance(payload[0], dict) and isinstance(payload[0].get("data"), list):
+            return len(payload[0]["data"])
+        return len(payload)
+    if isinstance(payload, dict):
+        for key in ("data", "result", "pageHelp", "diff", "records"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return len(value)
+            if isinstance(value, dict):
+                for inner in ("data", "list", "rows"):
+                    if isinstance(value.get(inner), list):
+                        return len(value[inner])
+    return 0
+
+
+def probe_http(entry, timeout=18):
+    """A direct request to an exchange or agency endpoint; HTML counts as an answer."""
+    import requests
+
+    name, category, family, url, params, headers, note = entry
+    started = time.time()
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=timeout, verify=False)
+        body = response.content
+        rows, kind, preview = 0, "text", ""
+        try:
+            payload = response.json()
+            rows, kind = rows_of(payload), "json"
+            preview = json.dumps(payload, ensure_ascii=False)[:120]
+        except ValueError:
+            preview = body[:120].decode("utf-8", "ignore").replace("\n", " ")
+        status = "ok" if response.status_code == 200 else "blocked"
+        return dict(id=name, category=category, family=family, source="direct", function=url,
+                    kwargs=params, note=note, status=status, rows=rows, columns=0, last_date=None,
+                    column_names=[], kind=kind, bytes=len(body), http=response.status_code,
+                    seconds=round(time.time() - started, 2),
+                    error=None if response.status_code == 200 else "HTTP %d" % response.status_code,
+                    preview=preview[:110])
+    except Exception as problem:                          # noqa: BLE001
+        status, message = classify(problem)
+        return dict(id=name, category=category, family=family, source="direct", function=url,
+                    kwargs=params, note=note, status=status, rows=0, columns=0, last_date=None,
+                    column_names=[], kind="none", bytes=0, http=None,
+                    seconds=round(time.time() - started, 2), error=message[:180], preview="")
+
+
+def run_primary(entries=None, timeout=18, output=None, log=print):
+    entries = entries if entries is not None else PRIMARY
+    rows = []
+    for entry in entries:
+        row = probe_http(entry, timeout=timeout)
+        rows.append(row)
+        log("%-14s %-6s %-10s %5s rows  %8s bytes  %s" % (
+            row["id"], row["category"], row["status"], row["rows"] or "-",
+            row["bytes"] or "-", safe(row["error"] or row["note"] or "")))
+    result = dict(generated_at=date.today().isoformat(), source="direct", probes=len(rows),
+                  summary=summarise(rows), rows=rows)
+    if output:
+        path = Path(output)
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "primary.json").write_text(
+            json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        log("wrote %s" % (path / "primary.json"))
+    return result
+
 def probers():
     return CATALOG
 
@@ -248,7 +370,13 @@ def main(argv=None):
     parser.add_argument("--timeout", type=int, default=30)
     parser.add_argument("--output", default=str(OUTPUT))
     parser.add_argument("--only", default=None, help="Probe a single id.")
+    parser.add_argument("--group", default="akshare", choices=["akshare", "primary", "all"])
     args = parser.parse_args(argv)
+    if args.group in ("primary", "all"):
+        primary = run_primary(timeout=args.timeout, output=args.output)
+        print(json.dumps(primary["summary"], ensure_ascii=False, indent=2))
+        if args.group == "primary":
+            return 0
     entries = CATALOG
     if args.only:
         entries = [entry for entry in CATALOG if entry[0] == args.only]
