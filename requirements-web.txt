@@ -1,5 +1,0 @@
-# GPU install: add -c requirements-gpu-constraints.txt; exact environment snapshot: requirements-lock.txt
--r requirements-ppo.txt
-fastapi==0.115.12
-uvicorn==0.34.2
-httpx>=0.27,<1

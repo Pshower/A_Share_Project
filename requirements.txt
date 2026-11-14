@@ -1,4 +1,11 @@
--r requirements-env.txt
+# The live line: data pulls, the execution books, the shadow recorder, the market-leverage study
+# and the read-only workbench.  The PPO stack (torch, stable-baselines3, gymnasium) went with the
+# training code -- see branch ``research/supply-pressure`` if you need to rerun those studies.
+numpy>=1.24,<3
+pandas>=2,<3
+pyarrow>=12
 akshare>=1.16,<2
 requests>=2.31,<3
-matplotlib>=3.7,<4
+fastapi==0.115.12
+uvicorn==0.34.2
+pytest>=8,<10

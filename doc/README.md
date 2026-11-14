@@ -20,8 +20,6 @@
 | [research_workflow.md](research_workflow.md) | 数据产物、预处理、基线回测和本地复现 |
 | [data_inventory.md](data_inventory.md) | 本地数据资产清单：股票池的市场与行业、量价、基本面、宏观、面板边界和已知缺口 |
 | [trading_environment.md](trading_environment.md) | 环境输入、动作、账户、成交、公司行为和约束契约 |
-| [ppo_implementation_plan.md](ppo_implementation_plan.md) | PPO 智能体、动作映射、共享网络、扩池和训练设计 |
-| [ppo_training_framework.md](ppo_training_framework.md) | PPO 依赖、检查/训练/冻结测试命令和产物说明 |
 | [workbench_runbook.md](workbench_runbook.md) | 本地工作台启动、页面、动作类型准入、任务、账户和测试方式 |
 | [experiment_workbench_runbook.md](experiment_workbench_runbook.md) | 实验配置、分阶段批准、多种子、风险选模和当前工程边界 |
 | [frontend_workbench_design.md](frontend_workbench_design.md) | 工作台交互与 API 设计基线 |
@@ -31,7 +29,6 @@
 | [exposure_control_plan_20261105.md](exposure_control_plan_20261105.md) | 仓位控制的分阶段规划与预登记：指数检验、三层决策、样本账本和集成方式 |
 | [alpha_program_20261106.md](alpha_program_20261106.md) | beta 底座、仓位偏好与 alpha 计划：IC 的经济门槛、检验功效算术、候选族与预登记判据 |
 | [alpha_measure_20261106.md](alpha_measure_20261106.md) | alpha 度量机件：时点对齐、Newey-West、注入自检，以及"经济门槛落在噪声里"的功效下限 |
-| [ppo_excess_20261106.md](ppo_excess_20261106.md) | 基准超额奖励 + 每个 checkpoint 回测；强制满仓映射；整手不可分这个混淆 |
 | [price_feature_ic_20261106.md](price_feature_ic_20261106.md) | 20 个价格特征在新框架下的重测：量级站得住、显著性站不住、方向全部为负 |
 | [autocorrelation_20261106.md](autocorrelation_20261106.md) | 自回归结构诊断：时序是轻微动量，截面 1 日反转很强且 T+1 可执行，但卡在成本上 |
 | [reversal_backtest_20261106.md](reversal_backtest_20261106.md) | 1 日反转的成本感知回测：毛额 +520%，但零滑点下法定费率已把它压到 +69%，全程输给等权池 |
@@ -101,14 +98,12 @@
 | --- | --- |
 | [training_data_improvement_plan.md](training_data_improvement_plan.md) | 数据可得性探测、改进建议、清理记录、模型/信息核查及因子基线结果 |
 | [data_feature_ppo_integration_plan.md](data_feature_ppo_integration_plan.md) | 数据—特征—PPO 的一体化设计；已实现行为以实验工作区手册为准 |
-| [ppo_training_improvement_plan.md](ppo_training_improvement_plan.md) | 超参数、监控、评价和训练方法的设计基线及后续候选 |
 | [market_information_indicator_plan.md](market_information_indicator_plan.md) | 行情信息、手动导入和技术指标扩展设计 |
 | [eod_allocation_plan.md](eod_allocation_plan.md) | 每日收盘股票池配置目标、数据闸门和收盘边界设计 |
 | [market_model_prediction_plan.md](market_model_prediction_plan.md) | 联网行情与多模型预测整合的设计和历史进度 |
 | [online_data_live_decision_plan.md](online_data_live_decision_plan.md) | 联网快照、新日线推理、价格和时效边界的设计基线 |
 | [repository_audit_fixes.md](repository_audit_fixes.md) | 仓库审查、修复和 300 股一致性验收证据 |
 | [research_record_20261011.md](research_record_20261011.md)（[PDF](research_record_20261011.pdf)） | 2026-09-25 至 2026-10-11 的综合研究记录 |
-| [ppo_timing_followup_design_20261015.md](ppo_timing_followup_design_20261015.md) | 调仓研究后续设计，保留其历史假设 |
 | [market_summary_research_notes_20261007.md](market_summary_research_notes_20261007.md) | 市场摘要后续候选与实现边界 |
 | [counterfactual_learning_scheduling_20261017.md](counterfactual_learning_scheduling_20261017.md) | 因果动作价值研究的调度与重入约束 |
 | [critic_initialization_probe_20261017.md](critic_initialization_probe_20261017.md) | 独立 Critic 初始化/裁剪探针的工程验收，不是金融结果 |
@@ -127,40 +122,15 @@
 | 2026-11-07 | 1 日反转的成本感知回测 | [报告](reversal_backtest_20261106.md) | `reports/runs/reversal_backtest/`（含 `slippage_sweep.png`）、`tools/reversal_backtest.py` | 零成本下 6 年 **+217%~+520%**（等权参考 +108.6%），与 IC 折算同量级；真券商下 **−60%~−80%**；缓冲带只降换手约 10%（1 日反转排名逐日独立）；**滑点扫描（佣金与印花税始终照收）显示整条曲线都在参考线之下**——滑点 0 时最好也只有 **+69%**，法定费率吃掉约 87% 毛收益；滑点 0.10% 时 −71%，0.20% 时 −92% |
 | 2026-11-06 | 自回归结构诊断 | [报告](autocorrelation_20261106.md) | `reports/runs/autocorrelation/`、`tools/autocorrelation_probe.py` | 时序上日收益是**轻微动量**（ρ₁ +0.030、t 2.41；VR(5) 1.062、t 2.19）；截面上 1 日**开盘到开盘**反转很强且 **T+1 可执行**：`body_ratio` IC −0.0258（t **5.69**）、**14/20 特征 \|t\|≥2**，full 窗口 −0.0272（t 7.01）；但 2 日就掉到边缘、5 日消失；毛收益 ≈0.139%/日 对一次往返成本 ≈0.31%，**成败取决于换手** |
 | 2026-11-06 | 20 个价格特征重测 | [报告](price_feature_ic_20261106.md) | `reports/runs/price_feature_ic/`、`tools/price_feature_ic.py` | 旧结论"`\|IC\| ≤ 0.035`"在量级上成立（full 窗口最大 0.0358）；但 60 日持有期 **0/20 显著**（lag-h），而 lag-5 会声称 4–5 个显著；**13/20 的 \|IC\| 超过经济门槛 0.0048**，所以特征是"确认不了"而非"太弱"；符号在两个窗口、两个持有期上**全部为负**（反转），与 PPO 的动量先验相反 |
-| 2026-11-06 | 对齐基准超额的 PPO 小模型 | [报告](ppo_excess_20261106.md) | `reports/runs/ppo_excess_small/`、`reports/runs/ppo_return_small/`、`reports/runs/ppo_full_invest_3m/`、`reports/runs/ppo_excess_3m/`、`reports/runs/ppo_checkpoints_20261106/`、`reports/runs/ppo_checkpoints_3m_20261106/`、`tools/checkpoint_compare.py` | 各 run 均 32 个检查点完成完整回测；现金模式与强制满仓都没跑赢等权池；**先发现整手不可分**——100 万下连等权参考自己都只投 71%、持币 28.8%，本金提到 300 万后现金降到 11%；满仓把现金压下去但毛额仅等于复制池子，费用翻倍（1.91% 对 0.87%） |
-| 2026-11-06 | alpha 度量机件与功效下限 | [度量](alpha_measure_20261106.md)、[alpha 计划 5.4](alpha_program_20261106.md#54-预执行检查的两处修正与一个阻断2026-11-06) | `reports/runs/alpha_ic/`、`tools/alpha_factors.py`、`tools/alpha_ic.py` | 三项注入对照全部符合；实测 IC 波动 0.143、重叠使标准误大 3.6–3.8×，经济门槛 0.0048 仅 0.17 SE，**协议以现行判据无法执行** |
 | 2026-11-06 | 仓位算术与 alpha 需求 | [alpha 计划](alpha_program_20261106.md) | `reports/runs/alpha_budget/`、`tools/alpha_budget.py` | 定仓不改变超额 Sharpe；70% 敞口需 alpha 1.41pp，折合 20 日 IC 0.0048；组合层检验在剩余样本上没有功效 |
 | 2026-11-05 | 仓位控制阶段二：L1 波动率缩放 | [规划](exposure_control_plan_20261105.md) | [报告](exposure_stage2_20261105.md)、`reports/runs/exposure_stage2/` | 未通过（Calmar 0.075 对 0.100），方向关闭，V 段封存 |
 | 2026-11-05 | 仓位控制阶段一：机制度量 | [规划](exposure_control_plan_20261105.md) | [报告](exposure_stage1_20261105.md)、`reports/runs/exposure_stage1/` | 波动率可预测（L1 通过），趋势状态口径不达标（L2 出局） |
 | 2026-11-05 | 新数据块截面信号筛选 | [协议](signal_expansion_protocol_20261105.md) | [报告](signal_expansion_20261105.md)、`reports/runs/signal_expansion/` | 只有市值通过，但受幸存者偏差污染，不进入候选 |
-| 2026-10-23 | 独立 Ridge 因子基线 | 固定超参探索，无独立预注册 | [第 11.9 节实现与两折结果](training_data_improvement_plan.md#119-p1-首版实现与两折实测)；`tools/factor_baseline.py` | 两折弱于动量，不产生候选 |
-| 2026-10-17/18 | 因果动作价值预热与 PPO | [协议](ppo_counterfactual_learning_protocol_20261017.md) | [runlog](reports/ppo_counterfactual_learning_20261017_runlog.md)、[A 臂诊断](reports/ppo_counterfactual_learning_20261017_control_diagnostic.md) | 确认未合格，无候选 |
-| 2026-10-16 | 训练期配对动作诊断 | [协议](ppo_counterfactual_pilot_protocol_20261016.md) | [摘要](reports/ppo_counterfactual_pilot_20261016_summary.md)、[详细报告](reports/ppo_counterfactual_pilot_20261016.md) | 诊断完成，不证明可学性或 ROI |
-| 2026-10-15/16 | 调仓 phase 状态修复 | [协议](ppo_timing_phase_state_repair_protocol_20261015.md) | [摘要](reports/ppo_timing_phase_state_repair_20261015_summary.md)、[详细报告](reports/ppo_timing_phase_state_repair_20261015.md) | 筛选失败，无候选 |
-| 2026-10-15 | 多步收益归因 | [协议](ppo_timing_credit_protocol_20261015.md) | [摘要](reports/ppo_timing_credit_20261015_summary.md)、[详细报告](reports/ppo_timing_credit_20261015.md) | 局部增量，未准入 |
-| 2026-10-15 | 原 phase/预算运行 | [协议](ppo_timing_phase_budget_protocol_20261015.md) | [失败与过程报告](reports/ppo_timing_phase_budget_20261015.md) | 原运行失败，由修复研究承接 |
-| 2026-10-14 | 调仓初始化强度 | [协议](ppo_timing_margin_protocol_20261014.md) | [摘要](reports/ppo_timing_margin_20261014_summary.md)、[详细报告](reports/ppo_timing_margin_20261014.md) | 行为改变但无跨折改善 |
-| 2026-10-14 | 规则锚定调仓控制 | [协议](ppo_timing_protocol_20261014.md) | [摘要](reports/ppo_timing_20261014_summary.md)、[详细报告](reports/ppo_timing_20261014.md) | 确认未胜 M20，不部署 |
-| 2026-10-11 | 排序动作与 rank 辅助 | [协议](ppo_priority_rank_protocol_20261011.md) | [摘要](reports/ppo_priority_rank_20261011_summary.md)、[详细报告](reports/ppo_priority_rank_20261011.md) | 所有配置未过门槛 |
-| 2026-10-07 | 纯行情摘要优化 | [协议](ppo_market_summary_protocol_20261007.md) | [摘要](reports/ppo_market_summary_20261007_summary.md)、[详细报告](reports/ppo_market_summary_20261007.md) | 无稳定摘要增益 |
-| 2026-10-07 | 市场摘要与 Critic 归因 | [协议](ppo_attribution_protocol_20261007.md) | [摘要](reports/ppo_attribution_20261007_summary.md)、[详细报告](reports/ppo_attribution_20261007.md) | 无稳定改进，无候选 |
-| 2026-10-06 | 七方向探索 | [协议](ppo_exploration_protocol_20261006.md) | [摘要](reports/ppo_exploration_20261006_summary.md)、[详细报告](reports/ppo_exploration_20261006.md) | 观察最佳仍弱于动量 |
-| 2026-10-05 | 整手交易与保持动作 | [协议](ppo_trade_actor_protocol_20261005.md) | [摘要](reports/ppo_trade_actor_20261005_summary.md)、[详细报告](reports/ppo_trade_actor_20261005.md) | 无合格候选 |
-| 2026-10-04 | 股票增量 Actor | [协议](ppo_delta_actor_protocol_20261004.md) | [摘要](reports/ppo_delta_actor_20261004_summary.md)、[详细报告](reports/ppo_delta_actor_20261004.md) | 未超过旧先验 |
-| 2026-10-03 | 随机初始化八格比较 | [协议](ppo_random_matrix_protocol_20261003.md) | [摘要](reports/ppo_random_matrix_20261003_summary.md)、[详细报告](reports/ppo_random_matrix_20261003.md) | 随机配置未过门槛 |
-| 2026-10-03 | 容量与预算矩阵 | [协议](ppo_matrix_protocol_20261003.md) | [摘要](reports/ppo_matrix_20261003_summary.md)、[详细报告](reports/ppo_matrix_20261003.md) | 扩规模无稳定收益增量 |
-| 2026-09-27 | 稀疏与先验残差 Agent | [协议](agent_improvement_protocol_20260927.md) | [摘要](reports/agent_improvement_20260927_summary.md)、[详细报告](reports/agent_improvement_20260927.md) | 增益主要来自先验，未发布 |
-| 2026-09-27 | 新浪 300 股与多初始持仓 | [协议](sina_hs300_protocol_20260927.md) | [摘要](reports/sina_hs300_20260927_summary.md)、[详细报告](reports/sina_hs300_20260927.md) | 训练完成，未证明优势 |
-| 2026-09-27 | 大网络 CPU/GPU 容量对照 | — | [报告](reports/ppo_capacity_20260927.md) | 历史容量证据 |
-| 2026-09-27 | 联网行情与模型整合 | [设计](market_model_prediction_plan.md) | [验收报告](reports/market_model_integration_20260927.md) | 首版整合验收 |
-| 2026-09-26 | 19 股多种子实验 | [协议](ppo_multiseed_protocol_20260926.md) | [摘要](reports/ppo_multiseed_20260926_summary.md)、[详细报告](reports/ppo_multiseed_20260926.md) | 工程完成，未胜等权 |
-| 2026-09-26 | 联网工作区 | [设计](online_data_live_decision_plan.md) | [验收报告](reports/online_market_acceptance_20260926.md) | 离线/页面通过，真实连接受限 |
-| 2026-09-25 | 轻量 PPO 与冻结测试 | [协议](ppo_lightweight_protocol.md) | [摘要](reports/ppo_lightweight_20260925_summary.md)、[详细报告](reports/ppo_lightweight_20260925.md) | 流程完成，未优于等权 |
-| 2026-09-25 | 本地工作台 | [设计](frontend_workbench_design.md) | [验收报告](reports/workbench_acceptance_20260925.md) | 首版浏览器闭环验收 |
 
 ## 维护与运行
 
 - 当前阶段、结论、下一步和完整维护规则只在[实施进度](implementation_plan.md)；架构只在[Pipeline](../pipeline.md)。历史协议、失败报告和 runlog 不因过时或 negative result 而删除。
-- 复现、检查、训练和工作台命令分别见[本地研究流程](research_workflow.md)、[PPO 运行说明](ppo_training_framework.md)和[工作台说明](workbench_runbook.md)；环境见[GPU 配置](gpu_environment.md)。
+- 复现、检查与数据下载命令见[本地研究流程](research_workflow.md)；执行层的每日检查、闸门、补价与三本账的读法见[实施进度](implementation_plan.md)与[账户账本](account_ledger_20261111.md)；环境见[GPU 配置](gpu_environment.md)。**已关闭研究线的代码不在当前分支**，见下一条。
+- **本分支（`execution`）只带执行层、影子运行与市场杠杆研究**。PPO 训练/环境/工作台旧页、以及 2026-10 之前各条研究线的工具代码已于 2026-11-14 移除；需要重跑那些研究时切回 `research/supply-pressure`，那里的历史与代码完整。研究报告（`doc/*.md`）全部保留，它们是结论的出处，不是代码的负担。
 - 原始数据、模型和报告留在本地，`reports/runs/...`、`data/...`、`web/test-results/...` 不随 Git 分发，其他机器须按运行说明复现。历史报告中的截图路径若不存在，属于未入库的本地测试产物，不表示报告结论或验收记录缺失。
 - `reports/runs/` 自身的目录约定、三层保留策略、逐目录占用表和清理命令见[本地产物目录](../reports/README.md)。结论不在那里，在本索引与[实施进度](implementation_plan.md)。

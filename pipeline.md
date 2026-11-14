@@ -1,141 +1,105 @@
-# A 股日频强化学习交易 Pipeline
+# A 股执行层与影子运行 Pipeline
 
-更新日期：2026-11-10。
+本文件描述**当前分支（`execution`）**的实际结构。PPO 训练、交易环境、实验工作台这些已关闭的
+研究线在 2026-11-14 从本分支移除，代码与历史完整保留在 `research/supply-pressure`。
+结论与判断不在本文件，在 [`doc/implementation_plan.md`](doc/implementation_plan.md) 与
+[`doc/README.md`](doc/README.md) 的索引里。
 
-本文只描述当前实现的架构、数据流和扩展边界。阶段状态、研究结果与下一步统一维护在[实施进度](doc/implementation_plan.md)；协议、报告和运行记录统一由[文档索引](doc/README.md)导航，不在此重复维护研究编年史。
+## 1. 这个仓库现在做什么
 
-## 1. 当前架构
+三层，彼此不共享代码：
 
-```text
-本地原始后复权 CSV / 显式联网快照
-  -> 唯一键、来源口径、日期与质量校验
-  -> 历史相对特征 -> 仅训练期拟合的共享 Z-score -> 标准化特征与掩码
-  -> 独立未标准化价格表（当前研究仍主要使用 HFQ 报价）
-                       |
-             MarketDataProvider / TradingEnv
-                       |
-           +-----------+----------------+
-           |                            |
-    固定规则 / Ridge 因子基线      共享股票网络 + PPO 框架
-           |                            |
-           +-------------+--------------+
-                         |
-         BrokerSimulator / Portfolio：成交与账户记账
-                         |
-          公共回测审计、净值、持仓、订单和报告
-```
-
-计算核心由 Python 函数调用、JSON 配置和本地文件组成。本地 Web 工作台提供持久任务队列与独立工作进程。
-
-“实验流程”将固定来源、特征版本、配置检查和多种子 PPO 任务关联，各阶段独立批准。数据管理可追加白名单指标；PPO 支持高级参数、学习率日程、风险选模和组合诊断。来源可按股票组合，但不拼接同一股票的日期碎片，也不静默覆盖冲突历史。实现与限制见[实验工作区](doc/experiment_workbench_runbook.md)。
-
-本地工作台已实现数据选择/构建、训练监控、模型选择/迁移、回测与动作预测。模型库按 `action_mode` 展示可用动作，API 与 worker 再次拒绝不兼容任务，避免只依赖界面禁用。设计见[工作台设计](doc/frontend_workbench_design.md)，运行见[启动说明](doc/workbench_runbook.md)，首版证据见[验收记录](doc/reports/workbench_acceptance_20260925.md)。界面完成不等同于策略研究或实盘能力完成。
-
-联网工作区支持显式历史采集、新浪/东财实时报价监控和新日线研究绑定。日线默认新浪，报价来源必须与模型训练来源一致，按来源契约锁定，不自动降级或混源。单日观察复用训练掩码和 scaler；缺指定日线、已有缺失持仓或全池无效仍阻断。所有结果均不是实际订单。见[联网运行说明](doc/online_market_runbook.md)和[审查修复](doc/repository_audit_fixes.md)。
-
-| 模块 | 实际职责 |
-| --- | --- |
-| `src/data/` | AKShare 接口与缓存、本地重建、相对特征、标准化、质量审计 |
-| `src/envs/` | 行情提供器、账户、成交模拟和 Gymnasium 环境 |
-| `src/agents/` | 动作映射、共享股票 actor/critic、推理、模型持久化和扩池迁移 |
-| `src/training/` | 数据契约、环境工厂、检查/训练 CLI、验证与选模回调 |
-| `src/backtest/` | 现金/买入持有/等权/动量基线、公共执行审计和绩效指标 |
-| `tools/factor_baseline.py` | 训练期拟合的 Ridge 截面排序验证基线，复用公共 broker |
-| `configs/research.json` | 数据版本、日期边界和共同交易配置 |
-| `configs/ppo.json`、`configs/ppo_lightweight.json` | 默认和轻量实验的网络、PPO 与输出配置 |
-| `tests/` | 离线数据、账户、基线和 PPO 框架验证 |
-| `web/`、`src/web/` | React 界面、本地 API、模型/报告目录和持久任务管理 |
-| `src/runtime/`、`src/inference/` | 可选任务事件/取消信号，以及只读历史动作推理 |
-| `data/online/`、`src/data/online.py` | 显式联网历史/报价快照、失败审计与限流；不覆盖旧训练数据 |
-| `reports/runs/` | 本地实验、模型和报告，不纳入 Git |
-
-## 2. 数据与特征
-
-### 已实现的数据范围
-
-首版离线研究版本为 `data/clean/research_v3`：298 只股票、1,943 个交易日、20 个相对特征，面板覆盖 2017-01-03 至 2024-12-31。原始名单为 300 只，两个仅在研究期之后出现的股票被排除，原因记录在来源审计中。
-
-近期 300 股研究使用 `data/clean/sina_hs300_study_20260927` 及其按 fold 派生的数据版本。每个 fold 的日期、 scaler、股票池和哈希以各自 manifest 为准；不同来源和版本不混用模型或数据契约。
-
-当前特征为收益率/对数收益率、相对振幅/实体、量比/换手率、RSI、相对 MACD/信号线、布林带位置、5/10/20/60 日动量与均线比、20/60 日波动率。精确定义以 `src/data/preprocess.py` 的特征白名单和构建版本为准；KDJ、行业排名、基本面和市场宽度不是默认 20 特征的一部分。
-
-首版 `research_v3` 的日期边界如下，不能套用到后续独立 fold：
-
-| 用途 | 边界 |
-| --- | --- |
-| 标准化拟合与模型训练区间 | 截止 2022-08-05；首个完整特征决策日为 2017-04-06 |
-| 验证 | 2022-08-05 收盘初始化，2022-08-08 至 2023-10-20 成交 |
-| 最终测试 | 2023-10-23 至 2024-12-31；轻量实验已评估，该区间不再是未见绩效数据 |
-
-数据版本不存在时，基线入口可以从已有本地 CSV 构建；PPO 入口要求已有产物并校验哈希，不自动构建或下载。已有版本与实验目录都拒绝覆盖。产物格式和复现命令见[本地研究流程](doc/research_workflow.md)。
-
-### 两条价格路径
-
-| 数据 | 用途 | 当前实现与限制 |
+| 层 | 做什么 | 入口 |
 | --- | --- | --- |
-| 后复权序列 | 构造相对特征 | 已实现；不混入不复权源数据 |
-| 标准化相对特征 | 模型输入 | 按特征共享 Z-score，仅训练日期和配置训练股票拟合 |
-| 独立未标准化价格 | 股数换算、成交和估值 | 当前主要标记 `hfq_research`，不是现实历史报价 |
-| 不复权价格及权威公司行为 | 真实报价研究 | 环境具备接口，但完整历史数据与验收尚未提供 |
-| 目标股票权重与现金比例 | 权重型模型动作 | 保留比例含义，无需逆标准化 |
-| 股票交易增量 | 增量型模型动作 | 按执行开盘净值换算股数，现金为成交后的剩余 |
+| **数据层** | 抓取、清洗、构建特征面板（前复权 + 不复权 + 流通股） | `src/data/` |
+| **执行层** | 三本账（live / paper / backtest）、CPPI 目标权重、盘前闸门、每日检查 | `tools/account_ledger.py`、`tools/plan_orders.py`、`tools/plan_backtest.py` |
+| **影子层** | 把 E1 反转规则放到前向面板上逐日记录，只花日历时间、不花样本 | `tools/shadow_run.py`、`tools/forward_panel.py` |
 
-验证、测试和新股票只能应用训练时的 scaler。缺失特征不前后向填充，运行时填零并保留有效性掩码；历史收盘价前向填充仅用于账户估值。股票代码是对齐键，不进入模型数值特征。
+研究侧的读数工具只有一个还在活跃：`tools/market_leverage.py`（市场级杠杆闸门，已按预登记关闭）。
 
-逆 Z-score 只还原对应特征：`x = z * scale + mean`。它不取消复权，也不能把相对价格直接还原为真实股价。PPO 输出权重或股票交易增量，不预测标准化价格。
+## 2. 目录
 
-## 3. 交易环境与动作
+| 路径 | 内容 |
+| --- | --- |
+| `src/data/preprocess.py` | `DataPreprocessor`：全市场面板构建、特征、scaler、manifest |
+| `src/data/online.py`、`snapshots.py`、`rate_limit.py` | 在线抓取、快照登记、限速与重试 |
+| `src/data/feature_definitions.py` | 特征定义与校验 |
+| `tools/` | 执行层 5 个、影子 2 个、研究 2 个、支撑 1 个（见下） |
+| `src/web/` + `web/` | 只读工作台：三本账与影子运行的一个页面 |
+| `data/` | `clean/`（面板与池）、`online/`（抓取归档）、`raw/`（原始） |
+| `reports/account/<book>/` | 每本账的 `account.json` + `trades.jsonl` + `snapshots.jsonl` |
+| `reports/shadow/` | `e1_shadow.jsonl`（只追加）与 `e1_state.json` |
 
-模型在 t 日收盘决策，环境在 t+1 日开盘尝试成交，再按 t+1 日收盘估值。下一日的报价、交易状态和全天成交量不能进入当前模型观测；开盘成交量预算使用前一交易日股数。
+工具清单：`account_ledger`（账本/闸门/报表）、`plan_orders`（CPPI → 整手订单）、
+`plan_backtest`（真实 ETF 回测与导出）、`mark_when_ready`（等报价发布再补当日净值）、
+`audit_marks`（按当日真实收盘价重算并修复）、`shadow_run`（S2 记录器）、`forward_panel`（前向面板）、
+`market_leverage`（杠杆闸门）、`stats`（Newey-West）、`trading_calendar`。
 
-基础 `TradingEnv` 接收 N 个合法股票目标权重，剩余比例为现金。实际执行还受现金、费用、T+1、整手、方向掩码和成交量预算约束。`advance()` 表示真正不下单；反复提交相同权重仍可能触发再平衡，不能等同于继续持有。
+## 3. 执行层的不变量
 
-`action_mode=stock_delta` 使用独立成交入口：N 维动作 `0.05*tanh(a)` 表示股票交易名义额占执行开盘净值的比例，零增量不生成主动订单，不因价格漂移再平衡。冻结与部分锁定保留实际股数，topN 只允许在实际卖清后释放新建仓名额。旧目标权重模型保持兼容，不静默转换动作语义。
+1. **成交流水是唯一真相源**。现金与持仓一律 `replay(trades)` 推出；快照只存当日估值。
+   任何"快照现金无法由流水重放"的书都算坏账（2026-11-14 就出过一次，见 `doc/implementation_plan.md`）。
+2. **账本之间绝不共享文件**。`--account live|paper|backtest` 决定路径；测试写真实账本会被
+   `tests/conftest.py` 直接判失败。
+3. **不给历史补一天没发生过的净值**。`mark` 核对每个持仓腿的报价日期，不符就拒绝；
+   报价未发布时用 `mark_when_ready` 等，不用 `--allow-stale` 硬写。
+4. **回测账是封口件**（`sealed: true`），`mark` 拒绝给它加日期；要更新就重跑导出。
+5. **只出信号、不下单**。没有任何代码路径会把订单发出去。
 
-当前默认奖励只有账户净值收益：
+## 4. 影子运行（S2）
 
-```text
-reward = 本日收盘净值 / 上日收盘净值 - 1
-```
+- 前向面板每个交易日全量重下（`forward_panel --end <date>`），池子 297 只，`601059` 是已知缺口
+  （新浪无 K 线、东财只到 2026-09-14），**不是失败**。旧面板由 `prune(keep=3)` 轮换。
+- 记录器 `shadow_run` 的构造参数**冻结**：20 个价格特征全取负号、top 30、跌出前 60 才换、
+  20 日持有（研究面板与前向面板同为 298 只量级，所以缓冲带含义一致）。
+- 账本 `reports/shadow/e1_shadow.jsonl` 只追加，每天一行 `decided` / `stale` / `no_score`。
+- `equal_weight_nav` 是持仓的**等权平均价格**（成分一变就跳），**不是收益**，不要当净值读。
 
-净值已包含手续费和滑点，禁止再次减去同一费用。默认没有额外的超额收益、换手、波动或回撤惩罚，也未启用在线奖励归一化。
+## 5. 每日与每周的自动任务
 
-`MarketDataProvider`、`Portfolio`、`BrokerSimulator`、`TradingEnv` 已实现；没有独立的 `RewardCalculator` 或 `RiskController` 服务。接口、可选公司行为与约束细节见[交易环境](doc/trading_environment.md)。
+| 时间 | 任务 | 说明 |
+| --- | --- | --- |
+| 交易日 20:00 | S2 影子记录 | 先全量重下前向面板，再记录 |
+| 交易日 **21:00** | 账户每日检查 | `sync-dividends → mark → check → curve`，live 与 paper 各一遍；报价未发布时改用 `mark_when_ready` |
+| 每周六 18:00 | 资金流归档 | 为日后研究积累，暂不分析 |
 
-## 4. PPO 与跨股票复用
+21:00 这个时点是用实测定的：20:15 时四只 ETF 的当日收盘价还没落地，数据约 20:30 发布。
 
-框架采用 PyTorch + Stable-Baselines3 PPO，默认共享 MLP 为 128 -> 64，高级设置可调整隐藏层。输入包括 `stock_features[N, lookback, F]`、股票/现金权重、分红应收比例及有效/买卖掩码；默认 `lookback=1`。
+## 6. 数据口径
 
-每只股票使用相同编码器和评分头，组合上下文由有效行情池化与持仓加权汇总生成。权重型策略输出 N+1 个潜在分数，经掩码、softmax 和单票上限转换为 N 个股票权重，剩余为现金。PPO 概率始终针对原始潜在动作，而不是映射后的权重。
-
-网络参数不绑定股票代码或股票数，但一个训练实例的观测/动作空间固定。扩池必须新建相应维度的实例，通过显式迁移接口复用共享参数并重置优化器和 rollout；普通加载不接受契约变化。
-
-`SharedDeltaNetwork/SharedDeltaPolicy` 保留共享股票编码和 Actor/Critic，移除现金头；观察增加一手市值比、可卖权重、冻结标志及 topN/名额条件。状态已确定不可行动的坐标为确定性零，其余 Gaussian 坐标保留完整 log-probability，即使随后未被 topN 选中。
-
-共享参数只代表结构可迁移，不保证新股票上的效果。跨股票研究必须分别限定 scaler 拟合股票和训练环境股票池，并区分时间留出、股票留出及扩池评估。智能体与概率契约见[PPO 设计](doc/ppo_implementation_plan.md)，实际命令见[PPO 运行说明](doc/ppo_training_framework.md)。
-
-## 5. 训练与评估边界
-
-- 默认 CLI 只检查；必须同时提供 `--train` 和明确的正整数步数预算才会调用 PPO 更新。
-- 数据工厂在构造 provider 前裁掉对应区间之后的行，训练和验证账户独立。
-- 验证选模可按 Sharpe、收益及可选风险门槛排序；无定义的 Sharpe 不产生最优模型。
-- 固定规则基线包括现金、买入持有、定期等权和 20 日动量；PPO 公共评估另提供每日等权/动量对照。
-- `tools/factor_baseline.py` 提供独立的 Ridge 截面排序基线：仅在训练期拟合，purge 跨越训练边界的标签，在验证期通过同一 broker 执行。它不进行 PPO 更新或参数搜索，也不是已准入候选。
-- 指标包括累计/年化收益、年化波动、Sharpe、Sortino、Calmar、最大回撤、换手、费用、滑点与现金比例；VaR/CVaR 尚未实现。
-- 基线支持本地指数 CSV，当前未配置；报告不包含自动获取的外部指数。
-- 保存配置、代码/数据/scaler 哈希、股票/特征顺序、依赖版本、模型来源及 Git 状态。模型与运行目录不覆盖。
-- 当前入口不承诺恢复环境游标、账户、所有随机状态或半成品 rollout 后的逐步精确续训。
-- 最终测试不用于选模，默认拒绝测试；仅 `--split test --frozen-selection ...` 可对匹配的冻结模型、配置、数据和源码执行测试。
-
-## 6. 架构与扩展边界
-
-- 当前是可离线复现的本地研究系统：本地文件、SQLite 任务状态和进程 worker，没有消息总线、外部调度、自动日更、订单网关或真实账户适配。
-- 研究报价主要是 `hfq_research`，固定股票名单、整手约束和简化交易状态会偏离现实；任何模型结论都必须与同假设基线比较。
-- 若未来引入事件驱动或模拟盘，仍需保留“数据就绪 -> 特征就绪 -> 训练完成 -> 回测报告 -> 候选发布”的边界及订单/风险事件，并单独立项验收。
-- 尚未完成的能力、研究结论、优先级和部署资格只在[实施进度](doc/implementation_plan.md)及对应报告维护，本文不复制状态表。
+- **两条价格路径**：研究用前复权（`hfq`），执行与估值用不复权 + 真实流通股。两者不能混用。
+- 新浪 ETF 历史**不做拆分调整**（513500 在 2022-03-30 按 1:2 拆分、510500 在 2022-08-29 丢失过一次分红），
+  `price_and_payouts` 按比例修复并记入分红流水。
+- 分红走 `action: "dividend"` 的现金流水，不改股数；`sync-dividends` 只给"除息日前严格持有"的份额入账。
+- 保证金：`data/online/margin/` 有逐股归档（2019-2024）与两市官方合计（2010-2026，深交所缺日已补 150 天）。
 
 ## 7. 本地工具链
 
-- `opencode.cmd`（仓库根）用本地 Clash 代理启动 opencode：Bun 二进制只认 `HTTP_PROXY` 一类的环境变量，不认 Windows 系统代理，而请求由 server 进程发起，所以包装脚本会注入变量并加 `--standalone`。只影响该子进程，不改全局环境。见[代理说明](doc/opencode_proxy_20261110.md)。
-- python / akshare 下载不受它影响，仍按系统默认直连。
+```powershell
+# 解释器（本机）
+D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe
 
+# 测试：全离线，任何联网或被改动的真实账本都会让用例失败
+& $py -B -m pytest -q -p no:cacheprovider
+
+# 每日检查（只出信号）
+& $py -B -m tools.account_ledger sync-dividends --account paper
+& $py -B -m tools.account_ledger mark --date 2026-11-14 --account paper
+& $py -B -m tools.account_ledger check --date 2026-11-14 --account paper
+& $py -B -m tools.account_ledger curve --account paper
+
+# 影子记录
+& $py -B -m tools.forward_panel --end 2026-11-14
+& $py -B -m tools.shadow_run --dataset data/clean/forward_pool_20261114
+
+# 工作台（只读）
+cd web; npm run build
+& $py -B -m src.web.serve     # http://127.0.0.1:8765
+```
+
+## 8. 改动的边界
+
+- 执行参数（楼层 0.90、倍数 6、不带走 5% 带宽）与影子构造参数**在预登记之外不得调整**。
+- 任何新信号要先写预登记（判据在看到结果之前定死），并按 V / R / P 的样本账本记账；
+  P 段（2026-07 起）至今未使用，留给方案层的样本外验证。
+- 守卫与门槛的阈值必须先用**自变量自己的分布**校准再写死；查分布不算偷看结果。

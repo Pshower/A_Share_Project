@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from tools.alpha_ic import nw_se
+from tools.stats import nw_se
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MARGIN = PROJECT_ROOT / "data" / "online" / "margin" / "margin.parquet"
