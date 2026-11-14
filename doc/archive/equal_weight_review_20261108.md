@@ -3,7 +3,7 @@
 日期：2026-11-08
 状态：**机制复核与建议**。不重训模型、不消耗保留样本，基于 `data/clean/panel_full`（5,056 只，覆盖流通市值 98.50%）与已登记指数快照对近期等权（1/N）结论做因果拆解，并提出后续工具、基准与实验建议。
 
-关联：[等权溢价的指数对照](equal_weight_crosscheck_20261108.md)、[全市场 CAPM 检验](capm_full_market_20261108.md)、[1/N 与 CAPM 分解](baseline_capm_20261107.md)、[研究方向复核](research_direction_20261107.md)、[实施进度](implementation_plan.md)
+关联：[等权溢价的指数对照](equal_weight_crosscheck_20261108.md)、[全市场 CAPM 检验](capm_full_market_20261108.md)、[1/N 与 CAPM 分解](baseline_capm_20261107.md)、[研究方向复核](research_direction_20261107.md)、[实施进度](../implementation_plan.md)
 
 ---
 

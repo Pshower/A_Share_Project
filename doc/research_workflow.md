@@ -1,10 +1,10 @@
 # 本地数据与基线回测
 
-更新日期：2026-09-25。本文负责数据与基线的运行方式；当前阶段状态及最新验收统一见 [实施进度](implementation_plan.md)，完整入口见 [文档索引](README.md)。PPO 的命令单独维护在 [PPO 运行说明](ppo_training_framework.md)。
+更新日期：2026-09-25。本文负责数据与基线的运行方式；当前阶段状态及最新验收统一见 [实施进度](implementation_plan.md)，完整入口见 [文档索引](README.md)。PPO 的命令单独维护在 PPO 运行说明。
 
 ## 一条命令运行
 
-在仓库根目录执行；当前主环境为 Conda `AShareGPU`，需要复现旧 CPU 结果时使用 `Graduate`。环境安装见 [GPU 配置](gpu_environment.md)。
+在仓库根目录执行；当前主环境为 Conda `AShareGPU`，需要复现旧 CPU 结果时使用 `Graduate`。环境安装见 [GPU 配置](archive/gpu_environment.md)。
 
 ```powershell
 python -B -m src.backtest.run --config configs/research.json
@@ -52,7 +52,7 @@ python -B -m src.data.check_missing_shares --data data/clean/research_v3
 
 四条策略共享日期、股票池、初始资金、手续费、滑点与成交约束。目标等权不代表实际成交后等权；后复权价格配合整手限制尤其容易造成大量现金留存，必须连同平均现金比例和成交明细解读结果。
 
-信号时点为当日收盘，成交为次日开盘。验证集从 2022-08-08 至 2023-10-20，共 291 步；以 2022-08-05 收盘初始化账户和首个信号。阶段三默认入口仍只做验证；阶段四的 32 只股票轻量实验已完成冻结后的测试回测，见 [报告摘要](reports/ppo_lightweight_20260925_summary.md)。
+信号时点为当日收盘，成交为次日开盘。验证集从 2022-08-08 至 2023-10-20，共 291 步；以 2022-08-05 收盘初始化账户和首个信号。阶段三默认入口仍只做验证；阶段四的 32 只股票轻量实验已完成冻结后的测试回测，见 报告摘要。
 
 指标年化使用 252 个交易步骤；Sharpe 无风险利率设零，零波动为 null。最大回撤包含初始资金。换手率为当日买卖成交金额绝对值之和除以上日收盘净值，未除以二。手续费、滑点已体现在净值中，不再次扣减。
 

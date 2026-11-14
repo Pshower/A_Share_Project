@@ -7,13 +7,17 @@
 > 拿到的是空引用列表（`refs = []`），于是**每个文件都被判成"无人引用"**并逐个删除，共 32,634 个文件。
 > 脚本没有在删除前断言"引用列表非空"、也没有把 dry-run 的数量打出来，这是我的错，不是工具的错。
 >
-> - 删除清单在 [`pruned_20261114.txt`](pruned_20261114.txt)（32,634 行，逐文件路径），这是目前唯一剩下的盘点。
 > - **受影响的是已关闭研究线（PPO 及其前后各轮）的本地证据**：模型权重、逐检查点回测、下单流水、
 >   训练轨迹、因子面板。它们在 Git 里不存在（本目录一直被忽略），**无法恢复**。
 > - **未受影响**：三本账（`reports/account/`，在 Git 里）、影子记录（`reports/shadow/`）、
->   以及全部人类可读报告（`doc/*.md`）。结论本身是报告里的文字与表格，不是这些二进制产物。
-> - 当前分支的研究是**可复跑**的：`tools/market_leverage.py` 已重新生成了
->   `reports/runs/market_leverage/gate_*.json` 四份判定文件（数据全部在 `data/`）。
+>   以及全部人类可读报告（`doc/*.md` 与 `doc/archive/`）。
+> - 被删的 102 个 run 目录里，最大的是 `ppo_counterfactual_learning_20261017`（7,229 个文件）、
+>   `ppo_exploration_20261006`（3,490）、`agent_improvement_20260927`（2,164）、
+>   `ppo_attribution_20261007`（2,113）、`ppo_priority_rank_20261011_16k`（2,110）。
+>   32,634 行的逐文件清单原本存在 `reports/pruned_20261114.txt`，**已删除**——那些路径已无对应文件，
+>   留着只会让仓库看起来像还有产物。
+> - 当前分支的研究是**可复跑**的：`tools/market_leverage.py` 与 `tools/e1_topk.py` 都已重新生成了
+>   `reports/runs/{market_leverage,e1_topk}/` 的判定文件（数据全部在 `data/`）。
 > - 旧分支（`research/supply-pressure`）的代码与历史仍然完整；要重建任何一轮 PPO 证据，
 >   只能切回那里按报告里的命令重跑，而不能指望本地缓存。
 

@@ -4,7 +4,7 @@
 状态：**只读归因**。不训练、不计算收益、不产生 IC。使用的全部是已经存下来的模型权重和观测。
 
 关联：[alpha 计划](alpha_program_20261106.md)、[价格特征重测](price_feature_ic_20261106.md)、
-[基准超额试验](ppo_excess_20261106.md)、[研究方向复核](research_direction_20261107.md)
+基准超额试验、[研究方向复核](research_direction_20261107.md)
 
 ---
 

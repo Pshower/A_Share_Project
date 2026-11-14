@@ -201,7 +201,7 @@ A 与 B 因预热造成有效日期不同，应报告差异，并在公平对照
 | D：一类扩展数据入模 | 优先指数日线，先基准再少量特征 | 时点 / 单位对齐测试、固定对照及独立特征版本 |
 | E：实验比较 | 多种子、消融、成本诊断和统一报告 | 不混淆验证与测试，不宣称单次收益即策略优势 |
 
-这些是 2026-09-26 的原设计工作包，不替代项目阶段一至五，也不再表示当前全部待实施。A/B/C 的核心链路及多种子能力随后已接入；扩展数据入模、自动多折和其他剩余方向以[实验工作区](experiment_workbench_runbook.md)及[实施进度](implementation_plan.md)为准。
+这些是 2026-09-26 的原设计工作包，不替代项目阶段一至五，也不再表示当前全部待实施。A/B/C 的核心链路及多种子能力随后已接入；扩展数据入模、自动多折和其他剩余方向以[实验工作区](experiment_workbench_runbook.md)及[实施进度](../implementation_plan.md)为准。
 
 ## 12. 验收与结论
 
@@ -211,4 +211,4 @@ A 与 B 因预热造成有效日期不同，应报告差异，并在公平对照
 
 结论：先把“获取什么、为什么获取、如何变成特征、最终训练用了什么”连接起来，再增加指标与外部数据。统一实验配置和明确准入规则，比把三个页面简单合并成一个页面更重要。
 
-相关文档：[数据关联](training_data_linkage.md)、[特征构建](feature_builder_plan.md)、[扩展下载](akshare_download_expansion.md)、[PPO 框架](ppo_training_framework.md)、[指标与训练建议](market_information_indicator_plan.md)。
+相关文档：[数据关联](training_data_linkage.md)、[特征构建](feature_builder_plan.md)、[扩展下载](akshare_download_expansion.md)、PPO 框架、[指标与训练建议](market_information_indicator_plan.md)。

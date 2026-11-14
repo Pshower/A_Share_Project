@@ -11,7 +11,7 @@
 | `reports/runs/` | 11.94 GB | 11.94 GB（未动） |
 | 可回收合计 | — | **2.34 GB**（14 个目录） |
 
-`reports/runs/` 的体积 11.94 GB 与 [本地产物目录](../reports/README.md) 记录的 2026-11-07 清理后数字**逐位一致**，
+`reports/runs/` 的体积 11.94 GB 与 [本地产物目录](README.md) 记录的 2026-11-07 清理后数字**逐位一致**，
 说明那套三层保留策略仍在生效、没有新的泄漏；810 个 `model.zip`（2.93 GB）与 `orders.jsonl.gz`（3.44 GB）属 T1 证据（只有重训才能重建，
 且先验归因那轮就是靠权重回答"策略学到了什么"），**本次一个都没删**。
 
@@ -59,12 +59,12 @@
 
 ## 5. 文档侧
 
-- 三份仓库文档**不是重复**，各有分工，均未被改字节：[功能总览](repository_overview_20261108.md)（按研究线分组的工具说明）、
-  [机器清点](repository_inventory_20261108.md)（逐工具行数/测试/文档映射）、[仓库复审](repository_review_20261110.md)（四件"已有但没在用"的东西）。
+- 三份仓库文档**不是重复**，各有分工，均未被改字节：[功能总览](archive/repository_overview_20261108.md)（按研究线分组的工具说明）、
+  [机器清点](archive/repository_inventory_20261108.md)（逐工具行数/测试/文档映射）、[仓库复审](archive/repository_review_20261110.md)（四件"已有但没在用"的东西）。
 - 复审里那条"至少 7 份 PPO 协议状态停在尚未运行"**按本仓约定不算缺陷**：预登记 Markdown 保持运行前原字节，
   完成情况记在 [文档索引](README.md) 第 132–146 行（每一轮都有协议 → 摘要 → 详细报告 → 结论）。
   这条约定写在 `doc/reports/ppo_exploration_20261006.md` 末段，因此**没有去改任何协议头部**。
-- 复审四件事的现状：E2 已跑完并**失败**（[结果](e2_result_20261111.md)）；四条信息源全部测完（龙虎榜、股东户数、
+- 复审四件事的现状：E2 已跑完并**失败**（[结果](archive/e2_result_20261111.md)）；四条信息源全部测完（龙虎榜、股东户数、
   业绩报表均失败，融资融券 IC 过、组合不过）；国债腿数据源已定位（`data/online/index_long/000012.csv`，产品 511010）；
   `research_v2` 重复面板已在本轮删除。
 
@@ -79,5 +79,5 @@ Get-ChildItem data\clean -Directory | Select-Object Name
 python -B -c "from tools import shadow_run; print(shadow_run.latest_panel())"
 ```
 
-单位：本文的 MiB / GB 与 [本地产物目录](../reports/README.md) 一致，**表格里的删除量按磁盘实际占用（MiB）记录，
+单位：本文的 MiB / GB 与 [本地产物目录](README.md) 一致，**表格里的删除量按磁盘实际占用（MiB）记录，
 合计 2.34 GB 为十进制**；两者差 4.9%，不要混用。

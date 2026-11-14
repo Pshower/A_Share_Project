@@ -1,6 +1,6 @@
 # 数据与 PPO 实验工作区
 
-首版日期：2026-09-26；说明更新：2026-10-25。对应[一体化设计](data_feature_ppo_integration_plan.md)与[PPO 改进规划](ppo_training_improvement_plan.md)。本文件记录已经实现的工程能力，不把研究建议全部标为完成；当前研究状态见[实施进度](implementation_plan.md)。
+首版日期：2026-09-26；说明更新：2026-10-25。对应[一体化设计](data_feature_ppo_integration_plan.md)与PPO 改进规划。本文件记录已经实现的工程能力，不把研究建议全部标为完成；当前研究状态见[实施进度](../implementation_plan.md)。
 
 ## 已实现
 
@@ -45,6 +45,6 @@
 
 ## 首版验收与正式研究（2026-09-26）
 
-首版工程、浏览器验收和历史测试数保留在[训练协议](ppo_multiseed_protocol_20260926.md)、[报告摘要](reports/ppo_multiseed_20260926_summary.md)及[详细报告](reports/ppo_multiseed_20260926.md)。正式多种子训练为 19 股、3 配置 × 3 种子，共 73,728 步；工程通过不代表策略优于等权。当前回归数量只在[实施进度](implementation_plan.md)维护。
+首版工程、浏览器验收和历史测试数保留在训练协议、报告摘要及详细报告。正式多种子训练为 19 股、3 配置 × 3 种子，共 73,728 步；工程通过不代表策略优于等权。当前回归数量只在[实施进度](../implementation_plan.md)维护。
 
 协议监控使用短连接，对 GET 网络异常有限重试，POST 不自动重发。恢复已有任务监控使用 `--monitor-only`，它不提交检查、构建或训练。模型保留实际训练时的源码提交，后续监控修复不改写旧模型元数据。

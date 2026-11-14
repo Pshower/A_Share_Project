@@ -1,6 +1,6 @@
 # 阶段二交易环境接口
 
-更新日期：2026-09-25。研究环境接口已实现；当前真实数据缺口及阶段状态见 [实施进度](implementation_plan.md)，架构见 [Pipeline](../pipeline.md)。本文只维护环境契约，不维护另一份训练计划。
+更新日期：2026-09-25。研究环境接口已实现；当前真实数据缺口及阶段状态见 [实施进度](../implementation_plan.md)，架构见 Pipeline。本文只维护环境契约，不维护另一份训练计划。
 
 ## 输入契约
 
@@ -73,7 +73,7 @@ while not done:
 
 动作是各股票目标权重，有限、非负、总和不超过 1，剩余部分为现金。超过单票上限或总仓位约束的动作报错，不静默归一化。`action_space` 为带总仓位校验的 Box 子类，其 `sample()` 只生成有效目标。
 
-阶段四已提供 `LatentActionWrapper`：对 PPO 暴露 N+1 维潜在分数，调用共享映射得到合法股票权重后再交给本环境。基础 `TradingEnv` 仍然接收 N 维权重，不能把 PPO 分数直接传给它；映射和概率计算见 [PPO 设计](ppo_implementation_plan.md)。
+阶段四已提供 `LatentActionWrapper`：对 PPO 暴露 N+1 维潜在分数，调用共享映射得到合法股票权重后再交给本环境。基础 `TradingEnv` 仍然接收 N 维权重，不能把 PPO 分数直接传给它；映射和概率计算见 PPO 设计。
 
 ## 时间、成交与审计
 

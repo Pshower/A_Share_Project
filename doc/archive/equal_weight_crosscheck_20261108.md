@@ -3,7 +3,7 @@
 日期：2026-11-08
 状态：**这条更正推翻主报告的一个主要结论**。
 
-关联：[全市场 CAPM 检验](capm_full_market_20261108.md)、[等权效果复核与建议](equal_weight_review_20261108.md)、[实施进度](implementation_plan.md)
+关联：[全市场 CAPM 检验](capm_full_market_20261108.md)、[等权效果复核与建议](equal_weight_review_20261108.md)、[实施进度](../implementation_plan.md)
 工具：`tools/equal_weight_crosscheck.py`；产物：`reports/runs/equal_weight_crosscheck/`
 
 ---

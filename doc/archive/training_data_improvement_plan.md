@@ -4,7 +4,7 @@
 
 本轮在 `AShareGPU` 环境（Python 3.11.16、AKShare 1.18.64）对候选接口执行真实只读探测，记录实际返回、字段和失败原因。探测脚本为 `.workbench/probe_akshare{,2,3,4,5,6}.py`；`.workbench/` 已在 `.gitignore` 内，不进入版本库。探测结果是单机、单网络、单时点的快照，**不构成供应商能力认证**；正式采集仍须由用户显式启动并核对真实样例，与 [AKShare 下载范围扩展](akshare_download_expansion.md) 的规则一致。
 
-总体实施状态以 [实施进度](implementation_plan.md) 为唯一入口，本文不另立阶段编号；架构背景见 [项目 Pipeline](../pipeline.md)，数据关联约束见 [训练数据关联](training_data_linkage.md)。
+总体实施状态以 [实施进度](../implementation_plan.md) 为唯一入口，本文不另立阶段编号；架构背景见 项目 Pipeline，数据关联约束见 [训练数据关联](training_data_linkage.md)。
 
 ## 1. 探测环境与网络事实
 
@@ -206,7 +206,7 @@ stock_info_sz_delist (208)  ├─ 含终止上市日期
 - 指数点位不是股票成交价格；供应商分红为税前口径，尚未核验每股基准、到账日期与税务规则，接入账户前必须补足。
 - 行业归属需历史成分而非当前名单；财报需按公告可得时间而非报告期末对齐，本轮未核验披露时点，不进入训练。
 - 第 5 节的替代推断（停牌、涨跌停、ST 区间）必须与权威状态数据区分标注，不能表述为"已还原真实交易状态"。
-- 新增数据、特征与 fold 结构都属于 [实施进度](implementation_plan.md) 阶段一与阶段五的范围，须先预注册协议再执行；本文不替代实施进度中的任务清单。
+- 新增数据、特征与 fold 结构都属于 [实施进度](../implementation_plan.md) 阶段一与阶段五的范围，须先预注册协议再执行；本文不替代实施进度中的任务清单。
 
 ## 9. 与现有文档的关系
 
@@ -217,14 +217,14 @@ stock_info_sz_delist (208)  ├─ 含终止上市日期
 | [训练数据关联](training_data_linkage.md) | 多股训练日期交集与行情来源关联 |
 | [市场信息与技术指标扩展方案](market_information_indicator_plan.md) | 页面展示层的指标与导入设计 |
 | [交易环境](trading_environment.md) | 账户、成交与约束契约；本文 6.4 的字段映射以其 `corporate_actions` 契约为准 |
-| [本地研究流程](research_workflow.md) | 数据产物重建与基线复现命令 |
-| [实施进度](implementation_plan.md) | 唯一的阶段状态与验收证据入口 |
+| [本地研究流程](../research_workflow.md) | 数据产物重建与基线复现命令 |
+| [实施进度](../implementation_plan.md) | 唯一的阶段状态与验收证据入口 |
 
 ## 10. 执行记录与仓库大文件核查（2026-10-17）
 
 ### 10.1 清理执行
 
-- 删除失败残留 `data/clean/.failed_agent_improvement_20260927_walk_01/all_stocks_features.parquet`（90,584,368 字节），已获用户确认。失败原因与处置记录见 [agent_improvement 报告](reports/agent_improvement_20260927.md)；完成版数据集 `agent_improvement_20260927_walk`（457 MB）保留。
+- 删除失败残留 `data/clean/.failed_agent_improvement_20260927_walk_01/all_stocks_features.parquet`（90,584,368 字节），已获用户确认。失败原因与处置记录见 agent_improvement 报告；完成版数据集 `agent_improvement_20260927_walk`（457 MB）保留。
 - confirm 首启被窗口关闭中止后，两个未封口的 teacher `inner_train` 部分目录（2025/2026 折）已按协议删除并重采，`data/2025`、`data/2026` 产物未受影响。过程见研究 runlog。
 
 ### 10.2 raw 文件命名说明
@@ -270,7 +270,7 @@ stock_info_sz_delist (208)  ├─ 含终止上市日期
 
 ### 11.2 已闭合的因果动作价值线（negative result）
 
-[协定](ppo_counterfactual_learning_protocol_20261017.md)与[运行记录](reports/ppo_counterfactual_learning_20261017_runlog.md)：首次把监督模型接进策略而非仅作诊断。480 配对标签 → Ridge 闭式解 → 映射到 Actor 两个 tensor（`logit_R - logit_H = 8*(q_hat + 0.25*(2*phase_0-1))`），与纯 PPO 两臂真实对照。
+协定与运行记录：首次把监督模型接进策略而非仅作诊断。480 配对标签 → Ridge 闭式解 → 映射到 Actor 两个 tensor（`logit_R - logit_H = 8*(q_hat + 0.25*(2*phase_0-1))`），与纯 PPO 两臂真实对照。
 
 | 阶段 | 结果 |
 | --- | --- |
@@ -379,7 +379,7 @@ P1 首版已按固定超参完成探索性实现与验证，结果见 11.9，不
 
 - 一个**未经调参**的 20 特征 Ridge 排序组合在两折都被 20 日动量支配（两折均值 -5.76pp），2024 折绝对收益为负。这确立了"最朴素的学习型因子模型不足以替代规则基线"，但不能推断"因子模型整体无效"——本轮只有一组固定超参（horizon 20、alpha 1.0、每 20 日调仓、top 20），按仓库纪律不做事后调参。
 - 该结果**不改变**既有 PPO 结论的方向，但补上了此前缺失的对照：动量基线在这两个窗口本身是强基线（+6.54% / +3.36%），因此"PPO 未能超越动量"不能再被解释为"对照太弱"。
-- 12 项合成测试（`tests/test_factor_baseline.py`）覆盖 purge 因果性、未来价格扰动不变性、排序与代码 tie-break、`max_weight` 上限、无可选标的、特征序与股票池契约，全部通过；完整回归状态只在[实施进度](implementation_plan.md)维护。
+- 12 项合成测试（`tests/test_factor_baseline.py`）覆盖 purge 因果性、未来价格扰动不变性、排序与代码 tie-break、`max_weight` 上限、无可选标的、特征序与股票池契约，全部通过；完整回归状态只在[实施进度](../implementation_plan.md)维护。
 - 门禁需在**完全权限**下执行：当前工作区沙箱禁止进程列出其新建的临时目录，`pytest` 的 `tmp_path` 因此在默认策略下于 setup 阶段批量报 `PermissionError`（本次 983 项）。这不是代码缺陷——同一测试在完全权限下全部通过；`tmp_path` 无关的用例在默认策略下照常通过。
 - 产物在 `reports/runs/factor_baseline/`（gitignore 内），含 `factor_model.json`、逐决策 `decisions.json` 与四基线配对对比。
 
@@ -399,7 +399,7 @@ P1 首版已按固定超参完成探索性实现与验证，结果见 11.9，不
 
 其余缺口仍在：供应商只保留抓取时点的最新修订版本，历史 vintage 没有；日期只有日粒度，须顺延到下一交易日；575 行财报的可用日早于该股首根日线（上市前回填），不可用于 PIT。
 
-**可交易性账本**。11.6 把停牌、涨跌停、ST 状态判为"不可得"，这在**供应商字段**层面成立，但三类可以从盘上数据派生：停牌 = 日历上有该日而无 K 线；涨跌停 = 未复权收盘等于交易所限价；公司行为 = `hfq`/未复权比值跳变。`tools/tradability_ledger` 的实测见[联网运行说明](online_market_runbook.md)第 12 节：299 只、650,873 个股票日中停牌 4,342、涨停 3,897、跌停 1,137、公司行为 3,450，**次日开盘不可买 732 次（0.113%）、不可卖 572 次（0.089%）**。
+**可交易性账本**。11.6 把停牌、涨跌停、ST 状态判为"不可得"，这在**供应商字段**层面成立，但三类可以从盘上数据派生：停牌 = 日历上有该日而无 K 线；涨跌停 = 未复权收盘等于交易所限价；公司行为 = `hfq`/未复权比值跳变。`tools/tradability_ledger` 的实测见[联网运行说明](../online_market_runbook.md)第 12 节：299 只、650,873 个股票日中停牌 4,342、涨停 3,897、跌停 1,137、公司行为 3,450，**次日开盘不可买 732 次（0.113%）、不可卖 572 次（0.089%）**。
 
 关键不是平均值而是分布：不可买集中在 434 个交易日，2024-09-30 单日 157/296 只，而那正是三季度最后一个交易日、次日为国庆后跳空开盘。**对季度调仓的策略，这一天几乎无法建仓**，而旧口径会把这笔成交记为成功。
 

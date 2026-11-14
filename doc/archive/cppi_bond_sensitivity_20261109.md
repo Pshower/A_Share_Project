@@ -3,7 +3,7 @@
 日期：2026-11-09
 分支：`research/supply-pressure`
 状态：**已测。策略在债券 4.6% 下达标，在 3.0% 下已经失败。**
-关联：[CPPI 策略](cppi_strategy_202609.md)｜[跳空风险](cppi_gap_risk_20261109.md)
+关联：CPPI 策略｜[跳空风险](cppi_gap_risk_20261109.md)
 
 ---
 
