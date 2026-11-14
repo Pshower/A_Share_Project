@@ -26,7 +26,7 @@ def _margin(days, codes, balance=1e8):
 
 def test_the_signal_is_the_log_ratio_over_twenty_sessions():
     level = pd.Series(np.exp(np.linspace(0, 1, 40)), index=DAYS)
-    frame = pd.DataFrame(dict(lev=level, codes=np.full(40, 100.0)))
+    frame = pd.DataFrame(dict(lev=level, balance=level * 1e12, codes=np.full(40, 100.0)))
     built = gate.build(frame, pd.Series(np.exp(np.linspace(0, 0.5, 40)), index=DAYS))
     expected = np.log(level.iloc[20] / level.iloc[0])
     assert built["r20"].iloc[20] == pytest.approx(expected)
@@ -129,3 +129,80 @@ def test_all_four_bars_pass_together():
                  cap_share=0.8, cap_share_limit=0.3, thinly_representative=False)
     tests = dict(bars=dict(T1=True, T2=True, T3=True, T4=True))
     assert gate.verdict(guard, tests)["status"] == "passed"
+
+# ------------------------------------------------------------------ growth registration
+
+def _growth_frame(n=400, start="2014-01-01", peak_at=250, peak=0.8):
+    """A synthetic window whose s20 peaks where G1 wants it, or where it does not."""
+    days = pd.bdate_range(start, periods=n)
+    g20 = np.linspace(0.0, 0.1, n)
+    g20[peak_at] = peak
+    g20[peak_at - 12:peak_at + 13] = peak        # 25 hot sessions around the peak: G1 wants 20
+    rng = np.random.default_rng(11)
+    past = 0.3 * g20 + rng.normal(0, 0.10, n)      # correlated with past return, as margin is
+    return pd.DataFrame(dict(g20=g20, past20=past, fwd=-0.01 * g20, dd=0.01 * g20,
+                             lev=1.0, balance=1e12, n_codes=np.nan, dn20=np.nan), index=days)
+
+
+def test_the_episode_guard_passes_when_the_peak_sits_in_2015():
+    frame = _growth_frame()
+    frame.loc[frame.index[240]:frame.index[260], "g20"] = 0.9
+    found = gate.guards_growth(frame)
+    assert found["episode_missing"] is False
+    assert found["max_in_episode"] is True
+
+
+def test_the_episode_guard_voids_a_window_that_misses_2015():
+    frame = _growth_frame(start="2018-01-02", peak_at=250)
+    frame["g20"] = np.linspace(0.0, 0.2, len(frame))
+    found = gate.guards_growth(frame)
+    assert found["episode_missing"] is True
+
+
+def test_too_few_hot_sessions_also_voids_the_round():
+    frame = _growth_frame()
+    frame["g20"] = np.linspace(0.0, 0.1, len(frame))     # never above 0.50
+    found = gate.guards_growth(frame)
+    assert found["episode_days"] == 0 and found["episode_missing"] is True
+
+
+def test_the_momentum_guard_catches_a_signal_that_is_just_past_return():
+    frame = _growth_frame()
+    frame["past20"] = frame["g20"] * 2.0                  # perfectly collinear
+    found = gate.guards_growth(frame)
+    assert found["momentum_disguised"] is True
+    assert found["momentum_corr"] > 0.99
+
+
+def test_a_disguised_signal_voids_even_when_all_four_bars_hold():
+    frame = _growth_frame()
+    frame["past20"] = frame["g20"] * 2.0
+    guard = gate.guards_growth(frame)
+    tests = dict(bars=dict(T1=True, T2=True, T3=True, T4=True))
+    assert gate.verdict_growth(guard, tests)["status"] == "void"
+
+
+def test_the_growth_verdict_uses_the_same_conjunction_of_four():
+    frame = _growth_frame()
+    guard = gate.guards_growth(frame)
+    assert guard["episode_missing"] is False and guard["momentum_disguised"] is False
+    assert gate.verdict_growth(guard, dict(bars=dict(T1=True, T2=True, T3=True, T4=True)))["status"] == "passed"
+    failed = gate.verdict_growth(guard, dict(bars=dict(T1=True, T2=False, T3=True, T4=True)))
+    assert failed["status"] == "failed" and "T2" in failed["reason"]
+
+
+def test_evaluate_reads_the_column_it_is_told_to():
+    frame = _growth_frame()
+    frame["r20"] = frame["g20"] * 5.0          # same shape, different scale
+    by_growth = gate.evaluate(frame, frame, column="g20")
+    by_ratio = gate.evaluate(frame, frame, column="r20")
+    assert by_growth["column"] == "g20" and by_ratio["column"] == "r20"
+    assert abs(by_growth["T1"]["slope"]) != abs(by_ratio["T1"]["slope"])
+
+
+def test_the_long_window_starts_after_the_market_was_born():
+    days = pd.bdate_range("2010-04-01", "2026-06-30", freq="B")
+    frame = pd.DataFrame(dict(g20=np.zeros(len(days))), index=days)
+    sliced = gate.slice_window(frame, "long")
+    assert sliced.index[0] >= pd.Timestamp("2012-01-03")
+    assert sliced.index[-1] <= pd.Timestamp("2026-06-30")

@@ -45,7 +45,9 @@ T1_T = -2.5
 T3_T = 2.5
 SUBS = (("2019-01-01", "2021-12-31"), ("2022-01-01", "2024-12-31"))
 V_START, V_END = "2019-01-01", "2024-12-31"
+LONG_START, LONG_END = "2012-01-03", "2026-06-30"
 R_END = "2026-06-30"          # P (2026-07 onward) stays untouched
+LONG_SUBS = (("2012-01-01", "2018-12-31"), ("2019-01-01", "2026-06-30"))
 
 # The two sources order their columns differently, and reading one with the other's mapping
 # silently swaps "daily margin purchases" for "outstanding margin balance" -- a 13x error that
@@ -126,11 +128,26 @@ def macro_totals(sh_path=MACRO_SH, sz_path=MACRO_SZ, patch_path=MACRO_SZ_PATCH):
     return joined
 
 
-def macro_leverage(cap, sh_path=MACRO_SH, sz_path=MACRO_SZ):
+def macro_leverage(cap, sh_path=MACRO_SH, sz_path=MACRO_SZ, need_cap=True):
+    """Aggregate margin balance, optionally normalised by float cap.
+
+    ``need_cap=False`` keeps only the balance.  That matters: the growth registration tests the
+    balance's own 20-day change, which exists from 2010, so joining it to a denominator that
+    starts in 2017 would silently throw away 2012-2016 -- including the 2015 episode the whole
+    second registration exists to measure.
+    """
     totals = macro_totals(sh_path, sz_path)
-    value = cap.sum(axis=1)                        # both boards: the total is both exchanges
-    frame = pd.DataFrame(dict(balance=totals["margin_balance"], cap=value))
+    frame = pd.DataFrame(dict(balance=totals["margin_balance"]))
     frame.attrs["sz_patched_days"] = totals.attrs.get("sz_patched_days", 0)
+    frame = frame.dropna()
+    if not need_cap:
+        frame["cap"] = np.nan
+        frame["lev"] = np.nan
+        frame["short_lev"] = np.nan
+        frame["codes"] = np.nan
+        return frame, sorted(cap.columns)
+    value = cap.sum(axis=1)                        # both boards: the total is both exchanges
+    frame["cap"] = value
     frame = frame.dropna()
     frame = frame[frame["cap"] > 0]
     frame["lev"] = 100.0 * frame["balance"] / frame["cap"]
@@ -206,11 +223,20 @@ def targets(close, horizon=HORIZON):
 
 
 def build(basket_frame, close, horizon=HORIZON):
-    """Signal, targets and the coverage count, inner-joined on the index's trading days."""
+    """Signals, targets and the coverage count, inner-joined on the index's trading days.
+
+    Two signals are carried: ``r20`` (leverage intensity, needs a cap denominator and therefore
+    only exists from 2017) and ``g20`` (the balance itself, which reaches 2010 and is what the
+    second registration tests).  ``past20`` is there for the momentum-disguise guard.
+    """
     lev = basket_frame["lev"]
+    balance = basket_frame["balance"]
     signal = pd.DataFrame(dict(
         lev=lev,
+        balance=balance,
         r20=np.log(lev / lev.shift(horizon)),
+        g20=np.log(balance / balance.shift(horizon)),
+        past20=np.log(close / close.shift(horizon)).reindex(balance.index),
         n_codes=basket_frame["codes"].astype(float),
         dn20=basket_frame["codes"].astype(float).diff(horizon),
     ))
@@ -277,23 +303,70 @@ def guards(frame, cap, basket, source="archive", threshold=GUARD_COVER,
                 thinly_representative=bool(np.isfinite(share) and share < cap_share))
 
 
-def evaluate(frame, other_frame):
-    """T1-T4, mechanically."""
-    t1 = nw_slope(frame["r20"], frame["fwd"])
+def evaluate(frame, other_frame, column="r20", subs=SUBS):
+    """T1-T4, mechanically, on whichever signal column the registration names."""
+    t1 = nw_slope(frame[column], frame["fwd"])
     t2 = []
-    for start, end in SUBS:
+    for start, end in subs:
         piece = frame.loc[(frame.index >= pd.Timestamp(start)) & (frame.index <= pd.Timestamp(end))]
-        row = nw_slope(piece["r20"], piece["fwd"])
+        row = nw_slope(piece[column], piece["fwd"])
         t2.append(dict(start=start, end=end, slope=row["slope"], t=row["t"], n=row["n"]))
-    t3 = nw_slope(frame["r20"], frame["dd"])
-    t4 = nw_slope(other_frame["r20"], other_frame["fwd"])
+    t3 = nw_slope(frame[column], frame["dd"])
+    t4 = nw_slope(other_frame[column], other_frame["fwd"])
     bars = dict(
         T1=bool(np.isfinite(t1["t"]) and t1["slope"] < 0 and t1["t"] <= T1_T),
         T2=bool(all(np.isfinite(row["slope"]) and row["slope"] < 0 for row in t2)),
         T3=bool(np.isfinite(t3["t"]) and t3["slope"] > 0 and t3["t"] >= T3_T),
         T4=bool(np.isfinite(t4["t"]) and t4["slope"] < 0 and t4["t"] <= T1_T),
     )
-    return dict(T1=t1, T2=dict(parts=t2), T3=t3, T4=t4, bars=bars)
+    return dict(column=column, T1=t1, T2=dict(parts=t2), T3=t3, T4=t4, bars=bars)
+
+
+EPISODE_START, EPISODE_END = "2014-06-01", "2016-12-31"
+EPISODE_DAYS = 20             # sessions with s20 > 0.50 that G1 requires
+EPISODE_LEVEL = 0.50
+MOMENTUM_LIMIT = 0.85
+
+
+def guards_growth(frame, threshold=EPISODE_DAYS, level=EPISODE_LEVEL,
+                  momentum_limit=MOMENTUM_LIMIT):
+    """The growth registration's two guards, judged before any verdict.
+
+    G1 asks whether the window actually contains the 2015 leverage episode -- the only reason
+    this signal exists is to test it, so a run that silently misses it must be void.  G2 asks
+    whether the signal is past return in disguise: margin balance rises when prices rise, and if
+    the correlation is near one then T1 would be a momentum test wearing a different name.
+    """
+    clean = frame.dropna(subset=["g20", "past20"])
+    hot = clean[clean["g20"] > level]
+    peak = clean["g20"].idxmax() if len(clean) else None
+    in_episode = bool(peak is not None
+                      and pd.Timestamp(EPISODE_START) <= peak <= pd.Timestamp(EPISODE_END))
+    momentum = float(clean["g20"].corr(clean["past20"])) if len(clean) > 3 else float("nan")
+    return dict(episode_days=int(len(hot)), episode_days_required=int(threshold),
+                episode_level=level, max_g20=str(peak.date()) if peak is not None else None,
+                max_in_episode=in_episode,
+                episode_missing=bool(len(hot) < threshold or not in_episode),
+                momentum_corr=momentum, momentum_limit=momentum_limit,
+                momentum_disguised=bool(np.isfinite(momentum) and momentum > momentum_limit))
+
+
+def verdict_growth(guard, tests):
+    """Void beats everything; otherwise all four bars must hold."""
+    if guard["episode_missing"] or guard["momentum_disguised"]:
+        reasons = []
+        if guard["episode_missing"]:
+            reasons.append("window has %d sessions above %.2f (need %d) and max %s"
+                           % (guard["episode_days"], guard["episode_level"],
+                              guard["episode_days_required"], guard["max_g20"]))
+        if guard["momentum_disguised"]:
+            reasons.append("corr(s20, past 20d) %.3f exceeds %.2f"
+                           % (guard["momentum_corr"], guard["momentum_limit"]))
+        return dict(status="void", reason="; ".join(reasons))
+    if all(tests["bars"].values()):
+        return dict(status="passed", reason="all four bars hold")
+    failed = [name for name, ok in tests["bars"].items() if not ok]
+    return dict(status="failed", reason="bar(s) not met: " + ", ".join(failed))
 
 
 def diagnostics(frame, basket_frame):
@@ -338,19 +411,36 @@ def slice_window(frame, window):
     """
     if window == "v":
         return frame.loc[(frame.index >= pd.Timestamp(V_START)) & (frame.index <= pd.Timestamp(V_END))]
+    if window == "long":
+        return frame.loc[(frame.index >= pd.Timestamp(LONG_START))
+                         & (frame.index <= pd.Timestamp(LONG_END))]
     if window == "v_r":
         raise ValueError("V+R is not available: float shares end 2024-12-31, so the ratio cannot "
                          "be extended past V.  Build 2025-2026 shares first if this matters.")
     raise ValueError("unknown window %r" % window)
 
 
+def diagnostics_growth(frame, basket_frame):
+    """Labelled diagnostics for the growth signal: other horizons, labelled, no verdict."""
+    balance = basket_frame["balance"]
+    out = {}
+    for name, horizon in (("g5", 5), ("g60", 60)):
+        series = np.log(balance / balance.shift(horizon)).reindex(frame.index)
+        out[name] = nw_slope(series, frame["fwd"])
+    out["levels"] = dict(balance_first=float(frame["balance"].iloc[0]),
+                         balance_last=float(frame["balance"].iloc[-1]),
+                         g20_min=float(frame["g20"].min()), g20_max=float(frame["g20"].max()))
+    return out
+
+
 def run(source="both", window="v", output=None, sse_path=None, sh_path=None, sz_path=None,
-        log=print):
+        signal="lev", log=print):
     cap = float_cap()
     if source == "sse":
         basket_frame, basket = sse_leverage(cap, sse_path or SSE_TOTAL)
     elif source == "both":
-        basket_frame, basket = macro_leverage(cap, sh_path or MACRO_SH, sz_path or MACRO_SZ)
+        basket_frame, basket = macro_leverage(cap, sh_path or MACRO_SH, sz_path or MACRO_SZ,
+                                              need_cap=(signal != "growth"))
     elif source == "archive":
         margin = load_margin()
         basket = select_basket(margin, cap)
@@ -363,26 +453,37 @@ def run(source="both", window="v", output=None, sse_path=None, sh_path=None, sz_
 
     primary = slice_window(build(basket_frame, index_close("000300")), window)
     secondary = slice_window(build(basket_frame, index_close("399317")), window)
-    guard = guards(primary, cap, basket, source=source)
-    tests = evaluate(primary, secondary)
+    if signal == "growth":
+        guard = guards_growth(primary)
+        tests = evaluate(primary, secondary, column="g20",
+                         subs=LONG_SUBS if window == "long" else SUBS)
+        verdict_row = verdict_growth(guard, tests)
+        diagnostics_row = diagnostics_growth(primary, basket_frame)
+    else:
+        guard = guards(primary, cap, basket, source=source)
+        tests = evaluate(primary, secondary, column="r20")
+        verdict_row = verdict(guard, tests)
+        diagnostics_row = diagnostics(primary, basket_frame)
     # Diagnostic only: 2017-2018 is the design window, never part of V, and the ratio exists
     # there because panel_full starts in 2017.  It is reported and carries no verdict.
     early = build(basket_frame, index_close("000300"))
     early = early.loc[(early.index >= pd.Timestamp("2017-01-01"))
                       & (early.index <= pd.Timestamp("2018-12-31"))]
     pre_v = nw_slope(early["r20"], early["fwd"])
-    result = dict(protocol="doc/market_leverage_protocol_20261114.md", source=source, window=window,
+    result = dict(protocol=("doc/market_leverage_growth_protocol_20261114.md" if signal == "growth"
+                            else "doc/market_leverage_protocol_20261114.md"),
+                  source=source, window=window, signal=signal,
                   basket=dict(size=len(basket), codes=(basket[:5] + ["..."]) if len(basket) > 5 else basket),
                   observations=dict(rows=int(len(primary)),
                                     first=str(primary.index[0].date()),
                                     last=str(primary.index[-1].date()),
                                     effective_blocks=round(len(primary) / HORIZON, 2)),
                   guards=guard, tests=tests,
-                  diagnostics=dict(combined=diagnostics(primary, basket_frame),
+                  diagnostics=dict(primary=diagnostics_row,
                                    pre_v_2017_2018=dict(n=pre_v["n"], slope=pre_v["slope"],
                                                         t=pre_v["t"], corr=pre_v["corr"],
                                                         note="design window, not V; no verdict")),
-                  verdict=verdict(guard, tests))
+                  verdict=verdict_row)
     if output:
         path = Path(output) / ("gate_%s_%s.json" % (source, window))
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -395,15 +496,16 @@ def run(source="both", window="v", output=None, sse_path=None, sh_path=None, sz_
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Market-level leverage gate (pre-registered).")
     parser.add_argument("--source", default="both", choices=["both", "sse", "archive"])
-    parser.add_argument("--window", default="v", choices=["v", "v_r"])
+    parser.add_argument("--signal", default="lev", choices=["lev", "growth"])
+    parser.add_argument("--window", default="v", choices=["v", "long", "v_r"])
     parser.add_argument("--sse", default=None, help="Path to the official SSE total CSV.")
     parser.add_argument("--sh", default=None, help="Path to the SSE macro total CSV.")
     parser.add_argument("--sz", default=None, help="Path to the SZSE macro total CSV.")
     parser.add_argument("--output", default=None)
     parser.add_argument("--stage", default="gate", choices=["gate"])
     args = parser.parse_args(argv)
-    print(json.dumps(run(args.source, args.window, args.output, args.sse, args.sh, args.sz),
-                     ensure_ascii=False, indent=2, default=float))
+    print(json.dumps(run(args.source, args.window, args.output, args.sse, args.sh, args.sz,
+                         signal=args.signal), ensure_ascii=False, indent=2, default=float))
     return 0
 
 
