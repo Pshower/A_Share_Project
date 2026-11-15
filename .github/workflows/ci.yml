@@ -16,6 +16,8 @@ jobs:
         run: pip install -r requirements.txt
       - name: Offline test suite
         run: python -B -m pytest -q -p no:cacheprovider
+      - name: Documentation links and titles
+        run: python -B -m tools.doc_lint
 
   web:
     runs-on: ubuntu-latest

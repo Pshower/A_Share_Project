@@ -2,10 +2,10 @@
 
 更新日期：2026-11-05。
 
-本文件说明本地到底有哪些数据、覆盖什么、能支撑什么。逐项数字由[数据清单生成器](../tools/data_inventory.py)从磁盘直接读取，产物在 `reports/runs/data_inventory_20261105/`（`inventory.md` 报告、`inventory.json` 结构化摘要、`codes.csv` 逐代码表）。该工具只读文件、不做研究判断，数据变动后可重跑：
+本文件说明本地到底有哪些数据、覆盖什么、能支撑什么。逐项数字由数据清单生成器从磁盘直接读取（该脚本已在 2026-11-14 的分支裁剪中删除），产物在 `reports/runs/data_inventory_20261105/`（`inventory.md` 报告、`inventory.json` 结构化摘要、`codes.csv` 逐代码表）。该工具只读文件、不做研究判断，数据变动后可重跑：
 
 ```powershell
-python -B tools/data_inventory.py --output reports/runs/data_inventory_20261105
+# 生成器已删除；这条命令是当时的运行记录，现在无法执行
 ```
 
 ## 1. 总体形状
@@ -207,5 +207,5 @@ python -B tools/data_inventory.py --output reports/runs/data_inventory_20261105
 ## 10. 维护规则
 
 - 本文件只描述数据本身；研究的门槛、结论和下一步只在[实施进度](implementation_plan.md)。
-- 新增数据源时同步更新 `tools/data_inventory.py` 的扫描分支，再重跑生成器，避免文档与磁盘脱节。
+- 新增数据源时，若生成器仍然存在则更新它的扫描分支并重跑；若不存在（当前分支），就手工改这张表并标注日期。
 - 报告目录 `reports/runs/` 不随 Git 分发，其他机器须重跑生成器复现。

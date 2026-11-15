@@ -1,8 +1,8 @@
-﻿# 目标达成：回撤 ≤10%、年化 ≥7%，四段窗口同时成立
+# 目标达成：回撤 ≤10%、年化 ≥7%，四段窗口同时成立
 
 日期：2026-11-09
 分支：`research/supply-pressure`
-状态：**达成。** 工具 `tools/cppi_strategy.py`；产物 `reports/runs/cppi_strategy/`
+状态：**达成。** 代码 `cppi_strategy`（2026-11-14 分支裁剪时删除）；产物 `reports/runs/cppi_strategy/`（随 `reports/runs` 一并丢失）
 
 ---
 
