@@ -1,4 +1,4 @@
-﻿"""The unified strategy, simulated: one rule over cash, deposits, four bond durations, three
+"""The unified strategy, simulated: one rule over cash, deposits, four bond durations, three
 equity markets and gold -- the protocol's candidates, and its five adoption criteria.
 
 Design notes that matter for honesty:
@@ -29,8 +29,9 @@ OUTPUT = PROJECT_ROOT / "reports" / "runs" / "unified_plan"
 FLOOR, MULTIPLIER, BAND = plan_orders.FLOOR, plan_orders.MULTIPLIER, plan_orders.BAND
 COST = 0.0010                                     # one-way, per unit of weight traded
 FEES = {"cash": 0.0010, "deposit": 0.0010, "bond2": 0.0015, "bond5": 0.0015, "bond9": 0.0015,
-        "bond20": 0.0015, "ashare": 0.0030, "asmall": 0.0030, "usshare": 0.0030, "hk": 0.0030,
-        "gold": 0.0050}
+        "bond20": 0.0015, "bond_gov5": 0.0015, "bond_credit": 0.0030, "bond_hy": 0.0040,
+        "bond_b13": 0.0015, "bond_b35": 0.0015, "bond_b57": 0.0015, "bond_b710": 0.0015,
+        "ashare": 0.0030, "asmall": 0.0030, "usshare": 0.0030, "hk": 0.0030, "gold": 0.0050}
 MIN_MONTHS = 36
 
 # The live plan's risky sleeve: 25% CSI 300 + 25% CSI 500 + 50% S&P 500 (plan_orders.LEGS).
@@ -55,6 +56,19 @@ RULES = {
     "D2": dict(kind="cppi", risky=dict(RISK_MIX), safe={"bond2": 1.0}, note="duration 2"),
     "D9": dict(kind="cppi", risky=dict(RISK_MIX), safe={"bond9": 1.0}, note="duration 9"),
     "D20": dict(kind="cppi", risky=dict(RISK_MIX), safe={"bond20": 1.0}, note="duration 20"),
+    # --- v4: real ChinaBond total-return indices, credit and the real duration ladder ---------
+    "E1": dict(kind="cppi", risky=dict(RISK_MIX), safe={"bond_gov5": 1.0},
+               note="real 5Y treasury index (the live 511010 benchmark)"),
+    "E2": dict(kind="cppi", risky=dict(RISK_MIX), safe={"bond_credit": 1.0},
+               note="credit total-return index"),
+    "E3": dict(kind="cppi", risky=dict(RISK_MIX),
+               safe={"bond_gov5": 0.5, "bond_credit": 0.5}, note="half credit"),
+    "E4": dict(kind="cppi", risky=dict(RISK_MIX), safe={"bond_hy": 1.0},
+               note="corporate AA- (high yield)"),
+    "F13": dict(kind="cppi", risky=dict(RISK_MIX), safe={"bond_b13": 1.0}, note="bucket 1-3y"),
+    "F35": dict(kind="cppi", risky=dict(RISK_MIX), safe={"bond_b35": 1.0}, note="bucket 3-5y"),
+    "F57": dict(kind="cppi", risky=dict(RISK_MIX), safe={"bond_b57": 1.0}, note="bucket 5-7y"),
+    "F710": dict(kind="cppi", risky=dict(RISK_MIX), safe={"bond_b710": 1.0}, note="bucket 7-10y"),
 }
 
 

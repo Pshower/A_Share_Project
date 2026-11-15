@@ -112,6 +112,60 @@ def deposit_rate(index: pd.DatetimeIndex) -> pd.Series:
     return steps.sort_index().reindex(index, method="ffill")
 
 
+CBOND_SPECS = {
+    # ChinaBond publishes *total return* (财富) indices back to 2002; using them removes the
+    # synthetic-curve assumption from the safe leg entirely.
+    "gov5": ("treasury", {"indicator": "财富", "period": "5Y"}),
+    "gov7": ("treasury", {"indicator": "财富", "period": "7Y"}),
+    "gov10": ("treasury", {"indicator": "财富", "period": "10Y"}),
+    "gov30": ("treasury", {"indicator": "财富", "period": "30Y"}),
+    "composite": ("new", {"indicator": "财富", "period": "总值"}),
+    "credit": ("general", {"index_category": "信用债总指数", "indicator": "财富", "period": "总值"}),
+    "hy": ("general", {"index_category": "企业债AA-指数", "indicator": "财富", "period": "总值"}),
+    "b13": ("new", {"indicator": "财富", "period": "1-3年"}),
+    "b35": ("new", {"indicator": "财富", "period": "3-5年"}),
+    "b57": ("new", {"indicator": "财富", "period": "5-7年"}),
+    "b710": ("new", {"indicator": "财富", "period": "7-10年"}),
+}
+
+# Panel column -> ChinaBond series.  The safe leg of the strategy picks from these.
+REAL_BONDS = {"bond_gov5": "gov5", "bond_credit": "credit", "bond_hy": "hy",
+              "bond_b13": "b13", "bond_b35": "b35", "bond_b57": "b57", "bond_b710": "b710"}
+
+
+def chinabond(name: str, online: Path | None = None, fetch: bool = False) -> pd.Series:
+    """A ChinaBond total-return index, read from cache; downloaded only when ``fetch`` is set.
+
+    ``bond_index_general_cbond`` accepts an arbitrary published index name, which is how credit
+    gets in: the argument is the index's own Chinese title, so a wrong name fails at fetch time
+    rather than silently returning something else.  Reads never hit the network, so tests and
+    re-runs are offline by construction.
+    """
+    online = online or ONLINE
+    if name not in CBOND_SPECS:
+        raise KeyError(f"unknown ChinaBond index {name!r}; add it to CBOND_SPECS")
+    kind, kwargs = CBOND_SPECS[name]
+    path = online / "yields" / f"cbond_{name}.csv"
+    if path.exists():
+        frame = pd.read_csv(path)
+        frame["date"] = pd.to_datetime(frame["date"])
+        return frame.set_index("date")["value"].astype(float).sort_index()
+    if not fetch:
+        raise FileNotFoundError(f"{path} missing; run tools.asset_panel --fetch once")
+    import akshare as ak
+    function = {"treasury": ak.bond_treasury_index_cbond,
+                "new": ak.bond_new_composite_index_cbond,
+                "general": ak.bond_index_general_cbond}[kind]
+    frame = function(**kwargs)
+    frame.columns = ["date", "value"]
+    frame["date"] = pd.to_datetime(frame["date"])
+    series = frame.set_index("date")["value"].astype(float).sort_index()
+    series = series[~series.index.duplicated(keep="last")]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    series.rename("value").to_csv(path, index_label="date", encoding="utf-8")
+    return series
+
+
 def shibor(online: Path | None = None, refresh: bool = False) -> pd.Series:
     """Three-month SHIBOR, cached on disk because the network is not always there.
 
@@ -210,6 +264,17 @@ def panel(online: Path | None = None, start: str | None = SAMPLE_START,
     bonds = bond_levels(yields(online)).reindex(index)
     for name in BOND_DURATIONS:
         out[name] = bonds[name].ffill()
+
+    # Real ChinaBond total-return indices, when their cache is present.  A missing cache leaves
+    # the column NaN instead of reaching for the network mid-backtest.
+    for column, slug in REAL_BONDS.items():
+        try:
+            series = chinabond(slug, online)
+        except FileNotFoundError:
+            out[column] = np.nan
+            continue
+        aligned = series.reindex(index.union(series.index)).sort_index().ffill().reindex(index)
+        out[column] = aligned
 
     for name, path, income in (("ashare", online / "index_long" / "000300.csv", "ashare"),
                                ("asmall", online / "index_long" / "000905.csv", "asmall"),
@@ -325,6 +390,7 @@ def assumptions() -> dict:
                 income_yields=INCOME,
                 bond_model="y_prev/252 - D*dy + 0.5*C*dy^2 from the treasury curve",
                 bond_durations={k: v[0] for k, v in BOND_DURATIONS.items()},
+                real_bonds="ChinaBond 财富 (total-return) indices, cached; %.1f years of history",
                 overseas_lag="one Chinese session",
                 fx="BOC mid-price per 100 USD, carried flat after its last print",
                 gold="Shanghai gold in CNY per gram, from 2016-12-19")
@@ -332,6 +398,14 @@ def assumptions() -> dict:
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if "--fetch" in argv:
+        for slug in CBOND_SPECS:
+            try:
+                series = chinabond(slug, fetch=True)
+            except Exception as error:                            # noqa: BLE001
+                print(f"fetch {slug}: FAILED {type(error).__name__}: {str(error)[:70]}")
+                continue
+            print(f"fetch {slug}: {len(series)} rows {series.index[0].date()}..{series.index[-1].date()}")
     frame = panel()
     verdict = check_bond_model()
     rows = coverage(frame)
