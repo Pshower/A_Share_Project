@@ -104,6 +104,11 @@ python -B -m tools.account_ledger report --month 2026-11
 
 **已排定每交易日 21:00 自动执行**（schedule `schedule-08fde740`；2026-11-13 由 20:15 推后，因为新浪基金历史约在 20:30 才落地当日收盘价）：非交易日顺延；
 顺序是 `sync-dividends` → `mark` → `check`，**两本账各跑一遍**；只出信号、不下单；账户未开账时只提示、不创建。
+
+> **2026-11-15 更新**：`schedule-08fde740` **已删除**，职责并入 21:30 的唯一入口
+> `python -B -m tools.daily_ops`。它先做 `sync-dividends → mark`（事实），再做两本账预检，
+> **全部通过后才落账**（决策），任一步失败整体失败、退出码 2。`check` 的输出与脚本判定
+> 现在共用 `account_ledger.check()` 同一个函数，不再有两套口径。
 `check` 的 `safe_to_send` 为 false 时逐条列出问题，不许绕过。若 `mark` 报 `quotes are not from <今天>` 说明报价未发布，
 **不要用 `--allow-stale` 硬写**（那会造出一天假平盘），改用 `tools.mark_when_ready` 等报价发布再补写。
 每隔一段时间用 `tools.audit_marks --account <acct> [--repair]` 把每一行按当日真实收盘价重算一遍——快照与成交都查，
