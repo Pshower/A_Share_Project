@@ -101,10 +101,24 @@ def destinations(explicit=None):
 
 
 def reachable_now(path):
-    """Writable *without creating it* -- a status check must not conjure the directory it tests."""
+    """Writable *without creating it* -- a status check must not conjure the directory it tests.
+
+    When the destination directory does not exist yet (a disk that was just plugged in), the drive
+    root is probed instead: the copy is reachable as soon as the disk is, even before the first
+    archive has ever been written to it.
+    """
     path = Path(path)
     if not path.exists():
-        return False
+        anchor = Path(path.anchor) if path.anchor else None
+        if anchor is None or not anchor.exists():
+            return False
+        try:
+            probe = anchor / ".write_probe"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+            return True
+        except OSError:
+            return False
     try:
         probe = path / ".write_probe"
         probe.write_text("ok", encoding="utf-8")

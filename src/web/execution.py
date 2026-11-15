@@ -120,6 +120,23 @@ def book(root, name):
                                    provisional=bool((last or {}).get("provisional"))))
 
 
+def _chain(rows):
+    """Cumulative book, pool and index levels, one entry per row (stale rows included)."""
+    level, pool, index = 1.0, 1.0, 1.0
+    out = []
+    for row in rows:
+        change = (row.get("interval") or {}).get("return")
+        if change is not None:
+            level *= 1.0 + float(change)
+        comparison = row.get("benchmark") or {}
+        if comparison.get("pool_equal") is not None:
+            pool *= 1.0 + float(comparison["pool_equal"])
+        if comparison.get("hs300") is not None:
+            index *= 1.0 + float(comparison["hs300"])
+        out.append((level, pool, index))
+    return out
+
+
 def shadow(root, limit=8):
     """The S2 recorder's decisions, the names it picked, and what state it is holding.
 
@@ -140,20 +157,13 @@ def shadow(root, limit=8):
                            sessions_held=row.get("sessions_held"),
                            reason=row.get("reason"), construction=row.get("construction")))
     days, previous = [], set()
-    level, pool_level, index_level = 1.0, 1.0, 1.0
     chain = []
-    for row in rows:
-        change = (row.get("interval") or {}).get("return")
-        if change is not None:
-            level *= 1.0 + float(change)
-        comparison = row.get("benchmark") or {}
-        if comparison.get("pool_equal") is not None:
-            pool_level *= 1.0 + float(comparison["pool_equal"])
-        if comparison.get("hs300") is not None:
-            index_level *= 1.0 + float(comparison["hs300"])
-        chain.append((level, pool_level, index_level))
-    index = 0
-    for row in rows:
+    # ``chain`` has one entry per row, so the second loop must index it by the row's own position.
+    # A separate counter that only advanced on ``decided`` rows left every day after the first stale
+    # row reading an older entry -- harmless while all levels were 1.0000, wrong from the first real
+    # interval onward, and wrong by however many stale rows came before it.
+    chain = _chain(rows)
+    for position, row in enumerate(rows):
         if row.get("status") != "decided" or not row.get("book"):
             continue
         # A row whose ``held_from`` is empty is a book being opened, not a book being rotated:
@@ -175,9 +185,10 @@ def shadow(root, limit=8):
             sessions_held=row.get("sessions_held"),
             interval=interval,
             int_return=interval.get("return"),
-            chained_nav=round(chain[index][0], 6),
-            chained_pool=round(chain[index][1], 6),
-            chained_hs300=round(chain[index][2], 6),
+            interval_from=interval.get("from"),
+            chained_nav=round(chain[position][0], 6),
+            chained_pool=round(chain[position][1], 6),
+            chained_hs300=round(chain[position][2], 6),
             pool_return=(row.get("benchmark") or {}).get("pool_equal"),
             hs300_return=(row.get("benchmark") or {}).get("hs300"),
             rebalance_due=bool(row.get("rebalance_due")),
@@ -192,13 +203,12 @@ def shadow(root, limit=8):
             overlap=len(current & previous) if previous else None,
         ))
         previous = current
-        index += 1
     return dict(rows=len(rows), decided=len([row for row in rows if row.get("status") == "decided"]),
                 stale=len([row for row in rows if row.get("status") == "stale"]),
                 recent=recent, days=days,
-                chained_nav=round(level, 6),
-                chained_pool=round(pool_level, 6),
-                chained_hs300=round(index_level, 6),
+                chained_nav=round(chain[-1][0], 6) if chain else 1.0,
+                chained_pool=round(chain[-1][1], 6) if chain else 1.0,
+                chained_hs300=round(chain[-1][2], 6) if chain else 1.0,
                 state=dict(holdings=len(state.get("holdings") or []),
                            entry_date=state.get("entry_date"),
                            last_panel_date=state.get("last_panel_date"),

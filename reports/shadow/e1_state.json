@@ -33,6 +33,8 @@
     "600026",
     "000002"
   ],
-  "entry_date": "2026-11-10",
-  "runs": 4
+  "entry_date": "2026-11-13",
+  "runs": 4,
+  "cadence_from": "2026-11-16",
+  "cadence_note": "book formed 2026-11-13; 11-10..11-13 were recorded daily before the 20-session cadence took effect, so the clock starts at the book, not at 11-10"
 }

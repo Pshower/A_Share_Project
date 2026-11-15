@@ -23,6 +23,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LINK = re.compile(r"\]\(([^)\s]+?\.md)(?:#[^)]*)?\)")
 TOOL = re.compile(r"\btools[/\\]([a-z0-9_]+)\.py")
+# ``python -B -m tools.<name>`` names a module, not a file: the same check applies, but only to
+# the explicit command form -- prose like "tools.shadow_run 的构造参数" is not a command.
+COMMAND = re.compile(r"python[^\n]{0,40}?-m\s+tools\.([a-z0-9_]+)")
 TITLE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 
 

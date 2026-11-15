@@ -53,6 +53,12 @@ def target_weights(nav, peak, held_risky=None, band=BAND, floor=FLOOR, multiplie
     return dict(target=risky, applied=risky_applied, traded=traded, weights=weights)
 
 
+def fee_for(row):
+    """Commission on one order row, with the broker's five-yuan floor."""
+    amount = abs(float(row["delta"]) * float(row["price"]))
+    return max(5.0, amount * 0.0003) if amount else 0.0
+
+
 def orders(weights, nav, prices, held=None, lot=LOT):
     """Lot-rounded share targets and the deltas needed to reach them."""
     held = held or {}
@@ -79,6 +85,20 @@ def orders(weights, nav, prices, held=None, lot=LOT):
                          action="buy" if delta > 0 else ("sell" if delta < 0 else "hold")))
         cash_after += current * price - target_shares * price
     invested = sum(row["target_value"] for row in plan)
+    # The lot rounding leaves a few yuan; the commission on four buys can be larger than that, and
+    # the gate then refuses the whole order set for a shortfall of pocket change.  Trim one lot from
+    # the largest buy until the commission fits inside the leftover cash.
+    while invested and nav - invested < sum(fee_for(row) for row in plan if row["delta"] > 0):
+        largest = max((row for row in plan if row["delta"] > 0), key=lambda row: row["delta"],
+                      default=None)
+        if largest is None or largest["target_shares"] < lot:
+            break
+        largest["target_shares"] -= lot
+        largest["target_value"] = round(largest["target_shares"] * largest["price"], 2)
+        largest["delta"] = largest["target_shares"] - largest["held"]
+        largest["action"] = "buy" if largest["delta"] > 0 else (
+            "sell" if largest["delta"] < 0 else "hold")
+        invested = sum(row["target_value"] for row in plan)
     return dict(nav=nav, invested=round(invested, 2), cash=round(nav - invested, 2),
                 orders=plan)
 

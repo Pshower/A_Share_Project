@@ -113,9 +113,6 @@ def run(panel=PANEL, window=WINDOW, delisted=213, pools=None, log=print):
                                         annualised=annualised(series)))
             log("%-12s %-9s %4d 只  年化 %6.2f%%" % (name, cadence, len(codes), 100 * annualised(series)))
     return result
-    for recovery in (0.0, 0.2, 0.5):
-        bound = bias_bound(alive["codes"], delisted, survivors, recovery, years)
-        result["bounds"].append(dict(delisted_recovery=recovery, annual_gap=bound))
 
 
 

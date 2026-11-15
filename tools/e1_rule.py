@@ -78,4 +78,6 @@ def decide(score, held, top_k=TOP_K, buffer=None):
             break
         if code not in keep:
             keep.append(code)
-    return keep
+    # Sorted by today's rank: the caller renders this as "the top K of the day", and a list that puts
+    # buffer survivors (ranked up to 59) ahead of new entrants (ranked 1-30) makes that slice wrong.
+    return sorted(keep, key=lambda code: rank_of.get(code, 10 ** 9))

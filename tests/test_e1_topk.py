@@ -51,9 +51,16 @@ def test_the_vectorised_score_matches_the_per_date_one():
 
 def test_the_buffer_keeps_names_that_are_still_inside_it():
     row = pd.Series({"a": 0.1, "b": 0.2, "c": 0.3, "d": 0.4, "e": 0.5, "f": 0.6})
-    assert e1_rule.decide(row, ["b"], top_k=2)[:2] == ["b", "a"]
-    assert e1_rule.decide(row, ["f"], top_k=2) == ["a", "b"]
-    assert e1_rule.decide(row, ["f"], top_k=2, buffer=6)[:2] == ["f", "a"]
+    assert set(e1_rule.decide(row, ["b"], top_k=2)) == {"a", "b"}       # b kept, a fills
+    assert e1_rule.decide(row, ["f"], top_k=2) == ["a", "b"]            # f outside the band, dropped
+    assert set(e1_rule.decide(row, ["f"], top_k=2, buffer=6)) == {"f", "a"}
+
+
+def test_the_book_comes_back_in_rank_order_not_buffer_first():
+    """The page slices this list as "top K of the day", so survivors must not sit ahead of rank 1."""
+    row = pd.Series({"a": 0.1, "b": 0.2, "c": 0.3, "d": 0.4, "e": 0.5, "f": 0.6})
+    book = e1_rule.decide(row, ["f"], top_k=3, buffer=6)
+    assert book == ["a", "b", "f"]
 
 
 def test_the_recorder_and_the_backtest_share_one_rule():

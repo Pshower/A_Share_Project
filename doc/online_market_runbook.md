@@ -250,8 +250,9 @@ GET /api/market/macro/{snapshot_id}/series/{series_id}
 | 公司行为 | `hfq`/未复权收盘比值相对跳变 > 0.2% | 只记因子跳变，不区分分红与送转 |
 
 ```powershell
-python -B -m tools.tradability_ledger --history h_13cd6e0169124b2e --calendar c_4e276f88d8ff4018 --output reports/runs/tradability_ledger_20261102
-python -B -m tools.derive_pit_availability --snapshot f_2f8ef1efe22c430a --history h_13cd6e0169124b2e --output reports/runs/pit_availability_20261102
+# 以下两条命令已不可执行：代码在 2026-11-14 的分支裁剪中删除
+# python -B -m tools.tradability_ledger --history h_13cd6e0169124b2e --calendar c_4e276f88d8ff4018 --output reports/runs/tradability_ledger_20261102
+# python -B -m tools.derive_pit_availability --snapshot f_2f8ef1efe22c430a --history h_13cd6e0169124b2e --output reports/runs/pit_availability_20261102
 ```
 
 产物为 `ledger.parquet`（逐股逐日）、`corporate_actions.parquet` 和 `summary.json`，均在 gitignore 内。第一版实测（299 只、2017-01-03 至 2026-10-30、650,873 个股票日）：

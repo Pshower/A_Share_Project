@@ -156,3 +156,21 @@ def test_a_truncated_pool_is_refused_rather_than_scored(tmp_path, monkeypatch):
     record = shadow_run.run(dataset=dataset, log=lambda *_: None)
     assert record["status"] == "bad_data"
     assert "truncated" in record["reason"]
+
+
+def test_a_hold_row_still_records_todays_scores_and_rank_order(tmp_path, monkeypatch):
+    """Without scores the page's top-K slice is arbitrary; the book must come back rank-ordered."""
+    days = pd.bdate_range("2020-01-01", periods=30)
+    codes = ["000001", "000002", "000003"]
+    dataset = tmp_path / "toy"
+    monkeypatch.setattr(shadow_run, "STATE", tmp_path / "state.json")
+    monkeypatch.setattr(shadow_run, "LOG", tmp_path / "log.jsonl")
+    monkeypatch.setattr(trading_calendar, "is_trading_day", lambda *a, **k: True)
+    write_dataset(dataset, days, codes, upto=6)
+    first = shadow_run.run(dataset=dataset, log=lambda *_: None)
+    write_dataset(dataset, days, codes, upto=7)
+    second = shadow_run.run(dataset=dataset, log=lambda *_: None)
+    assert second["decision"] == "hold"
+    assert set(second["score"]) == set(second["book"])          # every held name carries a score today
+    scores = [second["score"][code] for code in second["book"]]
+    assert scores == sorted(scores)

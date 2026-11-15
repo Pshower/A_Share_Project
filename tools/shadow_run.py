@@ -227,29 +227,31 @@ def run(force=False, dataset=DATASET, log=print):
     # 15x-a-year turnover into 105x (doc/e1_topk_20261114.md).  So the recorder only re-decides when
     # the entry date is at least HOLD sessions old -- which is what "20 日持有" was always meant to be.
     due = state.get("entry_date") is None or (sessions is not None and sessions >= HOLD)
+    # Scored every session, not only on rebalance days: the page shows "today's top K of the book",
+    # and a hold day without scores made that slice arbitrary and the score column blank.
+    score = composite(panel, codes, features, latest)
+    if score is None:
+        record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), status="no_score",
+                      panel_date=str(latest.date()), reason="no usable feature at the last date")
+        append(record)
+        log("no score at %s" % latest.date())
+        return record
     if due:
-        score = composite(panel, codes, features, latest)
-        if score is None:
-            record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), status="no_score",
-                          panel_date=str(latest.date()), reason="no usable feature at the last date")
-            append(record)
-            log("no score at %s" % latest.date())
-            return record
         book = decide(score, held)
     else:
-        score, book = None, list(held)
+        book = sorted(held, key=lambda code: float(score.get(code, float("inf"))))
     close = prices.xs("close", axis=1, level=1) if "close" in set(prices.columns.get_level_values(1)) else None
     close = close if close is not None else prices.xs(prices.columns.get_level_values(1)[0], axis=1, level=1)
     nav = mark(close, book, latest)
     interval = dict(**{"from": state.get("last_panel_date"), "to": str(latest.date()),
-                       "sessions": sessions,
+                       "sessions": sessions_between(panel.index, state.get("last_panel_date"), latest),
                        "return": basket_return(close, held, state.get("last_panel_date"), latest)}
                     ) if held and state.get("last_panel_date") else None
     comparison = benchmarks(close, codes, state.get("last_panel_date"), str(latest.date())) \
         if state.get("last_panel_date") else None
     record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), status="decided",
                   panel_date=str(latest.date()), book=book,
-                  score={code: round(float(score[code]), 6) for code in book} if score is not None else None,
+                  score={code: round(float(score[code]), 6) for code in book if code in score},
                   nav=nav, held_from=state.get("entry_date"),
                   decision="rebalance" if due else "hold",
                   rebalance_due=bool(due), sessions_held=sessions,

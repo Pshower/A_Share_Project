@@ -433,6 +433,21 @@ def diagnostics_growth(frame, basket_frame):
     return out
 
 
+def clean_numbers(value):
+    """Replace non-finite floats with None: ``json.dumps`` would emit bare ``NaN``, which is not JSON.
+
+    The design-window regression runs on a column that is all-NaN before 2017, so its slope comes out
+    as NaN and the file stopped being parseable by anything stricter than Python's own json module.
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: clean_numbers(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [clean_numbers(item) for item in value]
+    return value
+
+
 def run(source="both", window="v", output=None, sse_path=None, sh_path=None, sz_path=None,
         signal="lev", log=print):
     cap = float_cap()
@@ -469,7 +484,8 @@ def run(source="both", window="v", output=None, sse_path=None, sh_path=None, sz_
     early = build(basket_frame, index_close("000300"))
     early = early.loc[(early.index >= pd.Timestamp("2017-01-01"))
                       & (early.index <= pd.Timestamp("2018-12-31"))]
-    pre_v = nw_slope(early["r20"], early["fwd"])
+    column = "g20" if signal == "growth" else "r20"
+    pre_v = nw_slope(early[column], early["fwd"])
     result = dict(protocol=("doc/market_leverage_growth_protocol_20261114.md" if signal == "growth"
                             else "doc/market_leverage_protocol_20261114.md"),
                   source=source, window=window, signal=signal,
@@ -485,9 +501,11 @@ def run(source="both", window="v", output=None, sse_path=None, sh_path=None, sz_
                                                         note="design window, not V; no verdict")),
                   verdict=verdict_row)
     if output:
-        path = Path(output) / ("gate_%s_%s.json" % (source, window))
+        suffix = "" if signal == "r20" else "_" + signal
+        path = Path(output) / ("gate_%s_%s%s.json" % (source, window, suffix))
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(result, ensure_ascii=False, indent=2, default=float),
+        path.write_text(json.dumps(clean_numbers(result), ensure_ascii=False, indent=2,
+                                 allow_nan=False, default=float),
                         encoding="utf-8")
         log("wrote %s" % path)
     return result

@@ -99,5 +99,6 @@ CPPI 把同一个约束变成"平时可以持高仓位，危险时退出来"，�
 ## 7. 复现
 
 ```powershell
-python -B -m tools.cppi_strategy
+# 该命令已不可执行：代码在 2026-11-14 的分支裁剪中删除
+# python -B -m tools.cppi_strategy
 ```

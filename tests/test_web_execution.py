@@ -142,3 +142,25 @@ def test_the_api_chains_the_benchmark_columns_too(tmp_path):
     day = data["days"][0]
     assert day["int_return"] == pytest.approx(0.02)
     assert day["pool_return"] == pytest.approx(0.01)
+
+
+def test_a_stale_row_between_decisions_does_not_shift_the_chain(tmp_path):
+    """The chain has one entry per row; indexing it by decided-count made every later day lag."""
+    rows = [
+        dict(status="decided", panel_date="2026-11-10", held_from=None, book=["000001"],
+             score={"000001": 0.2}, interval={"from": "2026-11-03", "return": 0.01},
+             benchmark={"pool_equal": 0.005, "hs300": 0.0}),
+        dict(status="stale", panel_date="2026-11-11", reason="panel unchanged"),
+        dict(status="stale", panel_date="2026-11-11", reason="panel unchanged"),
+        dict(status="decided", panel_date="2026-11-12", held_from="2026-11-10", book=["000001"],
+             score={"000001": 0.2}, interval={"from": "2026-11-10", "return": 0.02},
+             benchmark={"pool_equal": 0.01, "hs300": -0.01}),
+    ]
+    log = tmp_path / "reports" / "shadow" / "e1_shadow.jsonl"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    (log.parent / "e1_state.json").write_text("{}", encoding="utf-8")
+    data = execution.shadow(tmp_path)
+    assert data["chained_nav"] == pytest.approx(1.01 * 1.02)
+    assert data["days"][-1]["chained_nav"] == pytest.approx(data["chained_nav"])
+    assert data["days"][-1]["pool_return"] == pytest.approx(0.01)

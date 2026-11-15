@@ -1,4 +1,4 @@
-﻿"""Archive a rolling-window feed before it rolls away.
+"""Archive a rolling-window feed before it rolls away.
 
 ``stock_individual_fund_flow`` serves roughly the last 120 sessions and takes no date
 range, so anything not captured while it is inside the window is gone.  The feed is not
@@ -10,6 +10,8 @@ failure cannot double-count and a later revision cannot silently overwrite an ea
 observation.
 """
 from __future__ import annotations
+
+from datetime import date
 
 import argparse
 import json
@@ -62,17 +64,34 @@ def fetch(code, pause=0.0):
     return frame
 
 
+def last_trading_day(today=None):
+    """The most recent session at or before today; None when the calendar cannot answer."""
+    from tools import trading_calendar
+
+    today = pd.Timestamp(today or date.today()).normalize()
+    try:
+        dates = trading_calendar.load()
+    except Exception:                                  # noqa: BLE001 - offline is not fatal
+        return None
+    past = dates[dates <= today]
+    return past.max() if len(past) else None
+
+
 def run(limit=None, codes=None, pause=0.2, store=STORE, log=print):
     store = Path(store)
     store.mkdir(parents=True, exist_ok=True)
     index_path = store / "flow.parquet"
     current = existing(index_path)
-    latest = current["date"].max() if len(current) else None
+    target = last_trading_day()
     targets = codes or universe_codes(limit)
     fresh, failed, skipped = [], [], []
     for position, code in enumerate(targets, 1):
         have = current.loc[current["code"] == code, "date"]
-        if latest is not None and len(have) and have.max() >= latest:
+        # Skip only a code that already reaches the *target date*.  Using the store's own maximum as
+        # the target made the second weekly run a no-op by construction: every healthy code was
+        # already at that maximum, so nothing was fetched and the archive froze on whatever date the
+        # first run happened to capture (2026-11-06 in the real log).
+        if target is not None and len(have) and have.max() >= target:
             skipped.append(code)
             continue
         try:
@@ -86,11 +105,12 @@ def run(limit=None, codes=None, pause=0.2, store=STORE, log=print):
         fresh.append(frame)
         if position % 200 == 0:
             log("fetched %d/%d" % (position, len(targets)))
-    added = int(sum(len(frame) for frame in fresh))
+    added = 0
     if fresh:
         merged = pd.concat([current] + fresh, ignore_index=True)
         merged = merged.drop_duplicates(subset=["code", "date"], keep="first").sort_values(["code", "date"])
         merged.to_parquet(index_path, index=False)
+        added = int(len(merged) - len(current))
         current = merged
     summary = dict(archived_at=datetime.now(timezone.utc).isoformat(),
                    requested=len(targets), fetched=len(fresh), skipped=len(skipped),

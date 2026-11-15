@@ -53,7 +53,8 @@ def use(name):
 LEGS = list(plan_orders.LEGS) + [plan_orders.SAFE]
 RISKY = list(plan_orders.LEGS)
 LOT = plan_orders.LOT
-SELL_TAX = 0.0005
+SELL_TAX = 0.0005       # stamp duty, stocks only: ETFs are exempt
+
 
 
 def _read(path):
@@ -89,6 +90,16 @@ def config(path=None):
     if not Path(path).exists():
         raise ValueError("No account at %s; run init first" % path)
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def sell_tax_for(code):
+    """Stamp duty on a sale: stocks pay 0.05%, exchange-traded funds pay nothing.
+
+    The plan trades only ETFs (510300/510500/513500/511010), so the ledger was charging a tax the
+    broker never takes -- on every rebalance, and inconsistently with ``plan_backtest``, which goes
+    through ``fee_for`` (commission only) and therefore charged none.
+    """
+    return 0.0 if str(code).startswith(("5", "1")) else SELL_TAX
 
 
 def fee_for(amount, broker=None):
@@ -163,7 +174,9 @@ def state(dates=None, prices=None, cfg=None, trades=None, snapshots=None):
         value, source = float(last["nav"]), "snapshot %s" % last["date"]
     else:
         value, source = float(cfg["capital"]), "initial capital"
-    peak = peak_of(snapshots, cfg["capital"])
+    # Include today's live value: run before the mark is written, a new high would otherwise
+    # report a positive drawdown and hand CPPI a peak that is too low, overstating the cushion.
+    peak = max(peak_of(snapshots, cfg["capital"]), value)
     trailing = [row for row in trades if last is None or str(row["date"]) > str(last["date"])]
     return dict(date=stamp, cash=book["cash"], positions=book["positions"], nav=value,
                 nav_source=source, peak=peak, drawdown=value / peak - 1.0,
@@ -265,7 +278,7 @@ def record_trade(stamp, code, action, shares, price=None, decision_price=None,
         held = book["positions"].get(code, 0)
         if shares > held:
             raise ValueError("Selling %d of %s but only %d held" % (shares, code, held))
-        fee += amount * 0.0005
+        fee += amount * sell_tax_for(code)
     elif action == "buy":
         if amount + fee > book["cash"]:
             raise ValueError("Order needs %.2f but only %.2f cash" % (amount + fee, book["cash"]))
@@ -380,7 +393,7 @@ def gate(orders, prices, price_dates, state_row, floor=plan_orders.FLOOR):
                             % row["code"])
         if row["delta"] < 0:
             proceeds = -row["delta"] * float(prices[row["code"]])
-            cash_left += proceeds - fee_for(proceeds) - proceeds * SELL_TAX
+            cash_left += proceeds - fee_for(proceeds) - proceeds * sell_tax_for(row["code"])
     for row in orders:
         if row["delta"] > 0:
             cost = row["delta"] * float(prices[row["code"]])
@@ -423,6 +436,28 @@ def book(stamp, field="open", path=None, cfg=None):
     row = state(prices=prices, cfg=cfg, trades=trades, dates=stamp)
     targets = plan_orders.decide(row["nav"], row["peak"], prices, held=current["positions"])
     ordered = sorted(targets["orders"], key=lambda item: item["delta"] > 0)
+    # Dry run first: a rejection on the fourth buy used to leave the first three written, so the book
+    # ended up holding three legs out of four with no way to tell why.
+    cash, held = float(current["cash"]), dict(current["positions"])
+    for item in ordered:
+        if not item["delta"]:
+            continue
+        code, delta = item["code"], int(item["delta"])
+        price = float(prices[code])
+        amount = abs(delta) * price
+        fee = fee_for(amount) + (amount * sell_tax_for(code) if delta < 0 else 0.0)
+        if delta > 0:
+            if amount + fee > cash:
+                raise ValueError("order set needs %.2f more cash; nothing was written" % (
+                    amount + fee - cash))
+            cash -= amount + fee
+            held[code] = held.get(code, 0) + delta
+        else:
+            if delta < -held.get(code, 0):
+                raise ValueError("order set sells %d of %s but only %d held; nothing was written"
+                                 % (-delta, code, held.get(code, 0)))
+            cash += amount - fee
+            held[code] = held.get(code, 0) + delta
     booked = []
     for item in ordered:
         if item["delta"] == 0:
