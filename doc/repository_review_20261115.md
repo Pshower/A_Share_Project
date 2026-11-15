@@ -1,6 +1,6 @@
 # 全仓审查与修改意见：执行层、每日推荐、回测与文档一致性
 
-日期：2026-11-15。状态：**已完成全仓审查**（覆盖 `src/`、`tools/`、`web/`、`tests/`、`reports/`、`pipeline.md` 与 `doc/`，共定位 14 项问题并给出具体修改意见）。
+日期：2026-11-15（**第二轮外部审查已并入第 7 节**）。状态：**已完成两轮全仓审查**（第一轮覆盖 `src/`、`tools/`、`web/`、`tests/`、`reports/`、`pipeline.md` 与 `doc/`，定位 14 项并给出修改意见；第二轮基于提交 `7b47760`，针对每日唯一入口、全资产建议、中债指数、载体测量与特征审计再定位 11 项，含 5 项 P0）。
 复现检查：`python -B -m pytest -q -p no:cacheprovider`、`python -B -m tools.doc_lint`。
 
 ---
@@ -289,3 +289,292 @@
 3. **第三优先级（工具与文档卫生收口，P2）**：
    - 清理 `tools/survivorship.py` 死代码、移除未使用的 `src/runtime/device.py`、修复 `tools/market_leverage.py` 的 `NaN` 序列化与 `tools/backup.py` 的新盘状态探测（§3.2、§3.3）；
    - 升级 `tools/doc_lint.py` 规则并同步修正 `doc/` 与 `pipeline.md` 中的过期数字、链接与尾部章节（§4.1、§4.2）。
+
+---
+
+## 6. 第二轮复核（2026-11-16，整理仓库时做的增量审查）
+
+本轮触发：仓库整理时发现"每日任务"从三条命令串行变成了一条 `tools.daily_ops`，同时新增了
+`/api/recommend/unified` 与 live 开账。以下只写**上一轮之后新增或新暴露**的问题。
+
+### 6.1 上一轮 14 项的现状
+
+| 编号 | 级别 | 现状 | 依据 |
+| --- | --- | --- | --- |
+| 1.1 | P0 | **已修** | `src/web/execution.py::_chain` 改为逐行累计，`days` 用 `enumerate` 的位置索引 |
+| 1.2 | P0 | **已修** | `shadow_run.py` 每次运行都打分（第 230 行注释写明"Scored every session"），`book` 按分数排序 |
+| 1.3 | P1 | **已修** | 后端同时返回 `interval` 与 `interval_from` |
+| 1.4 | P1 | **已修** | `e1_state.json` 的 `last_panel_date`/`entry_date` 已对齐 2026-11-13，并加 `cadence_from` |
+| 1.5 | P1 | **按计划延后** | 再平衡日仍按收盘价换仓；与 2.2 同源，一起做才有意义 |
+| 2.1 | P1 | **已修** | `sell_tax_for()`：代码以 5/1 开头的 ETF 免征，其余 0.05% |
+| 2.2 | P1 | **按计划延后** | `next_open` 对照未做；会改动最差回撤 −8.24%，需要单独一轮 |
+| 2.3 | P1 | **已修** | `plan_orders.orders()` 会把最大买单减一手直到佣金塞进余量；`book()` 先全量干跑再落笔 |
+| 2.4 | P1 | **已修** | `state()` 里 `peak = max(peak_of(...), value)` |
+| 2.5 | P2 | **按计划延后** | 拆分前分红缩放未做（513700 无分红，暂不影响） |
+| 3.1 | P0 | **已修** | `archive_fund_flow.last_trading_day()`（第 67 行）替换了旧的最大日期取法 |
+| 3.2 | P2 | **已修** | `clean_numbers()` + `allow_nan=False`，文件名按 `signal` 区分 |
+| 3.3 | P2 | **已修** | `device.py` 已删除、`survivorship` 死代码已清、`backup` 探测已改 |
+| 4.1–4.2 | P1/P2 | **已修** | `doc_lint` 现有 links/titles/tools/duplicates/index 五组规则，`COMMAND` 正则覆盖 `python -m tools.<name>`；本轮又把 6 篇文档里失效的 `schedule-08fde740` 引用清掉 |
+
+**10 项已修、3 项按计划延后、1 项部分**。上一轮的判断是准的：三个 P0 确实都会在下一个交易日暴露。
+
+### 6.2 新发现（6 项）
+
+#### 6.2.1 [P1] `/api/recommend/unified` 的 `book` 参数没有白名单——可读任意目录，且错值返回 500
+
+`src/web/app.py:72` 直接把查询参数传给 `daily_allocation.recommendation(book=book)`，
+而 `daily_allocation.book_state()` 在 `daily_allocation.py:102` 做的是
+`base = (base or ACCOUNTS) / book` —— **一次朴素的路径拼接**。
+
+已实测：
+
+```
+book_state('../paper')  -> 去读 <root>/paper/account.json（报 FileNotFoundError，路径已穿出去）
+GET /api/recommend/unified?book=../../doc -> HTTP 500
+```
+
+写入路径是安全的（`apply()` 先调 `ledger.use()`，它会 `ValueError: Unknown account`），
+但**读路径没有**。影响限于本机回环用户，属于低危信息暴露与错误处理问题，但修起来很便宜：
+
+- `app.py` 用 `Literal["live","paper","backtest"]` 或显式校验，非法值返回 **400/409**；
+- `book_state()` 里加一道 `if book not in ledger.ACCOUNTS: raise ValueError(...)`，让两处口径一致。
+
+#### 6.2.2 [P1] `tools.daily_ops` 一次刷新 9 只载体，而每天只用 4 只
+
+`daily_ops.py:35` 遍历 `fund_vehicles.CARRIERS`（9 只）。但落账只用到
+`510300` / `510500` / `513500` / `511010`（`cash_safe` 时再加 `511880`）= **4–5 只**。
+多出来的 `159919` / `511260` / `511090` / `518880` 每天各拉一次行情 + 一次分红表，
+而且**其中任何一只失败都会让整轮 failed**——一只与当日决策无关的黄金 ETF 断网，就能让两本账都不落账。
+
+建议：`refresh_prices(codes)` 只刷新当日需要的腿；其余留着手动的 `fund_vehicles --refresh`。
+
+#### 6.2.3 [P2] 同一次运行里两个价格源
+
+`daily_ops.prepare()` 走 `ledger.mark()`，它用 `_prices_with_dates()` **直连新浪**；
+`daily_ops.book()` 走 `daily_allocation`，它用 **`data/online/fund/hist_*.csv` 缓存**。
+两条路各自独立，若新浪可用但缓存拉取失败（或反过来），会出现
+"快照按新浪定价、建议按缓存定价"的错配，而 `as_of == day` 的校验只覆盖后者。
+建议：`prepare` 也接受缓存价格（或在 `mark` 之后断言 `price_dates == day` 且
+`daily_allocation` 用的是同一批价）。
+
+#### 6.2.4 [P2] `hold` 日把整手取整漂移显示成"差额"，看起来像要下单
+
+`daily_allocation.recommendation()` 在 `hold` 分支用 `risky_now` 反推目标权重，
+于是 `plan_orders.orders()` 算出的 `delta` 全是取整噪声。页面实测：
+
+```
+动作：持有（未触发带宽）
+510300 +100   510500 +500   513500 −1,600   511010 0
+```
+
+**这四行的"差额"不是要下的单**，但页面上和真正触发调仓时长得一模一样。
+建议：`hold` 时把 `delta` 全部置 0、另存 `rounding_delta` 供参考，或在页面该列标注"取整漂移（不下单）"。
+
+#### 6.2.5 [P2] `daily_ops` 没有互斥锁
+
+定时任务 21:30 启动，手工再跑一次就可能并发：两个进程各自读到"带宽已触发"，
+各自 `record_trade`，第二笔会在现金校验上失败或**重复下单**（`record_trade` 只校验单笔现金）。
+建议加一个 `reports/runs/daily_ops/.lock`（含 pid 与时间戳），存在且未过期就拒绝启动。
+
+#### 6.2.6 [P2] 页面数据源没有接口级测试；`web/dist` 不入库
+
+`tests/` 里没有任何用例打到 `/api/recommend/unified`（`test_daily_ops.py` 全部 monkeypatch），
+`book_state()` 也只有间接覆盖。本轮修 6.2.1 时会顺手补 2 条：非法 `book` 返回 4xx、
+正常 `book` 的 `assets` 权重合计为 1。
+另外 `web/dist` 在 `.gitignore` 里，**新克隆必须 `npm run build` 才有页面**——这一条在
+`online_market_runbook` 里没有写，值得补一句。
+
+### 6.3 建议顺序
+
+1. **明天 21:30 之前**：6.2.1（白名单 + 4xx）、6.2.2（只刷需要的腿）——前者是输入校验，后者是
+   减少"无关资产断网导致整轮失败"的概率，两者都只需几行。
+2. **本周内**：6.2.3、6.2.5、6.2.4（一个价格源、一把锁、一个不误导的列）。
+3. **与上一轮延后项一起**：1.5 + 2.2（次日开盘成交）、2.5（拆分前分红），一次做完再重跑回测。
+
+---
+
+## 7. 本轮整理记录（不是审查意见）
+
+- `execution` 分支从 `d2caeac` 快进到 `7b47760`（14 个提交），研究结论与执行代码回到主线；
+  其余 4 个本地分支全部已并入、0 提交差异，按仓库规则保留。
+- `.workbench/` 下 19 个一次性探针脚本已删除（本来也在 `.gitignore` 里）。
+- 6 篇文档里对已删除的 `schedule-08fde740` 的引用已改为"已删除/已并入 21:30"。
+- 复核基线：`pytest` **264 passed**、`doc_lint` **0 issue**、工作树干净。
+
+---
+
+## 7. 第二轮外部审查全文（2026-11-16，已并入本文）
+
+> 这一节是另一轮独立审查的原文，原先单独放在 `repository_review_20261116.md`，
+> 现并入本文以保持「一个仓库只有一份审查台账」。标题层级已降两级以适配本章。
+> **本轮提出的 5 项 P0 我已逐条抽查，详见下表；原文的修改建议一字未改。**
+
+| 编号 | 级别 | 我的抽查结论（2026-11-16） |
+| --- | --- | --- |
+| 1.1 | P0 | **成立**：`daily_ops.DEFAULT_ACCOUNTS = ("live", "paper")`，落账对实盘同样生效；
+`live/trades.jsonl` 已有 4 笔 `unified_open` 收盘价模拟单。违反「实盘只记真实成交」的设计前提 |
+| 1.2 | P0 | **成立**：`reports/account/backtest/trades.jsonl` 仍含 `2025-04-07` 的 `513500`
+假分红 `23,389.00`，终点净值 `1,687,442.92`；修正后的
+`plan_backtest_daily.json` 为 `1,582,725.46`，虚高 **10.47pp** |
+| 1.3 | P0 | **成立**：`audit_marks.py:102` 用 `source.endswith("open")`，
+而 `daily_allocation` 记的是 `unified_open`（收盘价），会被误当成开盘价核对 |
+| 2.1 | P0 | **成立**：`feature_audit.py:27` 读 `data/clean/all_stocks_features.parquet`，
+第 114–116 行直接 `close.shift(-h)/close-1`；该列若为 Z-score 值，符号会翻转 |
+| 2.2 | P0 | **待复核**：需要补两笔除权事件（`159919` 2019-01-14、`510500` 2022-08-29）后重算，
+在此之前 v5 的「0.58pp 载体差」只能当**待验证结论** |
+| 1.4–1.5、2.3、3.1–3.3 | P1/P2 | 未逐条复算；其中 3.3「`doc_lint.COMMAND` 定义了没用」已抽查为**成立** |
+
+### 全仓审查与修改意见（第二轮）：每日唯一入口、多资产研究、载体测量与特征审计
+
+日期：2026-11-16。状态：**已完成第二轮全仓审查**（基于提交 `7b47760`，覆盖 `tools/daily_ops.py`、`tools/daily_allocation.py`、`tools/asset_panel.py`、`tools/unified_plan.py`、`tools/fund_vehicles.py`、`tools/feature_audit.py`、`tools/audit_marks.py`、`src/web/app.py`、`web/src/`、三本账与现行文档，共定位 11 项问题并给出具体修改意见）。
+复现检查：`python -B -m pytest -q -p no:cacheprovider`、`python -B -m tools.doc_lint`。
+
+> **与上一轮的关系**：[`repository_review_20261115.md`](repository_review_20261115.md) 中的 14 项建议已有 9 项在提交 `66ff07e` 中收口；本轮针对的是该修复之后新合入的「每日唯一入口 + 全资产建议」与「统一策略 v1–v6 / 全特征审计」模块。
+
+---
+
+#### 0. 结论与问题总表
+
+本轮的核心风险是：**执行层的第一不变量（模型成交绝不进入实盘账本）已被打破**，且**统一多资产研究的若干关键数字建立在未核实的 ETF 除权/分红数据之上**。全部 11 项问题的清单如下：
+
+| 编号 | 级别 | 模块 / 文件 | 问题摘要 | 影响 |
+| --- | --- | --- | --- | --- |
+| **1.1** | **P0** | `tools/daily_ops.py`、`tools/daily_allocation.py`、`reports/account/live/trades.jsonl` | 21:30 定时任务默认对 `("live", "paper")` 同时调 `daily_allocation.apply()` 自动写入模型收盘价成交 | **破坏「实盘账本只记真实成交」的第一不变量**：11-15 已向 `live` 写入 4 笔收盘价模拟单（`unified_open`），未来每次触发 5% 带宽都会自动向 `live` 追加模型单 |
+| **1.2** | **P0** | `reports/account/backtest/` vs `reports/runs/plan_backtest/plan_backtest_daily.json` | `0fc04f0` 修复「2025-04-07 暴跌当分红」后未重导 `reports/account/backtest` | 网页「回测账」仍含 `2025-04-07` `513500` 的 `23,389` 元假分红，终点净值显示 **`1,687,442.92`（+68.74%）**，比同起点修正后的 `plan_backtest_daily.json`（**`1,582,725.46`，+58.27%**）虚高 **10.47pp（104,717 元）** |
+| **1.3** | **P0** | `tools/audit_marks.py`（第 102 行）vs `tools/daily_allocation.py`（第 213 行） | `daily_allocation` 按**收盘价**记建仓单并标 `source="unified_open"`；`audit_marks` 用 `source.endswith("open")` 判断开盘/收盘 | 对 `live` 运行 `audit_marks` 会把按 11-13 **收盘价**记的 4 笔 `unified_open` 拿去比对 11-13 **开盘价**，误报 `fill price does not match the open` |
+| **2.1** | **P0** | `tools/feature_audit.py`（第 27、114–116 行）、`doc/feature_audit_20261115.md` | 读取已废弃的 2026-07-01 顶层 `data/clean/all_stocks_features.parquet`，将**已做 Z-score 标准化（均值 0、含负数）的 `close` 列**相除算远期收益，且将 `股票代码` 当作特征 | Z-score 正负相除导致比值符号翻转：1 日 `return` 真实截面 IC 为 **`-0.0283`（强反转）**，被算成 **`+0.0095`（假动量）**；报告第 3 节还把 `指数点位` 的 1M IC（`-0.23`）误抄到两个 PE 口径名下 |
+| **2.2** | **P0** | `tools/fund_vehicles.py`（第 57–75 行）、`tools/plan_backtest.py`、`doc/fund_vehicles_20261115.md` | 新浪分红表漏记 `159919` 的 `2019-01-14` 除息（单日 `-10.09%`）并将 `510500` 的 `2022-08-29` 折算（单日 `-12.74%`）记为 `0.000`，代码将两处除权跳空当成真亏损 | **v5 核心结论失真**：补回这两笔漏记事件后，`159919` 对指数差从 `-1.00pp` 变为 **`-0.23pp/年`**（优于 `510300` 的 `-0.42pp`），`510500` 从 `-0.99pp` 变为 **`+0.06pp/年`**（跟踪误差 `3.81pp → 1.81pp`）；所谓「同指数选错载体白丢 0.58pp/年」实为新浪早期分红缺口 |
+| **1.4** | **P1** | `tools/daily_ops.py`、`tools/daily_allocation.py`、`tools/plan_orders.py` | ① `refresh_prices` 后 `prepare`/`check` 仍重复发 24 次新浪请求；② `--day` 未透传进 `daily_allocation` 且 `apply()` 硬编码 `now().date()`；③ `apply()` 缺写前整批现金校验；④ `plan_orders` 修剪手数未计卖出佣金 | 跨日补跑 `daily_ops --day` 或长假（>4 天）后运行会直接报错；单跑 `daily_allocation --apply` 若第 4 腿缺现金会留下前 3 腿半截脏流水 |
+| **1.5** | **P1** | `tools/daily_allocation.py`（第 130–170 行） | ① `--cash-safe` 在带宽内漏配 `511880`（已持仓时抛 `ValueError`）；② `--cash-safe` 下 12 类资产表权重之和仅 `0.80`；③ `action="hold"` 时 `sleeves` 仍返回非零 `delta` 与 `fee` | 开启 `--cash-safe` 后次日进入带宽即崩溃，且资产表丢掉 20% 权重；网页显示「持有」的同时表格却显示 `+100/+500/-1600` 份差额与 `15` 元费用 |
+| **2.3** | **P1** | `tools/unified_plan.py`（第 127–161 行）、`tests/test_unified_plan.py`（第 96–106 行） | 第 152 行先把 `book` 推到 `cum[end+2]`（`end+1` 日收盘），再用 `end+1` 日净值算 `target_weights` 并在同一个 `cum[end+2]` 成交；带宽按全组合 L1 算而非风险腿合计 | 实际执行的是「`end+1` 日同日收盘决策 + 同日收盘成交」（零延迟），与文档声称的「月末决策、次日成交」不符；单测因用了静态组合且跳空后序列持平而未能检出 |
+| **3.1** | **P1** | `tools/shadow_run.py`（第 242 行）、`reports/shadow/e1_state.json` | `hold` 日按**当日新分数**对 30 只持仓重排并写回 `state`；且当前 `e1_state.json` 仍为未排序旧顺序 | 在 19/20 的 `hold` 日里，虽然总名单 30 只不动，但「每日推荐」页的 `前 5 / 前 10 / 前 20` 每天都在洗牌（变相日频换手） |
+| **3.2** | **P2** | `src/web/app.py`（第 71–79 行）、`web/src/ExecutionPage.tsx` | `/api/recommend/unified` 未校验 `book` 参数且未注入 `root`；前端 `bookNotes` 与实际成交口径矛盾 | 非法 `book` 参数返回 HTTP 500；`create_app(tmp_root)` 测试时读穿到全局真实目录；页面切换 `ExecutionPage` 每次重挂载重拉全部 4 个接口 |
+| **3.3** | **P2** | `tools/doc_lint.py`（第 28、65–75 行）、`doc/daily_recommendation_20261115.md`、`pipeline.md` | `doc_lint.py` 定义了 `COMMAND` 正则却从未调用；`daily_recommendation` 表内把 `paper` 的 `55.49%` 误抄给 `live`；`pipeline.md` 工具数仍写 10 个（实为 27 个） | `doc_lint` 仍漏检 `python -m tools.<deleted>`；`live` 真实目标为 `59.84%`（偏离 `-0.09%`）而非文中的 `55.49%`（`-4.44%`） |
+
+---
+
+#### 1. 每日唯一入口（`daily_ops` / `daily_allocation`）审查意见
+
+##### 1.1 [P0] 停止 `daily_ops.py` 向 `live` 实盘账本自动写入模型收盘价成交
+
+- **位置**：[`tools/daily_ops.py`](../tools/daily_ops.py) 第 29、55–63、118–127 行；[`tools/daily_allocation.py`](../tools/daily_allocation.py) 第 209–226 行；[`reports/account/live/trades.jsonl`](../reports/account/live/trades.jsonl)。
+- **现象与根因**：
+  `account_ledger.py` 第 41–45 行与 `pipeline.md` §3 的首要设计原则是「模型模拟成交绝不进入实盘账本（`live` 只记 `manual`）」。但 `daily_ops.py` 把 `DEFAULT_ACCOUNTS = ("live", "paper")` 一视同仁地送进 `book(account, day)` → `daily_allocation.apply()`。这不仅在 11-15 把 4 笔 `unified_open` 模型收盘价买单写进了 `live/trades.jsonl`，而且使每晚 21:30 的定时任务在未来任何触发 5% 带宽的日子都会**自动把模型收盘价模拟单写进 `live`**，导致 `live` 与 `paper` 同质化（甚至比 `paper` 的 `model_open` 更偏离实盘）。
+- **修改建议**：
+  1. 在 `daily_ops.py` 中区分账本职责：`live` 和 `paper` 均执行 `prepare`（`sync_dividends` + `mark`）、`check` 和只读生成 `daily_allocation.recommendation()`；但**自动落账 `daily_allocation.apply()` 默认只对 `paper` 执行**（或增加 `--book-accounts=paper`，`live` 仅输出建议与预检结论，真实成交由人工通过 `account_ledger trade --account live` 录入）。
+  2. 若 `live` 尚未在真实券商下单，应清空 `reports/account/live/trades.jsonl` 中的 4 笔 `unified_open` 模拟单并将 `live/snapshots.jsonl` 恢复为 `1,000,000` 纯现金状态；若已在券商下单，则用真实交割单价格与费用替换为 `source: "manual"`。
+
+##### 1.2 [P0] 重新导出 `reports/account/backtest`，消除残留的 `2025-04-07` 假分红与 `10.47pp` 净值虚高
+
+- **位置**：[`reports/account/backtest/trades.jsonl`](../reports/account/backtest/trades.jsonl) 第 444 行 vs [`reports/runs/plan_backtest/plan_backtest_daily.json`](../reports/runs/plan_backtest/plan_backtest_daily.json) 第 407–415 行。
+- **实测证据**：
+  提交 `0fc04f0` 修复了「把 2025-04-07 关税暴跌当分红」的缺陷并重跑了 `plan_backtest_daily.json`（`2019-01-02` 起点的终点净值已更新为 **`1,582,725.46`**、年化 `+6.01%`、最差回撤 `-8.23%`、621 笔成交）。
+  但 **`reports/account/backtest/` 从未重导**，其 `trades.jsonl` 里至今保留着 `{"action": "dividend", "amount": 23389.0, "cash_per_share": 0.19, "code": "513500", "date": "2025-04-07"}`，导致网页「三本账 → 回测账」仍显示旧净值 **`1,687,442.92`（虚高 `104,717.46` 元 / `+10.47pp`）**。
+- **修改建议**：
+  1. 在修复下文 §2.2 的 `510500`（`2022-08-29`）折算识别后，重跑 `plan_backtest.py` 与 `plan_backtest.export_account('2019-01-02', name='backtest')`；
+  2. 在 `tests/test_backtest_export.py` 中增加一致性测试：断言 `reports/account/backtest` 的终点净值与 `reports/runs/plan_backtest/plan_backtest_daily.json` 中 `2019-01-02` 起点的 `final` 完全相等；
+  3. 同步更新 `doc/account_ledger_20261111.md` 第 26 行与 `doc/implementation_plan.md` 中的旧回测账终点数字。
+
+##### 1.3 [P0] 修复 `tools/audit_marks.py` 对 `source="unified_open"` 的开盘/收盘后缀冲突
+
+- **位置**：[`tools/audit_marks.py`](../tools/audit_marks.py) 第 102 行、[`tools/daily_allocation.py`](../tools/daily_allocation.py) 第 213 行。
+- **根因**：
+  `daily_allocation.apply()` 写入建仓成交时用 `source = "unified_open" if opening else "unified"`，其中 `"open"` 指「开账（opening）」，**价格实际取自收盘价 `close`**；而 `audit_marks.audit_fills()` 第 102 行写的是 `frame = opens if source.endswith("open") else closes`，把 `"unified_open"` 误判为按开盘价成交。
+- **修改建议**：
+  将 `daily_allocation.py` 的 `source` 命名为 `"unified_init"` / `"unified_rebalance"`（或 `"unified_close"`），并将 `audit_marks.py` 第 102 行改为 `frame = opens if source == "model_open" else closes`。
+
+##### 1.4 [P1] 修复 `daily_ops.py` / `daily_allocation.py` / `plan_orders.py` 的四处工程裂缝
+
+- **位置**：[`tools/daily_ops.py`](../tools/daily_ops.py) 第 32–64 行、[`tools/daily_allocation.py`](../tools/daily_allocation.py) 第 55–73、184–226 行、[`tools/plan_orders.py`](../tools/plan_orders.py) 第 91 行。
+- **修改建议**：
+  1. **消除 24 次重复联网请求并保证 `prepare` 原子性**：`daily_ops.refresh_prices()` 已将最新行情与分红写入 `data/online/fund/{hist,dist}_<code>.csv`，`prepare()` 与 `check()` 应直接复用该本地缓存（或将 prices/dividends 一次性读入内存传给 `sync_dividends`、`mark`、`check`），避免在已写完 `live` 快照后因 `paper` 的重复新浪请求超时而留下半边快照。
+  2. **透传 `day` 参数**：为 `daily_allocation.cached_prices()`、`recommendation()` 和 `apply()` 增加 `as_of: str | None = None` 参数；当 `daily_ops --day <date>` 指定日期时，截取 `<= as_of` 的缓存行并以 `as_of`（而非 `pd.Timestamp.now().date()`）做交易日校验，使历史重跑与次日凌晨补跑正常工作；过期阈值改按**距今未更新的交易日数（如 >1 个交易日）**而非自然日 `MAX_AGE_DAYS = 4`（自然日 4 天在五一/国庆/春节长假后会误拒）。
+  3. **`daily_allocation.apply()` 增加写前整批现金校验**：与 `account_ledger.book()` 一致，在循环调用 `ledger.record_trade()` 落盘前先在内存中试算整批 `ordered` 订单后的现金余额。
+  4. **`plan_orders.orders()` 计入卖出佣金**：将第 91 行 `sum(fee_for(row) for row in plan if row["delta"] > 0)` 改为 `sum(fee_for(row) for row in plan if row["delta"] != 0)`，并按 `row["delta"] * row["price"]`（买入金额最大腿）下调一手。
+
+##### 1.5 [P1] 修复 `daily_allocation.py` 的 `--cash-safe` 崩溃、资产表丢权重与 `hold` 日非零差额
+
+- **位置**：[`tools/daily_allocation.py`](../tools/daily_allocation.py) 第 130–170 行。
+- **修改建议**：
+  1. **修复 `--cash-safe` 在带宽内的崩溃**：当 `abs(drift) < BAND`（`action == "hold"`）时，不应重算 `25/25/50` 也不应丢掉 `CASH_ETF`，而应直接保持当前各腿持仓股数不变（`delta = 0, fee = 0.0, action = "hold"`）。这样既修复了持有 `511880` 时进入带宽抛 `ValueError: account holds 511880` 的崩溃，也解决了网页在显示「持有，未触发带宽」时下方表格却列出 `510300 +100 / 510500 +500 / 513500 -1600` 差额与 `15` 元费用的自相矛盾。
+  2. **修复 `--cash-safe` 下 12 类资产表权重之和为 `0.80` 的 bug**：在构建 `assets` 表（第 160–170 行）时，将 `CASH_ETF`（`511880`）的目标权重与目标市值并入「现金 / 货基」行（即 `weight = idle_weight + cash_etf_weight`，`value = idle_cash + cash_etf_value`），使 `cash_safe=True` 时 12 类资产权重之和仍恒等于 `1.0000`。
+
+---
+
+#### 2. 多资产研究、载体测量与特征审计审查意见
+
+##### 2.1 [P0] 修复 `tools/feature_audit.py` 误用 Z-score `close` 相除算收益率及 `doc/feature_audit_20261115.md` 表格错位
+
+- **位置**：[`tools/feature_audit.py`](../tools/feature_audit.py) 第 27、32、110–145 行；[`reports/runs/feature_audit/price_ic.csv`](../reports/runs/feature_audit/price_ic.csv) 第 1–38 行；[`doc/feature_audit_20261115.md`](feature_audit_20261115.md) 第 28–46 行。
+- **实证验证**：
+  - `data/clean/all_stocks_features.parquet` 是 2026-07-01 的早期遗留文件，其中连 `股票代码`（如 `0.724061`）和 `close`（如 `-0.006905`）都被做了均值 0、标准差 1 的 Z-score 标准化（见 `reports/runs/feature_audit/price_profiles.csv` 全部 `std = 1.0`、`mean = 0.0`）。
+  - `feature_audit.cross_sectional_ic()` 执行 `forward = close.shift(-horizon) / close - 1.0`，用含负数的 Z-score 相除，导致 1 日 `return` 的截面秩 IC 从真实的 **`-0.0283`（强反转）** 变成了 **`+0.0095`（假动量）**，且 `price_ic.csv` 把 `股票代码`、`open`、`close`、`ma_5..60` 等 12 个非特征列也算进了「32 个量价特征」。
+  - 此外，`doc/feature_audit_20261115.md` §3 表格把 `index_and_macro.csv` 第 2 行 `指数点位` 的 1M IC（`-0.2292`）误填到了 `静态市盈率中位数`（实为 `-0.0554`）和 `等权静态市盈率`（实为 `-0.0335`）的 1 月栏。
+- **修改建议**：
+  1. 将 `feature_audit.py` 的输入改为 `data/clean/research_v3/panel_data.parquet`（20 个标准特征）与 `data/clean/research_v3/prices.parquet`（未标准化的真实后复权 `close`）；
+  2. 重跑生成 `reports/runs/feature_audit/`，并在 `doc/feature_audit_20261115.md` 顶部按规范添加「更正」块（20 日持有期下 20 个量价特征最大 `|IC|` 仍低于 `0.031` 门槛，故「0 个过门槛」的最终裁决不变，但 1 日反转方向与估值 1M IC 数字需更正）。
+
+##### 2.2 [P0] 修复 `tools/fund_vehicles.py` 与 `tools/plan_backtest.py` 中漏记的两处 ETF 除权/折算事件，更正 v5 载体结论
+
+- **位置**：[`tools/fund_vehicles.py`](../tools/fund_vehicles.py) 第 57–75 行、[`tools/plan_backtest.py`](../tools/plan_backtest.py) 第 60–91、110–136 行、[`doc/fund_vehicles_20261115.md`](fund_vehicles_20261115.md)、[`doc/unified_strategy_final_20261115.md`](unified_strategy_final_20261115.md)。
+- **实证验证**：
+  新浪 `fund_etf_dividend_sina` 接口存在两处历史数据缺失：
+  1. **`159919`（嘉实沪深300ETF）**：接口仅返回 2020 年以后的 5 次分红，漏掉了 **`2019-01-14`** 的除息（`2019-01-11` 停牌半日，`2019-01-14` 收盘从 `3.408` 跌至 `3.064`，单日 `-10.09%`，而当日沪深300指数仅 `-0.10%`）。这单日 `-10.09%` 的未入账除息在 14.4 年里造成了 `-0.73pp/年` 的假落后。**补齐该笔 `0.344` 元除息后，`159919` 年化为 `5.12%`，对指数差为 `-0.23pp/年`（跟踪误差 `2.11pp`），反而优于 `510300` 的 `-0.42pp/年`；在分红完整的 2019-01-15 至今回看，`159919`（`+5.43%`）也略高于 `510300`（`+5.32%`）。**
+  2. **`510500`（南方中证500ETF）**：**`2022-08-29`** 发生份额折算/分红，收盘从 `7.220` 跳至 `6.300`（单日 `-12.74%`，当日中证500指数 `+0.39%`），接口将该行分红记为 `0.000`。提交 `0fc04f0` 移除 10% 跳空规则后，把这次折算当成了 `-12.74%` 的真暴跌。**补齐该事件后，`510500` 年化从 `5.50%` 升至 `6.56%`，对指数差从 `-0.99pp/年` 变为 `+0.06pp/年`（跟踪误差从 `3.81pp` 降至 `1.81pp`）。**
+- **修改建议**：
+  1. 区分「真市场暴跌（如 `2025-04-07`）」与「接口漏记的除息/折算（如 `2022-08-29` `510500`、`2019-01-14` `159919`）」的客观判据是**相对标的指数的超额跳空**：当 ETF 单日跌幅 $\ge 8\%$ 且与同日标的指数涨跌幅之差 $|r_{\text{ETF}} - r_{\text{index}}| \ge 8\%$ 时（或显式登记这两笔经交易所公告确认的历史事件），才作为漏记分红/折算修复；同时在 `repair()` 缩放折算前历史价格时，同步缩放折算日之前的 `paid` 每份分红。
+  2. 在 `doc/fund_vehicles_20261115.md` 与 `doc/unified_strategy_final_20261115.md` 顶部补充更正：A 股宽基 ETF（`510300`/`159919`/`510500`）真实载体差仅 `-0.42pp ~ +0.06pp/年`，真正需要计入 `-0.7 ~ -1.2pp/年` 显著载体差的是**债券 ETF（交易所国债 vs 银行间中债指数口径差）与 QDII `513500`**。
+
+##### 2.3 [P1] 修复 `tools/unified_plan.py` 的「月末决策、次日成交」时点错位与带宽定义
+
+- **位置**：[`tools/unified_plan.py`](../tools/unified_plan.py) 第 127–161 行、[`tests/test_unified_plan.py`](../tests/test_unified_plan.py) 第 96–106 行。
+- **根因**：
+  `unified_plan.simulate()` 第 152–160 行先用 `book = book * (cum[end + 2] / cum[base])` 把组合推到 `end + 1` 日收盘，再用 `end + 1` 日的 `nav`、`peak` 和 `y_at(end + 1)` 计算 `wanted = target_weights(...)`，并立即在同一个 `cum[end + 2]` 按 `wanted` 调仓——导致**决策与成交发生在同一天（`end + 1` 日收盘），没有任何成交滞后**。
+- **修改建议**：
+  1. 在 `end` 日收盘（即 `nav_decision = float(navs[-1])`、`peak_decision = peak`、`y_at(end)`）计算目标权重 `wanted`；随后推进到 `cum[end + 2]`（`end + 1` 日收盘）按 `wanted` 成交并扣除交易成本；
+  2. 将第 132 行初始峰值设为 `peak = 1.0`（含建仓成本回撤），并将 CPPI 规则的不交易带判据对齐为风险腿合计偏离 `abs(risky_target - risky_now) >= band`；
+  3. 将 `tests/test_unified_plan.py::test_fills_happen_one_session_after_the_decision` 改为使用动态 CPPI 规则（`C1`）并在决策日次日构造二次下跌，真正检验 1 日成交滞后。
+
+---
+
+#### 3. 影子运行、Web 接口与文档检查审查意见
+
+##### 3.1 [P1] `tools/shadow_run.py` 在 `hold` 日应保持入场排序，避免 `topK` 每日洗牌
+
+- **位置**：[`tools/shadow_run.py`](../tools/shadow_run.py) 第 239–243 行、[`reports/shadow/e1_state.json`](../reports/shadow/e1_state.json)。
+- **根因**：
+  在 `hold` 日（19/20 的交易日），第 242 行 `book = sorted(held, key=lambda code: float(score.get(code, float("inf"))))` 用**当日新算的截面分**对持有的 30 只股票重排并写回 `e1_state.json`。这会导致虽然 30 只总持仓未变（`decision="hold"`），但网页「每日推荐」的 `前 5 / 前 10 / 前 20` 切片每天都在发生日频轮动；同时 `reports/shadow/e1_state.json` 中现存的 30 只 `holdings` 仍是 `66ff07e` 之前的未排序状态（第 20 位 `300896` 分数 `0.3283` > 第 21 位 `603260` 分数 `0.2516`）。
+- **修改建议**：
+  - 将 `reports/shadow/e1_state.json` 的 `holdings` 按 `2026-11-13` 的入场分数排好序，并存入 `entry_score`；
+  - 在 `hold` 日保持 `book = list(held)` 的入场日排序不变（使 20 日持有期内 `book[:K]` 真正固定持有不动），当日新分数可单独记入 `current_score` 字段供参考。
+
+##### 3.2 [P2] `src/web/app.py` 路由参数校验与 `root` 注入、前端说明同步
+
+- **位置**：[`src/web/app.py`](../src/web/app.py) 第 71–79 行、[`tools/daily_allocation.py`](../tools/daily_allocation.py) 第 95–105 行、[`web/src/ExecutionPage.tsx`](../web/src/ExecutionPage.tsx) 第 13–17、44–54 行。
+- **修改建议**：
+  1. 在 `daily_allocation.book_state()` 中增加 `if book not in ("live", "paper", "backtest"): raise ValueError(...)`（由 FastAPI 统一转为 HTTP 409，防止未捕获的 `FileNotFoundError` 500 错误或路径穿越）；
+  2. 在 `app.py` 的 `recommend_unified` 路由中传入 `online=root / "data" / "online"` 与 `base=root / "reports" / "account"`，与其余路由保持一致；
+  3. 在 `ExecutionPage.tsx` 的 `load()` 中接受可选 `targetRecBook = recBook` 参数，避免切换 `live`/`paper` 后刷新读到旧状态。
+
+##### 3.3 [P2] 启用 `tools/doc_lint.py` 中未调用的 `COMMAND` 正则并修正三处文档笔误
+
+- **位置**：[`tools/doc_lint.py`](../tools/doc_lint.py) 第 28、65–75 行；[`doc/daily_recommendation_20261115.md`](daily_recommendation_20261115.md) 第 44–46 行；[`pipeline.md`](../pipeline.md) 第 18、27、33–36、89–95 行；[`doc/implementation_plan.md`](implementation_plan.md) 第 18–19、579–662 行。
+- **修改建议**：
+  1. 在 `tools/doc_lint.py::check_tools` 第 71 行将 `for name in TOOL.findall(line):` 改为 `for name in TOOL.findall(line) + COMMAND.findall(line):`（让第 28 行已定义的 `COMMAND` 真正生效），并清理被检出的 4 处失效命令引用；
+  2. 修正 `doc/daily_recommendation_20261115.md` 第 44–46 行表格中 `live` 的「风险腿目标」（应为 **`59.84%`**，误写成 `paper` 的 `55.49%`）与「偏离」（应为 **`−0.09%`**，误写成 `−4.44%`），同步修正 `doc/README.md` 第 50 行摘要；
+  3. 更新 `pipeline.md` 的工具清单（纳入 `daily_ops`、`daily_allocation`、`asset_panel`、`unified_plan`、`fund_vehicles`、`feature_audit` 等）与第 7 节每日执行命令，清理 `doc/implementation_plan.md` 第 18–19 行的死链与尾部 2026-11-08 过期章节。
+
+---
+
+#### 4. 建议修改执行顺序
+
+1. **第一优先级（今日 `2026-11-16` 20:00 S2 与 21:30 定时任务前完成，P0）**：
+   - 让 `daily_ops.py` 不再向 `live` 自动落账（§1.1），并修复 `audit_marks` 的 `source` 后缀冲突（§1.3）；
+   - 重导 `reports/account/backtest`（§1.2），修复 `fund_vehicles` / `plan_backtest` 对 `510500` `2022-08-29` 与 `159919` `2019-01-14` 的漏记事件（§2.2）；
+   - 重跑 `feature_audit` 并更正 `doc/feature_audit_20261115.md`（§2.1）。
+2. **第二优先级（每日入口的健壮性，P1）**：
+   - 补齐 `daily_allocation` 的 `--day` 透传、写前整批现金校验与 `--cash-safe` 崩溃修复（§1.4、§1.5）；
+   - 修正 `unified_plan.py` 的成交时点（§2.3）与 `shadow_run.py` 的 `hold` 日排序（§3.1）。
+3. **第三优先级（接口与文档卫生，P2）**：
+   - 修正 `app.py` 路由注入与前端提示（§3.2）；
+   - 启用 `doc_lint` 的 `COMMAND` 正则并修正 `pipeline.md`、`implementation_plan.md`、`daily_recommendation` 中的过期数字与链接（§3.3）。

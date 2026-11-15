@@ -1,6 +1,6 @@
 # 项目文档索引
 
-更新日期：2026-11-15。
+更新日期：2026-11-16。
 
 建议按以下顺序阅读：
 
@@ -64,7 +64,7 @@
 | [research_workflow.md](research_workflow.md) | 数据产物、预处理、基线回测和本地复现 |
 | [opencode_proxy_20261110.md](opencode_proxy_20261110.md) | 本地代理：`opencode.cmd` 与 `tools/opencode_proxy.ps1` 的用法与边界 |
 | [repository_cleanup_20261114.md](repository_cleanup_20261114.md) | 仓库清理：删 14 个目录 **2.34 GB**（`research_v2` 与 v3 逐文件同哈希、9 个零引用覆盖率扫描面板、3 个过期前向面板、1 个废弃抓取），`data/` 9.93→7.59 GB；`reports/runs` 一个没动（11.94 GB 与 2026-11-07 记录逐位一致，T1 政策仍生效）。**自纠一条错判**：前向面板的滚动保留早就存在于 `forward_panel.prune()`，我先前说"一年 110 GB、需要做轮换"是只看了目录数量没读 `main()`；真实缺口是 `shadow_run.DATASET` 硬编码指向被删的那块面板，已改为跟随磁盘最新，`keep` 5→3 |
-| [repository_review_20261115.md](repository_review_20261115.md) | **全仓审查与修改意见（2026-11-15）**：针对 `execution` 分支新增的每日股票推荐、S2 影子运行、CPPI 回测/账本及文档集定位 **14 项问题**（含 3 项 P0：`src/web/execution.py` 链式净值下标滞后 4 行、`hold` 日 `score=None` 致 `topK` 推荐失序、`archive_fund_flow.py` 以旧库最大日期做跳过条件致周度归档永久跳过 1,797 只股票）并给出逐项修改方案 |
+| [repository_review_20261115.md](repository_review_20261115.md) | **全仓审查与修改意见（两轮合一）**：第一轮（2026-11-15）针对每日股票推荐、S2 影子运行、CPPI 回测/账本及文档集定位 **14 项问题**（含 3 项 P0：链式净值下标滞后 4 行、`hold` 日 `score=None` 致 `topK` 失序、归档按旧库最大日期跳过 1,797 只）；**第二轮（2026-11-16）已并入第 7 节**，针对每日唯一入口 `daily_ops` / 全资产建议 / 中债指数 / 载体测量 / 特征审计再定位 **11 项**（含 5 项 P0：`daily_ops` 自动向 `live` 写模型收盘价成交、`backtest` 账本残留 `2025-04-07` 假分红致净值虚高 **10.47pp**、`audit_marks` 误判 `unified_open`、`feature_audit` 用 Z-score `close` 相除致 1 日 IC 符号翻转、`fund_vehicles` 漏记两笔除权）。**P0 逐条抽查结论见第 7 节开头** |
 | [implementation_plan.md](implementation_plan.md) | 当前阶段状态、最新结论、下一步和维护规则 |
 | [pipeline.md](../pipeline.md) | 当前总体架构、数据流、训练评价边界和未实施扩展 |
 
