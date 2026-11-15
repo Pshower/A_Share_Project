@@ -184,13 +184,28 @@ def recommendation(book: str = "paper", cash_safe: bool = False,
 def apply(result: dict, dry: bool = False, max_age_days: int | None = MAX_AGE_DAYS) -> dict:
     """Book the recommendation: sells first, then buys, then re-mark the day.
 
-    Refuses to book a quote that is older than ``max_age_days``: an automated job that runs after
-    a failed data refresh would otherwise trade the book at last week's prices and label it today.
+    Refuses a quote that is behind the session being booked.  The daily job runs at 21:30 and
+    Sina publishes around 20:30; when the publish slips, the cache still holds *yesterday's*
+    close, and a calendar-age test (Friday's price on a Monday is 3 days old) would happily book
+    it.  So the test is against the trading calendar, with a plain age cap as a second net.
     """
-    age = (pd.Timestamp(pd.Timestamp.now().date()) - pd.Timestamp(result["as_of"])).days
-    if max_age_days is not None and age > max_age_days and not dry:
-        raise ValueError("报价停在 %s（%d 天前），拒绝按它记账；先刷新行情或显式放宽 max_age_days"
-                         % (result["as_of"], age))
+    from tools import trading_calendar
+
+    stamp = pd.Timestamp(result["as_of"])
+    today = pd.Timestamp(pd.Timestamp.now().date())
+    age = int((today - stamp).days)
+    try:
+        trading_today = trading_calendar.is_trading_day(today)
+    except Exception:                                             # noqa: BLE001
+        # A calendar that cannot be read must not quietly disable the staleness test; it falls
+        # back to the age cap below, and the decision log records that the check was degraded.
+        trading_today = None
+    if not dry:
+        if trading_today is True and stamp < today:
+            raise ValueError("报价停在 %s，而今天是交易日；拒绝按旧价记账" % result["as_of"])
+        if max_age_days is not None and age > max_age_days:
+            raise ValueError("报价停在 %s（%d 天前），拒绝按它记账；先刷新行情或显式放宽 max_age_days"
+                             % (result["as_of"], age))
     ledger.use(result["book"])
     stamp = pd.Timestamp(result["as_of"])
     opening = not any(int(shares) > 0 for shares in
