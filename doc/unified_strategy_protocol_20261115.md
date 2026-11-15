@@ -123,3 +123,5 @@ v1 第 1 节给合成债券模型留了一条自检：**与 000012 的月收益�
 | v2 | `unified/v2-panel` | 数据层：`tools/asset_panel.py`（写 `reports/runs/unified_plan/panel.csv` + `panel.json`），9 条面板测试 | 2026-11-15 |
 | v3 | `unified/v3-result` | 结果与决策：`tools/unified_plan.py`，12 条规则全表 + 判据裁决（0/12 通过） | 2026-11-15 |
 | v4 | `unified/v4-credit` | 数据升级：中债**真实全收益指数**（国债按期限、信用债、AA−、期限桶）+ 信用腿与真实久期复核，见 [信用债](credit_sleeve_20261115.md) | 2026-11-15 |
+| v5 | `unified/v5-vehicles` | 载体测量：9 只 ETF 对真实指数的跟踪差，见 [基金载体](fund_vehicles_20261115.md) | 2026-11-15 |
+| v6 | `unified/v6-spec` | **收敛稿**：资产全集 + 一条规则 + 净预期，见 [统一策略最终规格](unified_strategy_final_20261115.md) | 2026-11-15 |
