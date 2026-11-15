@@ -525,6 +525,35 @@ def _prices_with_dates(codes, stamp=None):
     return prices, dates
 
 
+def check(stamp=None, prices=None):
+    """The pre-trade gate as data: state, targets, drift, problems, ``safe_to_send``.
+
+    ``main`` prints this; the daily orchestrator reads it directly.  Keeping one implementation
+    means the printed check and the automated gate can never disagree.
+    """
+    cfg = config()
+    stamp = str(stamp or date_type.today())
+    trades = _read(TRADES)
+    ledger_book = replay(trades, cfg["capital"])
+    if prices:
+        dates = {code: stamp for code in LEGS}
+    else:
+        prices, dates = _prices_with_dates(LEGS)
+    row = state(prices=prices, cfg=cfg, trades=trades, dates=stamp)
+    targets = plan_orders.decide(row["nav"], row["peak"], prices, held=ledger_book["positions"])
+    problems = gate(targets["orders"], prices, dates, row)
+    current = {}
+    for code in LEGS:
+        value = float(ledger_book["positions"].get(code, 0)) * float(prices[code])
+        current[code] = round(value / row["nav"], 6) if row["nav"] else 0.0
+    drift = {code: round(current[code] - targets["weights"][code], 6) for code in LEGS}
+    return dict(state={k: row[k] for k in ("date", "nav", "peak", "drawdown", "cash")},
+                current=current, targets=targets["weights"], drift=drift,
+                band_triggered=bool(targets["traded"]), band=plan_orders.BAND,
+                orders=targets["orders"], problems=problems,
+                safe_to_send=not problems)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Account ledger for the plan.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -550,9 +579,10 @@ def main(argv=None):
 
     sub.add_parser("status", help="Current holdings, NAV and drawdown.")
 
-    check = sub.add_parser("check", help="Pre-trade gate for the plan's orders.")
-    check.add_argument("--date", default=str(date_type.today()))
-    check.add_argument("--prices", default=None, help='JSON {"510300": price, ...}; omit to fetch.')
+    check_cmd = sub.add_parser("check", help="Pre-trade gate for the plan's orders.")
+    check_cmd.add_argument("--date", default=str(date_type.today()))
+    check_cmd.add_argument("--prices", default=None,
+                           help='JSON {"510300": price, ...}; omit to fetch.')
 
     book_cmd = sub.add_parser("book", help="Execute the plan inside the ledger at that day's prices.")
     book_cmd.add_argument("--date", default=str(date_type.today()))
@@ -587,26 +617,7 @@ def main(argv=None):
         row = state()
         print(json.dumps(row, ensure_ascii=False, indent=2, default=float))
     elif args.command == "check":
-        cfg = config()
-        trades = _read(TRADES)
-        ledger_book = replay(trades, cfg["capital"])
-        if args.prices:
-            prices, dates = json.loads(args.prices), {code: args.date for code in LEGS}
-        else:
-            prices, dates = _prices_with_dates(LEGS)
-        row = state(prices=prices, cfg=cfg, trades=trades, dates=args.date)
-        targets = plan_orders.decide(row["nav"], row["peak"], prices, held=ledger_book["positions"])
-        problems = gate(targets["orders"], prices, dates, row)
-        current = {}
-        for code in LEGS:
-            value = float(ledger_book["positions"].get(code, 0)) * float(prices[code])
-            current[code] = round(value / row["nav"], 6) if row["nav"] else 0.0
-        drift = {code: round(current[code] - targets["weights"][code], 6) for code in LEGS}
-        print(json.dumps(dict(state={k: row[k] for k in ("date", "nav", "peak", "drawdown", "cash")},
-                              current=current, targets=targets["weights"], drift=drift,
-                              band_triggered=bool(targets["traded"]),
-                              band=plan_orders.BAND, orders=targets["orders"],
-                              problems=problems, safe_to_send=not problems),
+        print(json.dumps(check(args.date, json.loads(args.prices) if args.prices else None),
                          ensure_ascii=False, indent=2, default=float))
     elif args.command == "book":
         print(json.dumps(book(args.date, args.field), ensure_ascii=False, indent=2, default=float))
