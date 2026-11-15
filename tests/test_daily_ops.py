@@ -45,7 +45,21 @@ def test_every_account_is_checked_before_any_is_booked(monkeypatch):
     report = ops.run(day="2026-11-13")
     assert report["status"] == "ok"
     assert seen[0] == ["live", "paper"]            # both checked before the first booking
-    assert calls["book"] == ["live", "paper"]
+    assert calls["book"] == ["paper"]              # only the paper book is written
+
+
+def test_the_live_book_is_never_written_by_the_model(monkeypatch):
+    """The repository's first invariant: a model fill never enters the real-money book."""
+    calls = green(monkeypatch)
+    monkeypatch.setattr(ops.daily_allocation, "recommendation",
+                        lambda book="paper", cash_safe=False: dict(
+                            action="rebalance", nav=1000.0, risky_target=0.6, risky_now=0.0,
+                            as_of="2026-11-13", sleeves=[dict(delta=100)]))
+    report = ops.run(day="2026-11-13")
+    assert "live" not in calls["book"]
+    assert report["bookings"]["live"]["advisory"] is True
+    assert report["bookings"]["live"]["trades"] == 0
+    assert "仅建议" in report["summary"]
 
 
 def test_one_book_failing_the_gate_stops_before_any_booking(monkeypatch):

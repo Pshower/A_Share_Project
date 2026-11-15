@@ -353,7 +353,7 @@ GET /api/recommend/unified?book=../../doc -> HTTP 500
 `daily_ops.prepare()` 走 `ledger.mark()`，它用 `_prices_with_dates()` **直连新浪**；
 `daily_ops.book()` 走 `daily_allocation`，它用 **`data/online/fund/hist_*.csv` 缓存**。
 两条路各自独立，若新浪可用但缓存拉取失败（或反过来），会出现
-"快照按新浪定价、建议按缓存定价"的错配，而 `as_of == day` 的校验只覆盖后者。
+快照按新浪定价、建议按缓存定价"的错配，而 `as_of == day` 的校验只覆盖后者。
 建议：`prepare` 也接受缓存价格（或在 `mark` 之后断言 `price_dates == day` 且
 `daily_allocation` 用的是同一批价）。
 
@@ -411,17 +411,11 @@ GET /api/recommend/unified?book=../../doc -> HTTP 500
 
 | 编号 | 级别 | 我的抽查结论（2026-11-16） |
 | --- | --- | --- |
-| 1.1 | P0 | **成立**：`daily_ops.DEFAULT_ACCOUNTS = ("live", "paper")`，落账对实盘同样生效；
-`live/trades.jsonl` 已有 4 笔 `unified_open` 收盘价模拟单。违反「实盘只记真实成交」的设计前提 |
-| 1.2 | P0 | **成立**：`reports/account/backtest/trades.jsonl` 仍含 `2025-04-07` 的 `513500`
-假分红 `23,389.00`，终点净值 `1,687,442.92`；修正后的
-`plan_backtest_daily.json` 为 `1,582,725.46`，虚高 **10.47pp** |
-| 1.3 | P0 | **成立**：`audit_marks.py:102` 用 `source.endswith("open")`，
-而 `daily_allocation` 记的是 `unified_open`（收盘价），会被误当成开盘价核对 |
-| 2.1 | P0 | **成立**：`feature_audit.py:27` 读 `data/clean/all_stocks_features.parquet`，
-第 114–116 行直接 `close.shift(-h)/close-1`；该列若为 Z-score 值，符号会翻转 |
-| 2.2 | P0 | **待复核**：需要补两笔除权事件（`159919` 2019-01-14、`510500` 2022-08-29）后重算，
-在此之前 v5 的「0.58pp 载体差」只能当**待验证结论** |
+| 1.1 | P0 | **已修**：`daily_ops.DEFAULT_BOOK_ACCOUNTS = ("paper",)`，`live` 只做 prepare/check/只读建议；`live/trades.jsonl` 的 4 笔 `unified_open` 已清空并归档到 `reports/account/live/archive/`，账本回到 100 万纯现金；新增测试「模型永不写 live」 |
+| 1.2 | P0 | **已修**：重跑 `plan_backtest.export_account('2019-01-02')` 重导回测账——终点净值 **1,582,725.46**（原 1,687,442.92）、621 行成交、最差回撤 −8.23%，与 `plan_backtest_daily.json` 逐位一致；`2025-04-07` 只剩 3 笔真实减仓与 1 笔买债，假分红已消失 |
+| 1.3 | P0 | **成立、待修**：`audit_marks.py:102` 用 `source.endswith("open")`，而 `daily_allocation` 记的是 `unified_open`（收盘价），会被误当成开盘价核对 |
+| 2.1 | P1 | **成立、待修**：`feature_audit.py:27` 读 `data/clean/all_stocks_features.parquet`，第 114–116 行直接 `close.shift(-h)/close-1`；该列若为 Z-score 值，符号会翻转 |
+| 2.2 | P0 | **待复核**：需要补两笔除权事件（`159919` 2019-01-14、`510500` 2022-08-29）后重算，在此之前 v5 的「0.58pp 载体差」只能当**待验证结论** |
 | 1.4–1.5、2.3、3.1–3.3 | P1/P2 | 未逐条复算；其中 3.3「`doc_lint.COMMAND` 定义了没用」已抽查为**成立** |
 
 ### 全仓审查与修改意见（第二轮）：每日唯一入口、多资产研究、载体测量与特征审计

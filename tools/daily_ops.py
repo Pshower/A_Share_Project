@@ -27,6 +27,10 @@ from tools import daily_allocation, trading_calendar
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = PROJECT_ROOT / "reports" / "runs" / "daily_ops"
 DEFAULT_ACCOUNTS = ("live", "paper")
+# The repository's first invariant: a model fill never enters the real-money book.  ``live`` is
+# prepared, checked and advised on every run -- but only ``paper`` is booked automatically.
+# Real fills are recorded by hand with ``account_ledger trade --account live``.
+DEFAULT_BOOK_ACCOUNTS = ("paper",)
 
 
 def refresh_prices() -> dict:
@@ -83,12 +87,15 @@ def monthly(account: str, day: str) -> dict:
     return ledger.monthly_report(month)
 
 
-def run(day: str | None = None, accounts=DEFAULT_ACCOUNTS, refresh: bool = True,
+def run(day: str | None = None, accounts=DEFAULT_ACCOUNTS,
+        book_accounts=DEFAULT_BOOK_ACCOUNTS, refresh: bool = True,
         dry: bool = False) -> dict:
     """The whole day as one unit.  Returns the run record; ``status`` is ok / closed / failed."""
     day = str(day or pd.Timestamp.now().date())
-    report = dict(day=day, accounts=list(accounts), dry=bool(dry), steps=[],
-                  status="ok", bookings={}, curves={}, summary="", error=None)
+    book_accounts = tuple(book_accounts)
+    report = dict(day=day, accounts=list(accounts), book_accounts=list(book_accounts),
+                  dry=bool(dry), steps=[], status="ok", bookings={}, curves={},
+                  summary="", error=None)
 
     def note(step: str, payload=None, error: str | None = None) -> None:
         report["steps"].append(dict(step=step, ok=error is None, detail=payload, error=error))
@@ -116,12 +123,17 @@ def run(day: str | None = None, accounts=DEFAULT_ACCOUNTS, refresh: bool = True,
             raise RuntimeError("预检未通过：%s；已停在落账之前" % "、".join(blocked))
 
         for account in accounts:
-            if dry:
-                # A dry run still answers "what would happen": the recommendation is read-only.
+            if dry or account not in book_accounts:
+                # A dry run still answers "what would happen"; a non-booking account (live) gets
+                # the same read-only advice and is never written by the model.
                 advice = daily_allocation.recommendation(book=account)
                 report["bookings"][account] = dict(
-                    dry=True, action=advice["action"], trades=0, nav=advice["nav"],
-                    risky_target=advice["risky_target"], risky_now=advice["risky_now"])
+                    dry=bool(dry), advisory=account not in book_accounts,
+                    action=advice["action"], trades=0, nav=advice["nav"],
+                    risky_target=advice["risky_target"], risky_now=advice["risky_now"],
+                    fills=len([row for row in advice.get("sleeves", []) if row["delta"] != 0]))
+                if account not in book_accounts:
+                    note("advise:" + account, report["bookings"][account])
                 continue
             report["bookings"][account] = book(account, day)
             note("book:" + account, report["bookings"][account])
@@ -158,7 +170,7 @@ def summary_line(report: dict) -> str:
     for account in report["accounts"]:
         booked = report["bookings"].get(account, {})
         curve = _nav(report, account)
-        bits = [account]
+        bits = [account + ("（仅建议）" if booked.get("advisory") else "")]
         if "nav" in booked:
             bits.append("nav %.2f" % booked["nav"])
         if "drawdown" in curve:
@@ -166,6 +178,8 @@ def summary_line(report: dict) -> str:
         bits.append(booked.get("action", "?"))
         if booked.get("trades"):
             bits.append("%d 笔成交" % booked["trades"])
+        elif booked.get("advisory") and booked.get("fills"):
+            bits.append("%d 笔建议（未落账）" % booked["fills"])
         parts.append(" ".join(bits))
     return "；".join([parts[0], "，".join(parts[1:])])
 
@@ -174,11 +188,15 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--day", default=None)
     parser.add_argument("--accounts", default=",".join(DEFAULT_ACCOUNTS))
+    parser.add_argument("--book-accounts", default=",".join(DEFAULT_BOOK_ACCOUNTS),
+                        help="which books the model may write to; live must be recorded by hand")
     parser.add_argument("--dry", action="store_true", help="读一遍，不写任何文件")
     parser.add_argument("--no-refresh", action="store_true")
     args = parser.parse_args(argv)
     accounts = tuple(name.strip() for name in args.accounts.split(",") if name.strip())
-    report = run(day=args.day, accounts=accounts, refresh=not args.no_refresh, dry=args.dry)
+    book_accounts = tuple(name.strip() for name in args.book_accounts.split(",") if name.strip())
+    report = run(day=args.day, accounts=accounts, book_accounts=book_accounts,
+                 refresh=not args.no_refresh, dry=args.dry)
     OUTPUT.mkdir(parents=True, exist_ok=True)
     if report["status"] != "closed":
         (OUTPUT / ("%s.json" % report["day"])).write_text(
