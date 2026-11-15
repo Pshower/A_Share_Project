@@ -1,4 +1,4 @@
-﻿"""The asset panel's arithmetic, and the two ways it could cheat: missing income, and same-day FX.
+"""The asset panel's arithmetic, and the two ways it could cheat: missing income, and same-day FX.
 
 Every test builds its own point of the filesystem, so the suite never depends on the cached
 ``data/online`` tree or on the network.
@@ -128,10 +128,42 @@ def test_panel_covers_every_asset_and_starts_on_the_sample_date(tmp_path):
     online = build_online(tmp_path)
     frame = panel.panel(online=online)
     assert list(frame.columns) == ["cash", "deposit", "bond2", "bond5", "bond9", "bond20",
-                                   "ashare", "asmall", "usshare", "hk", "gold"]
+                                   "bond_gov5", "bond_credit", "bond_hy", "bond_b13", "bond_b35",
+                                   "bond_b57", "bond_b710", "ashare", "asmall", "usshare", "hk",
+                                   "gold"]
     assert str(frame.index[0].date()) >= panel.SAMPLE_START
     assert frame.iloc[0].dropna().to_numpy() == pytest.approx(1.0)
     assert int(frame["bond5"].isna().sum()) == 0
+    # Without a ChinaBond cache the real-bond columns stay empty rather than reaching for the net.
+    assert frame["bond_credit"].isna().all()
+
+
+def test_chinabond_reads_its_cache_and_refuses_the_network_by_default(tmp_path):
+    online = build_online(tmp_path)
+    index = business_days(periods=200)
+    with pytest.raises(FileNotFoundError):
+        panel.chinabond("credit", online)
+    with pytest.raises(KeyError):
+        panel.chinabond("not_an_index", online)
+    pd.DataFrame({"date": index.strftime("%Y-%m-%d"),
+                  "value": 100.0 * (1.0002 ** np.arange(len(index)))}).to_csv(
+        online / "yields" / "cbond_credit.csv", index=False)
+    series = panel.chinabond("credit", online)
+    assert len(series) == len(index)
+    assert series.iloc[-1] > series.iloc[0]
+
+
+def test_panel_uses_the_cached_chinabond_series_when_present(tmp_path):
+    online = build_online(tmp_path)
+    index = business_days(periods=200)
+    values = 100.0 * (1.0003 ** np.arange(len(index)))
+    pd.DataFrame({"date": index.strftime("%Y-%m-%d"), "value": values}).to_csv(
+        online / "yields" / "cbond_gov5.csv", index=False)
+    frame = panel.panel(online=online, start="2005-01-03")
+    column = frame["bond_gov5"].dropna()
+    assert len(column) > 0
+    assert float(column.iloc[-1] / column.iloc[0]) == pytest.approx(
+        float(values[-1] / values[0]), rel=1e-9)
 
 
 def test_cash_takes_the_better_of_the_deposit_and_the_money_fund(tmp_path):

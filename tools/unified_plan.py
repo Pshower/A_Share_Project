@@ -1,4 +1,4 @@
-"""The unified strategy, simulated: one rule over cash, deposits, four bond durations, three
+﻿"""The unified strategy, simulated: one rule over cash, deposits, four bond durations, three
 equity markets and gold -- the protocol's candidates, and its five adoption criteria.
 
 Design notes that matter for honesty:
@@ -65,6 +65,9 @@ RULES = {
                safe={"bond_gov5": 0.5, "bond_credit": 0.5}, note="half credit"),
     "E4": dict(kind="cppi", risky=dict(RISK_MIX), safe={"bond_hy": 1.0},
                note="corporate AA- (high yield)"),
+    "E5": dict(kind="cppi", risky=dict(RISK_MIX),
+               safe={"cash": 0.5, "bond_gov5": 0.5},
+               note="half the real 5Y treasury in cash (re-test of C2)"),
     "F13": dict(kind="cppi", risky=dict(RISK_MIX), safe={"bond_b13": 1.0}, note="bucket 1-3y"),
     "F35": dict(kind="cppi", risky=dict(RISK_MIX), safe={"bond_b35": 1.0}, note="bucket 3-5y"),
     "F57": dict(kind="cppi", risky=dict(RISK_MIX), safe={"bond_b57": 1.0}, note="bucket 5-7y"),
@@ -224,26 +227,29 @@ def main(argv=None) -> int:
     cadence = "daily" if "--daily" in argv else "monthly"
     since = None
     only = None
+    baseline = "C1"
     for argument in argv:
         if argument.startswith("--since="):
             since = argument.split("=", 1)[1]
         if argument.startswith("--rules="):
             only = {name.strip().upper() for name in argument.split("=", 1)[1].split(",")}
+        if argument.startswith("--baseline="):
+            baseline = argument.split("=", 1)[1].strip().upper()
     levels = panel.panel(start=since) if since else panel.panel()
     rules = {name: rule for name, rule in RULES.items() if only is None or name in only}
     runs, summary = sweep(levels, rules=rules, step_months=step, cadence=cadence)
     OUTPUT.mkdir(parents=True, exist_ok=True)
     tag = cadence + ("_" + since.replace("-", "") if since else "")
     runs.to_csv(OUTPUT / f"runs_{tag}.csv", index=False, float_format="%.6f")
-    paired_rows = paired(runs, summary)
-    payload = dict(rules=summary, paired=paired_rows, floor=FLOOR, multiplier=MULTIPLIER,
-                   band=BAND, cost=COST, fees=FEES, min_months=MIN_MONTHS, cadence=cadence,
-                   since=since or str(levels.index[0].date()), step_months=step,
+    paired_rows = paired(runs, summary, baseline=baseline)
+    payload = dict(rules=summary, paired=paired_rows, baseline=baseline, floor=FLOOR,
+                   multiplier=MULTIPLIER, band=BAND, cost=COST, fees=FEES, min_months=MIN_MONTHS,
+                   cadence=cadence, since=since or str(levels.index[0].date()), step_months=step,
                    generated_at=str(pd.Timestamp.now())[:19])
     (OUTPUT / f"summary_{tag}.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2),
                                          encoding="utf-8")
     print(f"{'rule':<5} {'n':>4} {'median':>8} {'worstDD':>8} {'hit':>6} {'turn':>6} "
-          f"{'vs C1':>7}  note")
+          f"{'vs base':>8}  note")
     for name, row in summary.items():
         delta = paired_rows.get(name, {}).get("delta_pp", float("nan"))
         print(f"{name:<5} {row['n']:>4} {row['median_cagr']:>7.2%} {row['worst_drawdown']:>8.2%} "
@@ -255,6 +261,7 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
 
 
 
