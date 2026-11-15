@@ -128,7 +128,8 @@ def test_panel_covers_every_asset_and_starts_on_the_sample_date(tmp_path):
     online = build_online(tmp_path)
     frame = panel.panel(online=online)
     assert list(frame.columns) == ["cash", "deposit", "bond2", "bond5", "bond9", "bond20",
-                                   "bond_gov5", "bond_credit", "bond_hy", "bond_b13", "bond_b35",
+                                   "bond_gov5", "bond_gov7", "bond_gov10", "bond_gov30",
+                                   "bond_credit", "bond_hy", "bond_b13", "bond_b35",
                                    "bond_b57", "bond_b710", "ashare", "asmall", "usshare", "hk",
                                    "gold"]
     assert str(frame.index[0].date()) >= panel.SAMPLE_START

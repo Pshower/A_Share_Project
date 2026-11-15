@@ -129,7 +129,8 @@ CBOND_SPECS = {
 }
 
 # Panel column -> ChinaBond series.  The safe leg of the strategy picks from these.
-REAL_BONDS = {"bond_gov5": "gov5", "bond_credit": "credit", "bond_hy": "hy",
+REAL_BONDS = {"bond_gov5": "gov5", "bond_gov7": "gov7", "bond_gov10": "gov10",
+              "bond_gov30": "gov30", "bond_credit": "credit", "bond_hy": "hy",
               "bond_b13": "b13", "bond_b35": "b35", "bond_b57": "b57", "bond_b710": "b710"}
 
 
