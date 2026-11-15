@@ -34,8 +34,9 @@ def build_online(root, index=None, sp500=None, fx=8.0, money_rate=3.5, bond_offs
     for name in ("index_long", "yields", "global"):
         (online / name).mkdir(parents=True, exist_ok=True)
 
-    pd.DataFrame({"date": index.strftime("%Y-%m-%d"), "close": 1000.0}).to_csv(
-        online / "index_long" / "000300.csv", index=False)
+    for name, level in (("000300", 1000.0), ("000905", 4000.0)):
+        pd.DataFrame({"date": index.strftime("%Y-%m-%d"), "close": level}).to_csv(
+            online / "index_long" / f"{name}.csv", index=False)
     write_curve(online, index)
 
     if sp500 is None:
@@ -127,7 +128,7 @@ def test_panel_covers_every_asset_and_starts_on_the_sample_date(tmp_path):
     online = build_online(tmp_path)
     frame = panel.panel(online=online)
     assert list(frame.columns) == ["cash", "deposit", "bond2", "bond5", "bond9", "bond20",
-                                   "ashare", "usshare", "hk", "gold"]
+                                   "ashare", "asmall", "usshare", "hk", "gold"]
     assert str(frame.index[0].date()) >= panel.SAMPLE_START
     assert frame.iloc[0].dropna().to_numpy() == pytest.approx(1.0)
     assert int(frame["bond5"].isna().sum()) == 0
@@ -151,5 +152,6 @@ def test_bond_check_passes_on_the_level_and_fails_when_the_index_is_far_off(tmp_
     assert close["pass_"] is True and close["gap_pp"] < 0.8
     assert far["pass_"] is False and far["gap_pp"] > 0.8
     assert "amended" in close
+
 
 

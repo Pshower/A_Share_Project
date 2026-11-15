@@ -50,7 +50,7 @@ SHIBOR_CACHE = ONLINE / "yields" / "shibor_3m.csv"
 
 # Constant income yields added to price-only indices.  Listed in ``panel.json`` so a reader can
 # re-run with other numbers instead of guessing what was assumed.
-INCOME = {"ashare": 0.022, "usshare": 0.018, "hk": 0.035, "gold": 0.0}
+INCOME = {"ashare": 0.022, "asmall": 0.016, "usshare": 0.018, "hk": 0.035, "gold": 0.0}
 
 # Curve used for each duration bucket, and the modified duration of that bucket.
 BOND_DURATIONS = {"bond2": (2.0, "y2"), "bond5": (5.0, "y5"), "bond9": (9.0, "y10"),
@@ -212,6 +212,7 @@ def panel(online: Path | None = None, start: str | None = SAMPLE_START,
         out[name] = bonds[name].ffill()
 
     for name, path, income in (("ashare", online / "index_long" / "000300.csv", "ashare"),
+                               ("asmall", online / "index_long" / "000905.csv", "asmall"),
                                ("usshare", online / "global" / "sp500.csv", "usshare"),
                                ("hk", online / "global" / "hsi.csv", "hk")):
         if not path.exists():
@@ -219,7 +220,7 @@ def panel(online: Path | None = None, start: str | None = SAMPLE_START,
             continue
         prices = _read_series(path)
         prices = prices.reindex(index.union(prices.index)).sort_index().ffill().reindex(index)
-        if name != "ashare":
+        if name in ("usshare", "hk"):                     # closes that print after Shanghai's
             prices = known_today(prices, index)
         out[name] = prices * income_level(index, INCOME[income])
 
@@ -235,8 +236,10 @@ def panel(online: Path | None = None, start: str | None = SAMPLE_START,
 
     out = out.dropna(how="all")
     # Each column is rebased on *its own* first observation: the assets do not all start on the
-    # same day, and dividing by row zero would turn a late starter (gold, 2016) into all-NaN.
-    out = out.apply(lambda column: column / column.dropna().iloc[0])
+    # same day, and dividing by row zero would turn a late starter (gold, 2016) into all-NaN.  A
+    # sleeve whose file is missing stays all-NaN instead of crashing the panel.
+    out = out.apply(lambda column: column if column.dropna().empty
+                    else column / column.dropna().iloc[0])
     return out
 
 
@@ -351,5 +354,6 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
 
 

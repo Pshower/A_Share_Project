@@ -121,4 +121,4 @@ v1 第 1 节给合成债券模型留了一条自检：**与 000012 的月收益�
 | v1 | `unified/v1-protocol` | 本文：预注册协议 | 2026-11-15 |
 | v1.1 | `unified/v1.1-amendment` | 债券自检判据修订（见第 7 节），写于策略结果之前 | 2026-11-15 |
 | v2 | `unified/v2-panel` | 数据层：`tools/asset_panel.py`（写 `reports/runs/unified_plan/panel.csv` + `panel.json`），9 条面板测试 | 2026-11-15 |
-| v3 | `unified/v3-result` | 结果与决策：9 条规则全表 + 判据裁决 | 待 |
+| v3 | `unified/v3-result` | 结果与决策：`tools/unified_plan.py`，12 条规则全表 + 判据裁决（0/12 通过） | 2026-11-15 |
