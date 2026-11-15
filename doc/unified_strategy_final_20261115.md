@@ -109,6 +109,10 @@ python -B -m tools.fund_vehicles                # 载体跟踪差
 python -B -m pytest -q -p no:cacheprovider      # 248 条
 ```
 
+**日常执行**（v7 起）：页面 `http://127.0.0.1:8765` → 「全资产建议」，
+见 [全资产每日建议](daily_recommendation_20261115.md)。
+`python -B -m tools.daily_allocation` 只读出建议，`--apply` 落到 paper 账本。
+
 ## 9. 版本
 
 | 版本 | 标签 | 内容 |

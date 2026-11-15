@@ -5,6 +5,7 @@ import { api } from './api'
 
 const sections = [
   { id: 'books', name: '三本账' },
+  { id: 'unified', name: '全资产建议' },
   { id: 'recommend', name: '每日推荐' },
   { id: 'shadow', name: '影子记录' },
 ]

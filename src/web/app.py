@@ -68,6 +68,16 @@ def create_app(root=ROOT):
         from . import execution
         return execution.shadow(root)
 
+    @app.get("/api/recommend/unified")
+    def recommend_unified(book: str = "paper", cash_safe: bool = False):
+        """Today's all-asset recommendation for one book, computed from its own NAV and peak.
+
+        Read-only: the response is the decision, not the fill.  Booking it is a command-line
+        action (``tools.daily_allocation --apply``) because this API cannot place orders.
+        """
+        from tools import daily_allocation
+        return daily_allocation.recommendation(book=book, cash_safe=cash_safe)
+
     dist = root / "web/dist"
     if dist.exists():
         app.mount("/", StaticFiles(directory=dist, html=True), name="frontend")

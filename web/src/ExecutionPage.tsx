@@ -35,6 +35,7 @@ export default function ExecutionPage({
   const [name, setName] = useState('paper')
   const [detail, setDetail] = useState<Row | null>(null)
   const [shadow, setShadow] = useState<Row | null>(null)
+  const [rec, setRec] = useState<Row | null>(null)
   const [busy, setBusy] = useState(false)
   const [day, setDay] = useState('')
   const [topK, setTopK] = useState(10)
@@ -42,12 +43,14 @@ export default function ExecutionPage({
   async function load() {
     setBusy(true)
     try {
-      const [list, sh] = await Promise.all([
+      const [list, sh, advice] = await Promise.all([
         api<Row[]>('/execution/books'),
         api<Row>('/execution/shadow'),
+        api<Row>('/recommend/unified?book=paper').catch(() => null),
       ])
       setBooks(list)
       setShadow(sh)
+      setRec(advice)
       const days = sh.days || []
       if (days.length && !days.some((d: Row) => d.panel_date === day)) {
         setDay(days[days.length - 1].panel_date)
@@ -93,16 +96,32 @@ export default function ExecutionPage({
     <>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">{section === 'recommend' ? '每日推荐' : section === 'shadow' ? '影子记录' : '执行层'}</p>
+          <p className="eyebrow">
+            {section === 'unified'
+              ? '全资产建议'
+              : section === 'recommend'
+                ? '每日推荐'
+                : section === 'shadow'
+                  ? '影子记录'
+                  : '执行层'}
+          </p>
           <h1>
-            {section === 'recommend' ? '每天推荐的股票' : section === 'shadow' ? 'S2 影子运行记录' : '三本账'}
+            {section === 'unified'
+              ? '今天该持有什么'
+              : section === 'recommend'
+                ? '每天推荐的股票'
+                : section === 'shadow'
+                  ? 'S2 影子运行记录'
+                  : '三本账'}
           </h1>
           <p>
-            {section === 'recommend'
-              ? '选择交易日与 topK，名单按分数从低到高排列（分数越低越优先）。'
-              : section === 'shadow'
-                ? '记录器每天写一行；decided 才有名单，stale 表示面板没有推进。'
-                : '净值、持仓与成交都从账本文件直接读出，与命令行一致。'}
+            {section === 'unified'
+              ? '按账本自己的净值和峰值算 CPPI 风险仓位；每一类资产都列出来，包括权重为 0 的。'
+              : section === 'recommend'
+                ? '选择交易日与 topK，名单按分数从低到高排列（分数越低越优先）。'
+                : section === 'shadow'
+                  ? '记录器每天写一行；decided 才有名单，stale 表示面板没有推进。'
+                  : '净值、持仓与成交都从账本文件直接读出，与命令行一致。'}
           </p>
         </div>
         <button className="icon-button" aria-label="刷新" onClick={load} disabled={busy}>
@@ -251,6 +270,133 @@ export default function ExecutionPage({
           ) : (
             <section className="section">
               <p className="empty">这本账还没有开账。</p>
+            </section>
+          )}
+        </>
+      )}
+
+      {section === 'unified' && (
+        <>
+          {rec ? (
+            <>
+              <section className="section">
+                <div className="stats-band">
+                  <div className="stat">
+                    <span>数据截至</span>
+                    <strong>{rec.as_of}</strong>
+                    <small>{rec.action === 'hold' ? '持有，未触发带宽' : '需要调仓'}</small>
+                  </div>
+                  <div className="stat">
+                    <span>账本净值</span>
+                    <strong>{number(rec.nav, 2)}</strong>
+                    <small>峰值 {number(rec.peak, 0)}</small>
+                  </div>
+                  <div className="stat">
+                    <span>回撤</span>
+                    <strong>{percent(rec.drawdown)}</strong>
+                    <small>楼层 90%</small>
+                  </div>
+                  <div className="stat">
+                    <span>风险腿目标</span>
+                    <strong>{percent(rec.risky_target)}</strong>
+                    <small>现在 {percent(rec.risky_now)}</small>
+                  </div>
+                  <div className="stat">
+                    <span>闲置现金</span>
+                    <strong>{number(rec.idle_cash, 2)}</strong>
+                    <small>整手取整留下的</small>
+                  </div>
+                </div>
+              </section>
+
+              <section className="section">
+                <div className="section-heading">
+                  <h2>资产配置</h2>
+                  <span>{rec.assets.length} 类 · 权重为 0 的也列出理由</span>
+                </div>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>资产类别</th>
+                        <th>目标权重</th>
+                        <th>目标金额</th>
+                        <th>为什么是这个权重</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rec.assets.map((row: Row) => (
+                        <tr key={row.name}>
+                          <td>
+                            {row.name}
+                            {row.code ? <small> · {row.code}</small> : null}
+                          </td>
+                          <td>{percent(row.weight)}</td>
+                          <td>{number(row.value, 2)}</td>
+                          <td>{row.note}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section className="section">
+                <div className="section-heading">
+                  <h2>四只 ETF 的目标与差额</h2>
+                  <span>整手 100 份；差额为 0 才不需要下单</span>
+                </div>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>代码</th>
+                        <th>目标权重</th>
+                        <th>现价</th>
+                        <th>持有</th>
+                        <th>目标份额</th>
+                        <th>差额</th>
+                        <th>费用</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rec.sleeves.map((row: Row) => (
+                        <tr key={row.code}>
+                          <td>{row.code}</td>
+                          <td>{percent(row.weight)}</td>
+                          <td>{number(row.price, 3)}</td>
+                          <td>{number(row.held)}</td>
+                          <td>{number(row.target_shares)}</td>
+                          <td>{row.delta === 0 ? '—' : (row.delta > 0 ? '+' : '') + number(row.delta)}</td>
+                          <td>{number(row.fee, 2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section className="section">
+                <div className="section-heading">
+                  <h2>怎么落到账本</h2>
+                  <span>本页只读；写入是命令行动作</span>
+                </div>
+                <p>
+                  <code>python -B -m tools.daily_allocation --apply</code>
+                  ：先卖后买，写成交，再按当日收盘重新记账。带宽内（{percent(rec.band, 0)}）不产生成交。
+                </p>
+                {rec.warnings.length > 0 && (
+                  <ul>
+                    {rec.warnings.map((text: string) => (
+                      <li key={text}>{text}</li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </>
+          ) : (
+            <section className="section">
+              <p>还没有建议数据。</p>
             </section>
           )}
         </>
