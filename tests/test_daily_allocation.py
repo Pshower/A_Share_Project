@@ -114,3 +114,15 @@ def test_the_read_path_leaves_the_ledger_globals_alone(tmp_path):
     trades_before = daily.ledger.TRADES
     daily.recommendation("paper", online=tmp_path / "online", base=tmp_path)
     assert daily.ledger.TRADES == trades_before
+
+
+def test_apply_refuses_a_quote_that_stopped_updating(tmp_path):
+    """The scheduled job must fail loudly rather than trade on last week's prices."""
+    write_prices(tmp_path / "online", scale=0.9)
+    write_book(tmp_path)
+    result = daily.recommendation("paper", online=tmp_path / "online", base=tmp_path)
+    result["as_of"] = "2026-01-05"
+    before = (tmp_path / "paper" / "trades.jsonl").read_text(encoding="utf-8")
+    with pytest.raises(ValueError, match="拒绝"):
+        daily.apply(result, max_age_days=daily.MAX_AGE_DAYS)
+    assert (tmp_path / "paper" / "trades.jsonl").read_text(encoding="utf-8") == before

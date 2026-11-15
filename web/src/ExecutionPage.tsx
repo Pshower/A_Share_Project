@@ -36,6 +36,7 @@ export default function ExecutionPage({
   const [detail, setDetail] = useState<Row | null>(null)
   const [shadow, setShadow] = useState<Row | null>(null)
   const [rec, setRec] = useState<Row | null>(null)
+  const [recBook, setRecBook] = useState('paper')
   const [busy, setBusy] = useState(false)
   const [day, setDay] = useState('')
   const [topK, setTopK] = useState(10)
@@ -46,7 +47,7 @@ export default function ExecutionPage({
       const [list, sh, advice] = await Promise.all([
         api<Row[]>('/execution/books'),
         api<Row>('/execution/shadow'),
-        api<Row>('/recommend/unified?book=paper').catch(() => null),
+        api<Row>(`/recommend/unified?book=${recBook}`).catch(() => null),
       ])
       setBooks(list)
       setShadow(sh)
@@ -279,6 +280,29 @@ export default function ExecutionPage({
         <>
           {rec ? (
             <>
+              <section className="section">
+                <div className="section-heading">
+                  <h2>账本</h2>
+                  <span>两本账各自有独立的净值与峰值，建议不共用</span>
+                </div>
+                <div className="button-group">
+                  {['paper', 'live'].map((id) => (
+                    <button
+                      key={id}
+                      className={recBook === id ? 'primary' : ''}
+                      onClick={() => {
+                        setRecBook(id)
+                        api<Row>(`/recommend/unified?book=${id}`)
+                          .then(setRec)
+                          .catch((problem) => fail(problem))
+                      }}
+                    >
+                      {id === 'live' ? '实盘（live）' : '模拟（paper）'}
+                    </button>
+                  ))}
+                </div>
+              </section>
+
               <section className="section">
                 <div className="stats-band">
                   <div className="stat">

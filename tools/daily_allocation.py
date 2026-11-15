@@ -30,6 +30,9 @@ FLOOR, MULTIPLIER, BAND = plan_orders.FLOOR, plan_orders.MULTIPLIER, plan_orders
 RISKY = dict(plan_orders.LEGS)                       # 25% 300 / 25% 500 / 50% S&P
 SAFE = plan_orders.SAFE                              # 511010
 CASH_ETF = "511880"                                  # money-market ETF, the cash half of the safe leg
+# A quote older than this is refused by ``apply``: over a long weekend, Friday's close is 3 days
+# old, so 4 is the smallest number that does not block the Monday run when data is a day late.
+MAX_AGE_DAYS = 4
 
 # Every asset class the study covered, and why its weight is what it is.  The zeros are part of
 # the recommendation: each one was tested and rejected on evidence, not on taste.
@@ -178,10 +181,21 @@ def recommendation(book: str = "paper", cash_safe: bool = False,
                 note="权重按上一交易日收盘计算；未成交前不进入账本")
 
 
-def apply(result: dict, dry: bool = False) -> dict:
-    """Book the recommendation: sells first, then buys, then re-mark the day."""
+def apply(result: dict, dry: bool = False, max_age_days: int | None = MAX_AGE_DAYS) -> dict:
+    """Book the recommendation: sells first, then buys, then re-mark the day.
+
+    Refuses to book a quote that is older than ``max_age_days``: an automated job that runs after
+    a failed data refresh would otherwise trade the book at last week's prices and label it today.
+    """
+    age = (pd.Timestamp(pd.Timestamp.now().date()) - pd.Timestamp(result["as_of"])).days
+    if max_age_days is not None and age > max_age_days and not dry:
+        raise ValueError("报价停在 %s（%d 天前），拒绝按它记账；先刷新行情或显式放宽 max_age_days"
+                         % (result["as_of"], age))
     ledger.use(result["book"])
     stamp = pd.Timestamp(result["as_of"])
+    opening = not any(int(shares) > 0 for shares in
+                      book_state(result["book"])["positions"].values())
+    source = "unified_open" if opening else "unified"
     trades = []
     if result["action"] == "rebalance":
         ordered = sorted(result["sleeves"], key=lambda row: 0 if row["delta"] < 0 else 1)
@@ -191,18 +205,18 @@ def apply(result: dict, dry: bool = False) -> dict:
             side = "sell" if row["delta"] < 0 else "buy"
             trades.append(dict(date=str(stamp.date()), code=row["code"], action=side,
                                shares=abs(int(row["delta"])), price=row["price"],
-                               fee=row["fee"], source="unified"))
+                               fee=row["fee"], source=source))
             if not dry:
                 ledger.record_trade(stamp.date(), row["code"], side, abs(int(row["delta"])),
-                                    price=row["price"], source="unified")
+                                    price=row["price"], source=source)
     marked = None
     if not dry:
         marked = ledger.mark(stamp.date(), prices=result["prices"],
                              price_dates=dict(result["price_dates"]))
     log = dict(book=result["book"], as_of=result["as_of"], action=result["action"],
-               nav=result["nav"], risky_target=result["risky_target"],
-               risky_now=result["risky_now"], trades=trades,
-               marked_nav=None if marked is None else marked["nav"],
+               opening=opening, age_days=int(age), nav=result["nav"],
+               risky_target=result["risky_target"], risky_now=result["risky_now"],
+               trades=trades, marked_nav=None if marked is None else marked["nav"],
                applied_at=str(pd.Timestamp.now())[:19])
     if not dry:
         OUTPUT.mkdir(parents=True, exist_ok=True)
