@@ -79,13 +79,19 @@ def test_a_cash_only_book_has_no_prices_to_show(tmp_path):
 
 
 def test_each_decision_day_carries_its_thirty_names():
+    # The latest decision is read from the ledger, not hardcoded: the recorder writes a new row
+    # every trading day, and a frozen date here fails the suite the first time the job runs.
+    rows = [json.loads(line) for line in
+            (ROOT / "reports" / "shadow" / "e1_shadow.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()]
+    decided = [row for row in rows if row.get("status") == "decided" and row.get("book")]
     row = execution.shadow(ROOT)
     assert row["days"], "the recorder has decisions but the view exposed none"
     for day in row["days"]:
         assert len(day["names"]) == 30
         assert all(item["code"] and "score" in item for item in day["names"])
     latest = row["days"][-1]
-    assert latest["panel_date"] == "2026-11-13"
+    assert latest["panel_date"] == str(decided[-1]["panel_date"])
     assert [item["change"] for item in latest["names"]].count("in") == len(latest["entries"])
 
 
