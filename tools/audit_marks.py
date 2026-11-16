@@ -30,6 +30,9 @@ from tools import plan_orders
 
 AUDITED = ("live", "paper")
 TOLERANCE = 0.005          # a half-cent: below this the row is the same price, rounded
+# Model fills recorded at the next session's opening print.  Everything else the model writes is
+# priced off that day's close -- including ``unified_open``, whose name was a misnomer.
+OPEN_PRICED_SOURCES = ("model_open",)
 
 
 def bars(codes, start=None, end=None):
@@ -99,7 +102,11 @@ def audit_fills(trades, opens, closes):
                 findings.append(dict(date=str(row["date"]), code=row["code"], price=row["price"],
                                      issue="manual fill: price cannot be checked against the bar"))
             continue
-        frame = opens if source.endswith("open") else closes
+        # Which bar a model fill was priced off is a property of the recorder, not of the name:
+        # ``model_open`` fills at the next open, while ``unified_open`` (kept for the fills
+        # written on 2026-11-13) was recorded at that day's **close** and still ends in "open".
+        label = "open" if source in OPEN_PRICED_SOURCES else "close"
+        frame = opens if label == "open" else closes
         day, code = pd.Timestamp(str(row["date"])), row["code"]
         if code not in frame.columns or day not in frame.index:
             findings.append(dict(date=str(row["date"]), code=code, price=row["price"],
@@ -108,8 +115,7 @@ def audit_fills(trades, opens, closes):
         truth = float(frame.at[day, code])
         if abs(truth - float(row["price"])) > TOLERANCE:
             findings.append(dict(date=str(row["date"]), code=code, price=float(row["price"]),
-                                 truth=truth, issue="fill price does not match the %s"
-                                 % source.split("_")[-1]))
+                                 truth=truth, issue="fill price does not match the %s" % label))
     return findings
 
 

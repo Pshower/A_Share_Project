@@ -5,8 +5,9 @@ advance rather than inferring it from whether data arrived.  That distinction ma
 that cannot tell "today was a holiday" from "the data feed is broken" will report a fault on
 every public holiday.
 
-The cache is refreshed when it no longer reaches far enough into the future, which is once a
-year in practice.
+The cache is refreshed when it no longer reaches far enough past today.  The exchange publishes
+up to the next year end, not a rolling year, so the test is "reaches a week past today": asking for
+a full year ahead could never be satisfied and made every call download the file again.
 """
 from __future__ import annotations
 
@@ -19,7 +20,11 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CACHE = PROJECT_ROOT / "data" / "online" / "calendar"
-HORIZON = 365         # refresh when fewer than a year of calendar remains: the exchange publishes a year ahead
+COVER = 7             # days of slack past today before the cache counts as "not far enough"
+
+
+def _covers(dates, today, days=COVER) -> bool:
+    return not len(dates) == 0 and dates.max() >= today + pd.Timedelta(days=days)
 
 
 def load(refresh=False, cache=CACHE):
@@ -27,13 +32,20 @@ def load(refresh=False, cache=CACHE):
     cache.mkdir(parents=True, exist_ok=True)
     path = cache / "trade_dates.csv"
     today = pd.Timestamp(date.today())
-    if path.exists() and not refresh:
-        frame = pd.read_csv(path)
-        dates = pd.to_datetime(frame["trade_date"])
-        if dates.max() >= today + pd.Timedelta(days=HORIZON):
-            return dates
+    cached = None
+    if path.exists():
+        cached = pd.to_datetime(pd.read_csv(path)["trade_date"])
+        if not refresh and _covers(cached, today):
+            return cached
     import akshare as ak
-    frame = ak.tool_trade_date_hist_sina()
+    try:
+        frame = ak.tool_trade_date_hist_sina()
+    except Exception:
+        if cached is not None and _covers(cached, today, days=0):
+            # The feed is down but the cache still answers today's question; a refresh failure
+            # must not turn "is today a trading day" into an exception.
+            return cached
+        raise
     frame.to_csv(path, index=False)
     return pd.to_datetime(frame["trade_date"])
 

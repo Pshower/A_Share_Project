@@ -67,7 +67,7 @@ def book(account: str, day: str) -> dict:
     result = daily_allocation.recommendation(book=account)
     if str(result["as_of"]) != str(day):
         raise RuntimeError("报价停在 %s，不是 %s" % (result["as_of"], day))
-    log = daily_allocation.apply(result)
+    log = daily_allocation.apply(result, allowed=(account,))
     return dict(action=log["action"], trades=len(log["trades"]),
                 nav=log["marked_nav"], risky_target=result["risky_target"],
                 risky_now=result["risky_now"], filled=log["trades"])
@@ -106,12 +106,14 @@ def run(day: str | None = None, accounts=DEFAULT_ACCOUNTS,
     def note(step: str, payload=None, error: str | None = None) -> None:
         report["steps"].append(dict(step=step, ok=error is None, detail=payload, error=error))
 
-    if not trading_calendar.is_trading_day(day):
-        report["status"] = "closed"
-        report["summary"] = "%s 休市，未做任何事" % day
-        return report
-
     try:
+        # The gate is inside the try on purpose: if the calendar cannot be read, that is a failed
+        # run that must leave a failure record, not an exception that exits 1 with no JSON.
+        if not trading_calendar.is_trading_day(day):
+            report["status"] = "closed"
+            report["summary"] = "%s 休市，未做任何事" % day
+            return report
+
         if refresh and not dry:
             note("refresh", refresh_prices())
         for account in accounts:

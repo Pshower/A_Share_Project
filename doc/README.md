@@ -14,6 +14,11 @@
 > **分支范围**：本分支只带执行层、影子运行与市场杠杆研究。归档里的报告全部保留（结论的出处），
 > 但它们描述的代码在 `research/supply-pressure`；正文里出现的 `python -m tools.<已删工具>` 是当时的运行记录，不是现在可执行的命令。
 
+> **解释器（2026-11-17 实测）**：本机 PATH 上的 `python` 是 **3.9 且没有 pandas**，所以文档里所有
+> `python -B -m tools.<...>` 都要换成绝对路径才跑得起来：
+> `& 'D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe' -B -m tools.<...>`。
+> 定时任务里写的就是这个绝对路径；直接敲 `python -B -m tools.daily_ops` 会得到 `ModuleNotFoundError: pandas`。
+
 
 
 索引按「你现在要做什么」分组：在跑的系统 → 定了方向的研究 → 手册与记录 → 归档。

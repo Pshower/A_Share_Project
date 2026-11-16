@@ -194,15 +194,23 @@ def recommendation(book: str = "paper", cash_safe: bool = False,
                 note="权重按上一交易日收盘计算；未成交前不进入账本")
 
 
-def apply(result: dict, dry: bool = False, max_age_days: int | None = MAX_AGE_DAYS) -> dict:
+def apply(result: dict, dry: bool = False, max_age_days: int | None = MAX_AGE_DAYS,
+          allowed: tuple = ("paper",)) -> dict:
     """Book the recommendation: sells first, then buys, then re-mark the day.
 
     Refuses a quote that is behind the session being booked.  The daily job runs at 21:30 and
     Sina publishes around 20:30; when the publish slips, the cache still holds *yesterday's*
     close, and a calendar-age test (Friday's price on a Monday is 3 days old) would happily book
     it.  So the test is against the trading calendar, with a plain age cap as a second net.
+
+    ``allowed`` is the hard gate behind the "a model fill never enters the real-money book"
+    invariant: a default is not a gate, and ``--book=live --apply`` must fail here.
     """
     from tools import trading_calendar
+
+    if result.get("book") not in tuple(allowed):
+        raise ValueError("模型单不允许写进 %r（只允许 %s）；实盘成交请用 account_ledger trade"
+                         % (result.get("book"), ", ".join(allowed)))
 
     stamp = pd.Timestamp(result["as_of"])
     today = pd.Timestamp(pd.Timestamp.now().date())
@@ -223,6 +231,10 @@ def apply(result: dict, dry: bool = False, max_age_days: int | None = MAX_AGE_DA
     stamp = pd.Timestamp(result["as_of"])
     opening = not any(int(shares) > 0 for shares in
                       book_state(result["book"])["positions"].values())
+    # ``unified_open`` means "the fill that opened the book", not "priced at the open": these rows
+    # are priced at that day's close like every other model fill.  The name predates the confusion
+    # and is kept so the 2026-11-13 rows stay readable; ``audit_marks.OPEN_PRICED_SOURCES`` holds
+    # the list of sources that really are opening prints.
     source = "unified_open" if opening else "unified"
     trades = []
     if result["action"] == "rebalance":

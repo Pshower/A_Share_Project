@@ -90,6 +90,21 @@ def test_a_model_fill_must_match_its_bar():
     assert bad[0]["truth"] == pytest.approx(4.124) and "open" in bad[0]["issue"]
 
 
+def test_a_close_priced_fill_named_open_is_checked_against_the_close():
+    """``unified_open`` opened the book; it is priced at the close, despite its name."""
+    frames = _frames()
+    opens, closes = audit_marks._wide(frames, "open"), audit_marks._wide(frames, "close")
+    close_row = float(closes.at[pd.Timestamp("2026-11-13"), "510300"])
+    open_row = float(opens.at[pd.Timestamp("2026-11-13"), "510300"])
+    assert close_row != open_row
+    good = audit_marks.audit_fills([dict(date="2026-11-13", code="510300", price=close_row,
+                                         action="buy", source="unified_open")], opens, closes)
+    bad = audit_marks.audit_fills([dict(date="2026-11-13", code="510300", price=open_row,
+                                        action="buy", source="unified_open")], opens, closes)
+    assert good == []
+    assert bad and "close" in bad[0]["issue"]
+
+
 def test_the_simulated_book_refuses_to_be_audited():
     with pytest.raises(ValueError, match="own simulator"):
         audit_marks.run("backtest")

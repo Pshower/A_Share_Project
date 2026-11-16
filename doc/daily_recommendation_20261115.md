@@ -54,6 +54,9 @@
 
 ## 4. 怎么落到账本
 
+> 本机 `python` 是 3.9 且没有 pandas；下面的命令实际要用绝对路径：
+> `& 'D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe' -B -m tools.<...>`（定时任务里就是这么写的）。
+
 ```bash
 python -B -m tools.daily_ops                 # 一条命令跑完一整天（推荐）
 python -B -m tools.daily_ops --dry           # 只读预览：算出建议、不写任何文件

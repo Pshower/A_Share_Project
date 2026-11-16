@@ -5,6 +5,8 @@ them from January onward without a single error.  These tests pin the intended l
 """
 from __future__ import annotations
 
+import sys
+
 import pandas as pd
 import pytest
 
@@ -28,5 +30,58 @@ def test_a_date_past_the_calendar_raises_rather_than_answering_false():
         trading_calendar.is_trading_day("2027-01-04", calendar=calendar())
 
 
-def test_the_horizon_is_a_year_so_the_cache_refreshes_before_it_runs_out():
-    assert trading_calendar.HORIZON >= 300
+def test_the_horizon_asks_for_a_week_of_slack_not_a_year():
+    """The exchange publishes to the next year end, so "a year ahead" could never be satisfied
+    and every call downloaded the file again."""
+    assert trading_calendar.COVER <= 30
+
+
+def write_cache(root, last):
+    root.mkdir(parents=True, exist_ok=True)
+    index = pd.bdate_range(end=last, periods=40)
+    (root / "trade_dates.csv").write_text(
+        pd.DataFrame({"trade_date": index.strftime("%Y-%m-%d")}).to_csv(index=False),
+        encoding="utf-8")
+
+
+class FakeAkshare:
+    calls = 0
+
+    @staticmethod
+    def tool_trade_date_hist_sina():
+        FakeAkshare.calls += 1
+        return pd.DataFrame({"trade_date": pd.bdate_range("2024-01-01", "2027-12-31").strftime("%Y-%m-%d")})
+
+
+class BrokenAkshare:
+    @staticmethod
+    def tool_trade_date_hist_sina():
+        raise OSError("feed down")
+
+
+def test_a_cache_with_a_week_of_slack_is_not_refetched(tmp_path, monkeypatch):
+    today = pd.Timestamp.now().normalize()
+    write_cache(tmp_path, today + pd.Timedelta(days=30))
+    FakeAkshare.calls = 0
+    monkeypatch.setitem(sys.modules, "akshare", FakeAkshare)
+    dates = trading_calendar.load(cache=tmp_path)
+    assert FakeAkshare.calls == 0
+    assert dates.max() > today
+
+
+def test_a_cache_that_runs_out_is_refetched(tmp_path, monkeypatch):
+    today = pd.Timestamp.now().normalize()
+    write_cache(tmp_path, today)
+    FakeAkshare.calls = 0
+    monkeypatch.setitem(sys.modules, "akshare", FakeAkshare)
+    dates = trading_calendar.load(cache=tmp_path)
+    assert FakeAkshare.calls == 1
+    assert dates.max() > today + pd.Timedelta(days=trading_calendar.COVER)
+
+
+def test_a_failed_refresh_still_answers_from_a_cache_that_covers_today(tmp_path, monkeypatch):
+    today = pd.Timestamp.now().normalize()
+    write_cache(tmp_path, today)
+    monkeypatch.setitem(sys.modules, "akshare", BrokenAkshare)
+    dates = trading_calendar.load(cache=tmp_path)
+    assert dates.max() >= today
