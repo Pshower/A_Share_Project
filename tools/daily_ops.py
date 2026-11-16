@@ -31,6 +31,12 @@ DEFAULT_ACCOUNTS = ("live", "paper")
 # prepared, checked and advised on every run -- but only ``paper`` is booked automatically.
 # Real fills are recorded by hand with ``account_ledger trade --account live``.
 DEFAULT_BOOK_ACCOUNTS = ("paper",)
+# Where today's ten-year yield sits, and what the 129-start sweep did from starts in that bucket.
+# The medians come from splitting ``plan_backtest_daily/monthly.json`` by the yield on each start
+# date (see doc/delivery_20261116.md section 4): 22 starts below 2%, 59 between 2% and 3%, 48 above.
+REGIMES = ((0.0, 2.0, "低 carry", 0.0067, 0.0124),
+           (2.0, 3.0, "中 carry", 0.0460, 0.0544),
+           (3.0, 99.0, "高 carry", 0.0431, 0.0454))
 
 
 def refresh_prices() -> dict:
@@ -149,8 +155,30 @@ def run(day: str | None = None, accounts=DEFAULT_ACCOUNTS,
         report["error"] = "%s: %s" % (type(error).__name__, str(error)[:400])
         note("abort", error=report["error"])
 
+    if report["status"] == "ok":
+        try:
+            report["regime"] = regime()
+        except Exception:                                         # noqa: BLE001
+            # A missing or stale yield cache is worth a blank clause, never a failed day.
+            report["regime"] = None
+
     report["summary"] = summary_line(report)
     return report
+
+
+def regime() -> dict:
+    """Where today's ten-year yield sits, and what the sweep earned from similar starts."""
+    from tools import asset_panel
+    series = asset_panel.curve()["y10"].dropna()
+    if series.empty:
+        raise ValueError("no ten-year yield history")
+    level = float(series.iloc[-1])
+    stamp = str(series.index[-1].date())
+    for low, high, label, daily, monthly in REGIMES:
+        if low <= level < high:
+            return dict(y10=level, as_of=stamp, bucket=label,
+                        daily_median=daily, monthly_median=monthly)
+    raise ValueError("yield %.4f falls outside every bucket" % level)
 
 
 def _nav(report, account) -> dict:
@@ -162,11 +190,9 @@ def summary_line(report: dict) -> str:
     """One line a human can paste into the execution log."""
     if report["status"] == "closed":
         return report["summary"]
-    parts = [report["day"]]
     if report["status"] == "failed":
-        parts.append("FAILED")
-        parts.append(report["error"] or "unknown")
-        return " ".join(parts)
+        return " ".join([report["day"], "FAILED", report["error"] or "unknown"])
+    blocks = []
     for account in report["accounts"]:
         booked = report["bookings"].get(account, {})
         curve = _nav(report, account)
@@ -180,8 +206,14 @@ def summary_line(report: dict) -> str:
             bits.append("%d 笔成交" % booked["trades"])
         elif booked.get("advisory") and booked.get("fills"):
             bits.append("%d 笔建议（未落账）" % booked["fills"])
-        parts.append(" ".join(bits))
-    return "；".join([parts[0], "，".join(parts[1:])])
+        blocks.append(" ".join(bits))
+    parts = [report["day"], "，".join(blocks)]
+    rate = report.get("regime") or {}
+    if rate.get("bucket"):
+        parts.append("%s 档：10y %.2f%%（%s），同档起点中位 %.2f%% 日频 / %.2f%% 月频"
+                     % (rate["bucket"], rate["y10"], rate["as_of"],
+                        rate["daily_median"] * 100, rate["monthly_median"] * 100))
+    return "；".join(parts)
 
 
 def main(argv=None) -> int:

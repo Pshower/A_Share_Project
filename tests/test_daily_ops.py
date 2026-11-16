@@ -20,6 +20,9 @@ def green(monkeypatch, advice_action="hold"):
                         or dict(action=advice_action, trades=0, nav=1000.0))
     monkeypatch.setattr(ops, "curve", lambda account: calls["curve"].append(account)
                         or dict(drawdown=-0.01))
+    monkeypatch.setattr(ops, "regime", lambda: dict(y10=1.5874, as_of="2026-11-09",
+                                                    bucket="低 carry", daily_median=0.0067,
+                                                    monthly_median=0.0124))
     return calls
 
 
@@ -106,6 +109,28 @@ def test_the_summary_names_each_account_and_its_action(monkeypatch):
     assert "live" in report["summary"] and "paper" in report["summary"]
     assert "hold" in report["summary"]
     assert "FAILED" not in report["summary"]
+
+
+def test_the_summary_names_the_rate_regime(monkeypatch):
+    """A 4.4% median came from 2-3% yields; a 1.6% day must say so on the line itself."""
+    green(monkeypatch)
+    report = ops.run(day="2026-11-13")
+    assert "低 carry" in report["summary"]
+    assert "0.67%" in report["summary"] and "1.24%" in report["summary"]
+
+
+def test_a_missing_yield_cache_never_fails_the_day(monkeypatch):
+    calls = green(monkeypatch)
+
+    def broken():
+        raise FileNotFoundError("yield cache gone")
+
+    monkeypatch.setattr(ops, "regime", broken)
+    report = ops.run(day="2026-11-13")
+    assert report["status"] == "ok"
+    assert report["regime"] is None
+    assert "carry" not in report["summary"]
+    assert calls["book"] == ["paper"]
 
 
 def test_a_failed_summary_says_so(monkeypatch):

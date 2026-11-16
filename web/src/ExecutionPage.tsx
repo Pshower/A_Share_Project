@@ -335,6 +335,43 @@ export default function ExecutionPage({
 
               <section className="section">
                 <div className="section-heading">
+                  <h2>期望与风险</h2>
+                  <span>回测口径，不是承诺</span>
+                </div>
+                <div className="table-wrap">
+                  <table>
+                    <tbody>
+                      <tr>
+                        <th>历史中位年化（2016–2026、真实 ETF、多为 2–3% 利率环境）</th>
+                        <td>4.4%–4.7%，<strong>未扣载体差 0.4–0.6pp</strong></td>
+                      </tr>
+                      <tr>
+                        <th>当前 1.6% 利率环境的同档起点</th>
+                        <td>0.7%–1.2%（22 个起点，窗口不足 3 年，仅作参考）</td>
+                      </tr>
+                      <tr>
+                        <th>日频最差回撤</th>
+                        <td>−8.2%（2016–2026）；长样本 −10.9%</td>
+                      </tr>
+                      <tr>
+                        <th>年化 ≥7% 的起点占比</th>
+                        <td>3.9% —— 7% 是尾部，不是预期</td>
+                      </tr>
+                      <tr>
+                        <th>最小资金</th>
+                        <td>约 4–5 万元（四只 ETF 各一手，511010 一手约 1.4 万）</td>
+                      </tr>
+                      <tr>
+                        <th>成交口径</th>
+                        <td>模型按收盘价记账，不是券商回报；实盘账（live）永不自动落账</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section className="section">
+                <div className="section-heading">
                   <h2>资产配置</h2>
                   <span>{rec.assets.length} 类 · 权重为 0 的也列出理由</span>
                 </div>
