@@ -2,7 +2,10 @@
 # and the read-only workbench.  The PPO stack (torch, stable-baselines3, gymnasium) went with the
 # training code -- see branch ``research/supply-pressure`` if you need to rerun those studies.
 numpy>=1.24,<3
-pandas>=2,<3
+# Tested on pandas 2.0.3.  2.1 changed concat's handling of mismatched datetime units, which broke
+# the fund-flow merge; ``archive_fund_flow.dated()`` now normalises both sides, so the range stays
+# open -- but run the suite before moving a working machine onto a new minor version.
+pandas>=2.0,<3
 pyarrow>=12
 akshare>=1.16,<2
 requests>=2.31,<3

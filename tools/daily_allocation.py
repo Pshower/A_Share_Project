@@ -127,9 +127,17 @@ def recommendation(book: str = "paper", cash_safe: bool = False,
     risky_now = sum(held.get(code, 0) * prices[code] for code in RISKY) / nav
     # The no-trade band applies to the risky sleeve as a whole; inside it, nothing is booked.
     drift = risky_target - risky_now
+    idle_weight = float(state["cash"]) / nav
     if abs(drift) < BAND:
-        plan_weights = {code: risky_now * part for code, part in RISKY.items()}
-        plan_weights[SAFE] = 1.0 - risky_now
+        # On a hold day the target *is* the current book, leg for leg: deriving per-leg targets
+        # from fixed weights would restructure the sleeve inside the band, and dropping the cash
+        # ETF would make ``orders()`` refuse a book that legitimately holds it.
+        plan_weights = {code: held.get(code, 0) * prices[code] / nav for code in codes}
+        # A holding the plan does not allocate (say 511880 after switching cash_safe off) is kept
+        # on a hold day: proposing to sell it is a decision, and hold means no decision.
+        for code in held:
+            plan_weights.setdefault(code, held[code] * prices[code] / nav)
+        plan_weights[SAFE] = plan_weights.get(SAFE, 0.0) + idle_weight
         action = "hold"
     else:
         plan_weights = weights
@@ -137,17 +145,16 @@ def recommendation(book: str = "paper", cash_safe: bool = False,
 
     plan = plan_orders.orders(plan_weights, nav, prices, held)
     if action == "hold":
-        # Inside the band nothing may be proposed.  ``target_weights`` only pins the risky sleeve
-        # as a whole, so ``orders()`` would otherwise re-impose the 25/25/50 split inside it and
-        # hand the page a full restructure on a day the engine books nothing.  The target on a
-        # hold day *is* the current book.
         for row in plan["orders"]:
             shares = int(row["held"])
             row["delta"] = 0
             row["action"] = "hold"
             row["target_shares"] = shares
             row["target_value"] = round(shares * row["price"], 2)
-            row["weight"] = (1.0 - risky_now) if row["code"] == SAFE else round(shares * row["price"] / nav, 6)
+            if row["code"] == SAFE:
+                # The safe leg's weight carries the uninvested cash; the asset table subtracts it.
+                row["weight"] = round(plan_weights[SAFE], 6)
+                row["target_value"] = round((plan_weights[SAFE] - idle_weight) * nav, 2)
         plan["cash"] = float(state["cash"])
     warnings = []
     if state["unmarked_trades"]:
@@ -181,6 +188,15 @@ def recommendation(book: str = "paper", cash_safe: bool = False,
             value = (row["target_value"] if row else 0.0) - (idle_cash if code == SAFE else 0.0)
         assets.append(dict(name=name, code=code, weight=round(float(weight), 4),
                            value=round(float(value), 2), note=note))
+    # cash_safe puts half the safe leg into 511880, which the twelve classes do not name; without
+    # this row the table sums to 0.8 instead of 1 on the very day the flag is on.
+    covered = {code for _, code, _ in UNIVERSE if code}
+    for row in sleeves:
+        if row["code"] in covered:
+            continue
+        assets.append(dict(name="货币 ETF", code=row["code"], weight=round(float(row["weight"]), 4),
+                           value=round(float(row["target_value"]), 2),
+                           note="cash_safe 把安全腿的一半放进货币 ETF，避开长债的久期"))
 
     return dict(book=book, as_of=str(stamp.date()), generated_at=str(pd.Timestamp.now())[:19],
                 cash_safe=bool(cash_safe), nav=round(nav, 2), peak=round(peak, 2),
@@ -237,22 +253,33 @@ def apply(result: dict, dry: bool = False, max_age_days: int | None = MAX_AGE_DA
     # the list of sources that really are opening prints.
     source = "unified_open" if opening else "unified"
     trades = []
-    if result["action"] == "rebalance":
-        ordered = sorted(result["sleeves"], key=lambda row: 0 if row["delta"] < 0 else 1)
-        for row in ordered:
-            if row["delta"] == 0:
-                continue
-            side = "sell" if row["delta"] < 0 else "buy"
-            trades.append(dict(date=str(stamp.date()), code=row["code"], action=side,
-                               shares=abs(int(row["delta"])), price=row["price"],
-                               fee=row["fee"], source=source))
-            if not dry:
-                ledger.record_trade(stamp.date(), row["code"], side, abs(int(row["delta"])),
-                                    price=row["price"], source=source)
-    marked = None
-    if not dry:
-        marked = ledger.mark(stamp.date(), prices=result["prices"],
-                             price_dates=dict(result["price_dates"]))
+    # Sells first, then buys, then the mark -- and all of it, or none of it.  Recording the fills
+    # and failing on the mark used to leave the book holding new positions with no snapshot for
+    # the day, and the next run would book the same trade again.
+    backup = None
+    if not dry and ledger.TRADES.exists():
+        backup = ledger.TRADES.read_text(encoding="utf-8")
+    try:
+        if result["action"] == "rebalance":
+            ordered = sorted(result["sleeves"], key=lambda row: 0 if row["delta"] < 0 else 1)
+            for row in ordered:
+                if row["delta"] == 0:
+                    continue
+                side = "sell" if row["delta"] < 0 else "buy"
+                trades.append(dict(date=str(stamp.date()), code=row["code"], action=side,
+                                   shares=abs(int(row["delta"])), price=row["price"],
+                                   fee=row["fee"], source=source))
+                if not dry:
+                    ledger.record_trade(stamp.date(), row["code"], side, abs(int(row["delta"])),
+                                        price=row["price"], source=source)
+        marked = None
+        if not dry:
+            marked = ledger.mark(stamp.date(), prices=result["prices"],
+                                 price_dates=dict(result["price_dates"]))
+    except Exception:
+        if backup is not None:
+            ledger.TRADES.write_text(backup, encoding="utf-8")
+        raise
     log = dict(book=result["book"], as_of=result["as_of"], action=result["action"],
                opening=opening, age_days=int(age), nav=result["nav"],
                risky_target=result["risky_target"], risky_now=result["risky_now"],

@@ -78,3 +78,28 @@ def test_compare_refuses_a_history_shorter_than_the_minimum(tmp_path):
     pd.DataFrame(columns=["date", "per_unit"]).to_csv(tmp_path / "fund" / "dist_999999.csv",
                                                       index=False)
     assert vehicles.compare("999999", "bench", levels, online=tmp_path) is None
+
+
+def test_a_refresh_writes_through_a_temp_file(tmp_path):
+    """An interrupted refresh must leave the previous CSV intact, not a truncated one."""
+    path = tmp_path / "fund" / "hist_510300.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("date,close\n2026-11-13,4.08\n", encoding="utf-8")
+    frame = pd.DataFrame({"close": [4.08, 4.09]},
+                         index=pd.to_datetime(["2026-11-13", "2026-11-16"]))
+    vehicles._write_atomic(path, frame, index_label="date")
+    assert not (tmp_path / "fund" / "hist_510300.csv.tmp").exists()
+    assert len(pd.read_csv(path)) == 2
+
+
+def test_distributions_are_fetched_up_to_today_not_a_frozen_date(tmp_path, monkeypatch):
+    """The window used to end at a literal 2026-12-31, so 2027 would silently stop seeing payouts."""
+    seen = {}
+
+    def fake(code, start, end):
+        seen["end"] = end
+        return []
+
+    monkeypatch.setattr(vehicles.account_ledger, "distributions", fake)
+    vehicles.load_distributions("510300", online=tmp_path, refresh=True)
+    assert seen["end"] == str(pd.Timestamp.now().date())

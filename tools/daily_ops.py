@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -39,12 +40,18 @@ REGIMES = ((0.0, 2.0, "低 carry", 0.0067, 0.0124),
            (3.0, 99.0, "高 carry", 0.0431, 0.0454))
 
 
-def refresh_prices() -> dict:
-    """Pull every carrier's history into the local cache; offline runs fail here, loudly."""
+def refresh_prices(pace: float = 0.3) -> dict:
+    """Pull every carrier's history into the local cache; offline runs fail here, loudly.
+
+    Eighteen back-to-back requests is rude to a free endpoint, so each carrier is followed by a
+    short pause.  The cache writes are atomic, so an interrupted refresh leaves the old file.
+    """
     from tools import fund_vehicles
     for code in fund_vehicles.CARRIERS:
         fund_vehicles.load_prices(code, refresh=True)
         fund_vehicles.load_distributions(code, refresh=True)
+        if pace:
+            time.sleep(pace)
     return dict(carriers=len(fund_vehicles.CARRIERS))
 
 

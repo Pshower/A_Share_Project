@@ -107,7 +107,12 @@ def run(limit=None, codes=None, pause=0.2, store=STORE, log=print):
             log("fetched %d/%d" % (position, len(targets)))
     added = 0
     if fresh:
-        merged = pd.concat([current] + fresh, ignore_index=True)
+        # pandas 2.1 rejects a concat whose datetime columns differ in unit (ns vs s); normalise
+        # both sides so the merge does not depend on which pandas the machine happens to have.
+        def dated(frame):
+            return frame.assign(date=pd.to_datetime(frame["date"]).astype("datetime64[ns]"))
+
+        merged = pd.concat([dated(current)] + [dated(frame) for frame in fresh], ignore_index=True)
         merged = merged.drop_duplicates(subset=["code", "date"], keep="first").sort_values(["code", "date"])
         merged.to_parquet(index_path, index=False)
         added = int(len(merged) - len(current))

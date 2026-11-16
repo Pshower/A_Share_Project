@@ -18,6 +18,7 @@ tracking) and those are different problems.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -75,6 +76,14 @@ def repair(prices: pd.Series, paid: dict, tolerance: float = 0.05) -> tuple[pd.S
     return prices, events
 
 
+def _write_atomic(path: Path, frame: pd.DataFrame, **kwargs) -> None:
+    """Write via a temp file and rename, so an interrupted refresh cannot leave half a CSV."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    frame.to_csv(temporary, **kwargs)
+    os.replace(temporary, path)
+
+
 def load_prices(code: str, online: Path | None = None, refresh: bool = False) -> pd.Series:
     """Daily close, cached so a re-run needs no network."""
     online = online or ONLINE
@@ -87,8 +96,7 @@ def load_prices(code: str, online: Path | None = None, refresh: bool = False) ->
     frame = ak.fund_etf_hist_sina(symbol=plan_orders.prefix_for(code) + code)
     frame["date"] = pd.to_datetime(frame["date"])
     series = frame.set_index("date")["close"].astype(float).sort_index()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    series.rename("close").to_csv(path, index_label="date")
+    _write_atomic(path, series.rename("close"), index_label="date")
     return series
 
 
@@ -101,10 +109,12 @@ def load_distributions(code: str, online: Path | None = None, refresh: bool = Fa
             return {}
         frame["date"] = pd.to_datetime(frame["date"])
         return {stamp: float(value) for stamp, value in zip(frame["date"], frame["per_unit"])}
-    events = account_ledger.distributions(code, "2000-01-01", "2026-12-31")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame([dict(date=str(stamp), per_unit=value) for stamp, value in events],
-                 columns=["date", "per_unit"]).to_csv(path, index=False)
+    # The window ends today, not on a hardcoded date: a fixed 2026-12-31 would silently stop
+    # picking up new distributions from the first refresh of 2027 onward.
+    end = str(pd.Timestamp.now().date())
+    events = account_ledger.distributions(code, "2000-01-01", end)
+    _write_atomic(path, pd.DataFrame([dict(date=str(stamp), per_unit=value) for stamp, value in events],
+                                     columns=["date", "per_unit"]))
     return {pd.Timestamp(stamp): float(value) for stamp, value in events}
 
 

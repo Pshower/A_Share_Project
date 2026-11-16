@@ -24,7 +24,7 @@ def write_prices(root, scale=1.0, days=30, codes=("510300", "510500", "513500", 
         frame.to_csv(root / "fund" / ("hist_%s.csv" % code), index=False)
 
 
-def write_book(root, name="paper", drop=1.0, legs=(37500, 25000, 150000)):
+def write_book(root, name="paper", drop=1.0, legs=(37500, 25000, 150000), extra=None):
     base = root / name
     base.mkdir(parents=True, exist_ok=True)
     (base / "account.json").write_text(json.dumps({"capital": 1000000.0,
@@ -34,11 +34,17 @@ def write_book(root, name="paper", drop=1.0, legs=(37500, 25000, 150000)):
         dict(date="2026-11-02", code="510500", action="buy", shares=legs[1], price=6.0, fee=5.0),
         dict(date="2026-11-02", code="513500", action="buy", shares=legs[2], price=2.0, fee=5.0),
     ]
+    positions = {"510300": legs[0], "510500": legs[1], "513500": legs[2]}
+    prices = {"510300": 4.0, "510500": 6.0, "513500": 2.0}
+    for code, shares in (extra or {}).items():
+        trades.append(dict(date="2026-11-02", code=code, action="buy", shares=shares,
+                           price=100.0, fee=5.0))
+        positions[code] = shares
+        prices[code] = 100.0
     (base / "trades.jsonl").write_text(
         "".join(json.dumps(row) + "\n" for row in trades), encoding="utf-8")
     snapshot = dict(date="2026-11-02", nav=1000000.0, cash=400000.0,
-                    positions={"510300": legs[0], "510500": legs[1], "513500": legs[2]},
-                    prices={"510300": 4.0, "510500": 6.0, "513500": 2.0})
+                    positions=positions, prices=prices)
     (base / "snapshots.jsonl").write_text(json.dumps(snapshot) + "\n", encoding="utf-8")
 
 
@@ -111,6 +117,36 @@ def test_the_asset_table_covers_every_class_and_sums_to_one(tmp_path):
     assert total == pytest.approx(1.0, abs=0.01)
 
 
+def test_last_quarter():
+    pass
+
+
+def test_cash_safe_does_not_lock_the_book_in_either_mode(tmp_path):
+    """Holding 511880 used to raise unless cash_safe, and cash_safe dropped it from the plan.
+
+    A hold day must survive both: the ETF is simply left alone.
+    """
+    write_prices(tmp_path / "online", scale=1.0,
+                 codes=("510300", "510500", "513500", "511010", "511880"))
+    write_book(tmp_path, extra={"511880": 2000, "511010": 2000})
+    for flag in (True, False):
+        result = daily.recommendation("paper", cash_safe=flag,
+                                      online=tmp_path / "online", base=tmp_path)
+        assert result["action"] == "hold"
+        assert [row["delta"] for row in result["sleeves"]] == [0] * len(result["sleeves"])
+        assert sum(row["weight"] for row in result["assets"]) == pytest.approx(1.0, abs=0.01)
+
+
+def test_cash_safe_names_the_cash_etf_in_the_asset_table(tmp_path):
+    write_prices(tmp_path / "online", scale=1.0,
+                 codes=("510300", "510500", "513500", "511010", "511880"))
+    write_book(tmp_path, extra={"511880": 2000, "511010": 2000})
+    result = daily.recommendation("paper", cash_safe=True,
+                                  online=tmp_path / "online", base=tmp_path)
+    names = {row["code"]: row for row in result["assets"]}
+    assert "511880" in names and names["511880"]["weight"] > 0
+
+
 def test_a_dry_run_records_nothing(tmp_path, monkeypatch):
     write_prices(tmp_path / "online", scale=0.9)
     write_book(tmp_path)
@@ -121,6 +157,24 @@ def test_a_dry_run_records_nothing(tmp_path, monkeypatch):
     assert before == after
     assert log["marked_nav"] is None
     assert len(log["trades"]) == len([row for row in result["sleeves"] if row["delta"] != 0])
+
+
+def test_a_failed_mark_rolls_the_fills_back(tmp_path, monkeypatch):
+    """Fills and the day's snapshot are one decision: a failing mark must leave no fills behind."""
+    write_prices(tmp_path / "online", scale=0.9)          # far enough from target to rebalance
+    write_book(tmp_path)
+    result = daily.recommendation("paper", online=tmp_path / "online", base=tmp_path)
+    assert result["action"] == "rebalance"
+    trades = tmp_path / "paper" / "trades.jsonl"
+    before = trades.read_text(encoding="utf-8")
+    monkeypatch.setattr(daily.ledger, "use", lambda name: None)
+    monkeypatch.setattr(daily.ledger, "TRADES", trades)
+    monkeypatch.setattr(daily.ledger, "SNAPSHOTS", tmp_path / "paper" / "snapshots.jsonl")
+    monkeypatch.setattr(daily.ledger, "mark",
+                        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("mark failed")))
+    with pytest.raises(RuntimeError, match="mark failed"):
+        daily.apply(result)
+    assert trades.read_text(encoding="utf-8") == before
 
 
 def test_the_read_path_leaves_the_ledger_globals_alone(tmp_path):
