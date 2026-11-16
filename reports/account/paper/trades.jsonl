@@ -2,3 +2,7 @@
 {"action": "buy", "code": "510500", "date": "2026-11-12", "fee": 44.95, "price": 6.749, "recorded_at": "2026-11-12T15:48:53.676466+00:00", "shares": 22200, "source": "model_open"}
 {"action": "buy", "code": "513500", "date": "2026-11-12", "fee": 89.99, "price": 2.664, "recorded_at": "2026-11-12T15:48:53.693133+00:00", "shares": 112600, "source": "model_open"}
 {"action": "buy", "code": "511010", "date": "2026-11-12", "fee": 118.73, "price": 141.34, "recorded_at": "2026-11-12T15:48:53.709794+00:00", "shares": 2800, "source": "model_open"}
+{"action": "sell", "code": "510300", "date": "2026-11-16", "fee": 8.03, "price": 4.054, "recorded_at": "2026-11-16T13:30:20.462532+00:00", "shares": 6600, "source": "unified"}
+{"action": "sell", "code": "510500", "date": "2026-11-16", "fee": 6.27, "price": 6.334, "recorded_at": "2026-11-16T13:30:20.478752+00:00", "shares": 3300, "source": "unified"}
+{"action": "sell", "code": "513500", "date": "2026-11-16", "fee": 16.01, "price": 2.603, "recorded_at": "2026-11-16T13:30:20.495738+00:00", "shares": 20500, "source": "unified"}
+{"action": "buy", "code": "511010", "date": "2026-11-16", "fee": 29.65, "price": 141.2, "recorded_at": "2026-11-16T13:30:20.517278+00:00", "shares": 700, "source": "unified"}
