@@ -24,20 +24,20 @@ def write_prices(root, scale=1.0, days=30, codes=("510300", "510500", "513500", 
         frame.to_csv(root / "fund" / ("hist_%s.csv" % code), index=False)
 
 
-def write_book(root, name="paper", drop=1.0):
+def write_book(root, name="paper", drop=1.0, legs=(37500, 25000, 150000)):
     base = root / name
     base.mkdir(parents=True, exist_ok=True)
     (base / "account.json").write_text(json.dumps({"capital": 1000000.0,
                                                    "start_date": "2026-11-02"}), encoding="utf-8")
     trades = [
-        dict(date="2026-11-02", code="510300", action="buy", shares=37500, price=4.0, fee=5.0),
-        dict(date="2026-11-02", code="510500", action="buy", shares=25000, price=6.0, fee=5.0),
-        dict(date="2026-11-02", code="513500", action="buy", shares=150000, price=2.0, fee=5.0),
+        dict(date="2026-11-02", code="510300", action="buy", shares=legs[0], price=4.0, fee=5.0),
+        dict(date="2026-11-02", code="510500", action="buy", shares=legs[1], price=6.0, fee=5.0),
+        dict(date="2026-11-02", code="513500", action="buy", shares=legs[2], price=2.0, fee=5.0),
     ]
     (base / "trades.jsonl").write_text(
         "".join(json.dumps(row) + "\n" for row in trades), encoding="utf-8")
     snapshot = dict(date="2026-11-02", nav=1000000.0, cash=400000.0,
-                    positions={"510300": 37500, "510500": 25000, "513500": 150000},
+                    positions={"510300": legs[0], "510500": legs[1], "513500": legs[2]},
                     prices={"510300": 4.0, "510500": 6.0, "513500": 2.0})
     (base / "snapshots.jsonl").write_text(json.dumps(snapshot) + "\n", encoding="utf-8")
 
@@ -84,6 +84,21 @@ def test_a_book_inside_the_band_is_told_to_hold(tmp_path):
     result = daily.recommendation("paper", online=tmp_path / "online", base=tmp_path)
     assert result["action"] == "hold"
     assert abs(result["drift"]) < result["band"]
+
+
+def test_a_hold_day_never_proposes_a_trade(tmp_path):
+    """The band pins the risky sleeve as a whole; it must not restructure the legs inside it.
+
+    A book that sat at 45/18/57 inside its risky bucket used to be handed a "hold" verdict and,
+    in the same response, a 90%-of-NAV reshuffle back to 25/25/50.
+    """
+    write_prices(tmp_path / "online", scale=1.0)
+    write_book(tmp_path, legs=(56250, 15000, 142500))       # same 60% risky total, skewed legs
+    result = daily.recommendation("paper", online=tmp_path / "online", base=tmp_path)
+    assert result["action"] == "hold"
+    assert [row["delta"] for row in result["sleeves"]] == [0, 0, 0, 0]
+    assert sum(row["fee"] for row in result["sleeves"]) == 0
+    assert sum(row["weight"] for row in result["assets"]) == pytest.approx(1.0, abs=0.01)
 
 
 def test_the_asset_table_covers_every_class_and_sums_to_one(tmp_path):

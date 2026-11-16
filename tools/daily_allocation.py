@@ -136,6 +136,19 @@ def recommendation(book: str = "paper", cash_safe: bool = False,
         action = "rebalance"
 
     plan = plan_orders.orders(plan_weights, nav, prices, held)
+    if action == "hold":
+        # Inside the band nothing may be proposed.  ``target_weights`` only pins the risky sleeve
+        # as a whole, so ``orders()`` would otherwise re-impose the 25/25/50 split inside it and
+        # hand the page a full restructure on a day the engine books nothing.  The target on a
+        # hold day *is* the current book.
+        for row in plan["orders"]:
+            shares = int(row["held"])
+            row["delta"] = 0
+            row["action"] = "hold"
+            row["target_shares"] = shares
+            row["target_value"] = round(shares * row["price"], 2)
+            row["weight"] = (1.0 - risky_now) if row["code"] == SAFE else round(shares * row["price"] / nav, 6)
+        plan["cash"] = float(state["cash"])
     warnings = []
     if state["unmarked_trades"]:
         warnings.append("%d 笔成交未记账，先跑 tools.account_ledger mark" % state["unmarked_trades"])
