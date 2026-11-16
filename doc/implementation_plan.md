@@ -147,7 +147,8 @@
 - **先报故障**：20:00 的任务第一次跑就死，`ModuleNotFoundError: No module named 'src.data.sina'`。
   根因是 2026-11-14 的 `1059e0e`（*cut the branch down to the execution line*）删掉了 `src/data/sina.py`，
   而**保留下来的** `src/data/online.py` 仍有三处 `from src.data.sina import Sina`——删的是一个还被引用的模块。
-  这解释了为什么 11-14 之后的三个交易日没有 S2 记录：不是"面板未推进"，是**数据供给代码断了**。
+  这解释了 **11-14（周五）为什么没有 S2 记录**：不是"面板未推进"，是**数据供给代码断了**；
+  而任务当时只留下一个退出码 1 的 traceback，没有人看见——**定时任务的失败需要被看见，不能只落在日志里**。
 - **修复**：从 `1059e0e^` 原样恢复该文件（100 行，只依赖 `online.Eastmoney` 与 `rate_limit.AdaptivePacer`），
   新增 `tests/test_sina_adapter.py`（3 条）：适配器可导入且 `name == "sina"`、`download_history` 仍路由到它、
   `tools.forward_panel` 可导入。以后再出现"删了还在用"，一条导入测试就当场暴露，不必等到 20:00。
