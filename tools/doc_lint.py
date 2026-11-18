@@ -59,7 +59,14 @@ def check_title(path):
 # archived reports, and a pre-registration written before the branch cut.  Listing them here is a
 # decision (they keep the record readable), not an oversight.
 HISTORICAL = {"implementation_plan.md", "README.md", "market_leverage_protocol_20261114.md"}
+# Reviews quote the commands they are complaining about; treating those quotes as instructions
+# would make the linter report the audit itself.
+RECORD_PREFIX = ("repository_review_", "investment_advice_review_", "delivery_")
 PLANNED = {"data_health"}          # named in the roadmap as work not yet written
+
+
+def _is_record(path) -> bool:
+    return path.name in HISTORICAL or path.name.startswith(RECORD_PREFIX)
 
 
 def check_tools(path, root):
@@ -71,6 +78,27 @@ def check_tools(path, root):
         for name in TOOL.findall(line):
             if name not in alive:
                 issues.append(dict(kind="tools", doc=str(path), line=number, detail=name))
+    return issues
+
+
+def check_commands(path, root):
+    """``python -B -m tools.<name>`` in a runbook must name a tool that still exists.
+
+    ``check_tools`` only sees the ``tools/<name>.py`` path form, so a deleted module cited as a
+    shell command used to sail through -- which is how a runbook kept telling people to run a tool
+    that had been removed months earlier.
+    """
+    issues = []
+    if path.parent.name == "archive" or _is_record(path):
+        return issues
+    alive = {item.stem for item in (Path(root) / "tools").glob("*.py")} | PLANNED
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if line.lstrip().startswith("#"):
+            continue                      # a commented-out command is a record, not an instruction
+        for name in COMMAND.findall(line):
+            if name not in alive:
+                issues.append(dict(kind="commands", doc=str(path), line=number,
+                                   detail="tools.%s is not a tool" % name))
     return issues
 
 
@@ -111,6 +139,7 @@ def scan(root=PROJECT_ROOT / "doc", include_archive=True):
     for path in files:
         issues += check_links(path)
         issues += check_tools(path, Path(root).parent)
+        issues += check_commands(path, Path(root).parent)
         if path.parent == root:                     # titles and index apply to the live set
             issues += check_title(path)
     issues += check_duplicates([path for path in files if path.parent == root])

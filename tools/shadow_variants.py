@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import zlib
 from datetime import datetime, timezone
@@ -107,9 +108,12 @@ def load_state(letter, output=OUTPUT):
 
 
 def save_state(letter, state, output=OUTPUT):
+    """Write through a temp file: a half-written state would wedge the ledger on the next run."""
     _, state_path = paths(letter, output)
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary = state_path.with_name(state_path.name + ".tmp")
+    temporary.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temporary, state_path)
 
 
 def append(letter, record, output=OUTPUT):

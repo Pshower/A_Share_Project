@@ -133,6 +133,26 @@ def test_a_missing_yield_cache_never_fails_the_day(monkeypatch):
     assert calls["book"] == ["paper"]
 
 
+def test_the_live_book_cannot_be_booked_even_when_asked(monkeypatch):
+    """The gate must be a policy, not a parameter: ``book("live")`` used to pass allowed=("live",)."""
+    monkeypatch.setattr(ops.daily_allocation, "recommendation",
+                        lambda book="paper", cash_safe=False: dict(
+                            book=book, as_of="2026-11-13", action="hold", sleeves=[],
+                            nav=1.0, risky_target=0.5, risky_now=0.5, prices={}, price_dates={}))
+    with pytest.raises(ValueError, match="不允许写进"):
+        ops.book("live", "2026-11-13")
+
+
+def test_a_blocked_gate_carries_its_reasons(monkeypatch):
+    green(monkeypatch)
+    monkeypatch.setattr(ops, "check", lambda account, day: dict(
+        safe_to_send=False, band_triggered=False, state=dict(nav=1.0),
+        problems=["510300 quote is from 2026-11-16, not 2026-11-17"]))
+    report = ops.run(day="2026-11-13")
+    assert report["status"] == "failed"
+    assert "510300" in report["error"], "the gate's own reason must survive into the failure message"
+
+
 def test_a_failed_summary_says_so(monkeypatch):
     green(monkeypatch)
     monkeypatch.setattr(ops, "check", lambda account, day: dict(

@@ -74,7 +74,10 @@ def book(account: str, day: str) -> dict:
     result = daily_allocation.recommendation(book=account)
     if str(result["as_of"]) != str(day):
         raise RuntimeError("报价停在 %s，不是 %s" % (result["as_of"], day))
-    log = daily_allocation.apply(result, allowed=(account,))
+    # The gate is a policy, not a parameter of the caller: passing the account it is about would
+    # make it vacuous.  ``allowed`` stays at its default ("paper"), so the model can never write
+    # the real-money book even if ``book_accounts`` is misconfigured.
+    log = daily_allocation.apply(result)
     return dict(action=log["action"], trades=len(log["trades"]),
                 nav=log["marked_nav"], risky_target=result["risky_target"],
                 risky_now=result["risky_now"], filled=log["trades"])
@@ -135,7 +138,12 @@ def run(day: str | None = None, accounts=DEFAULT_ACCOUNTS,
                                           nav=gates[account]["state"]["nav"]))
         blocked = [account for account, gate in gates.items() if not gate["safe_to_send"]]
         if blocked:
-            raise RuntimeError("预检未通过：%s；已停在落账之前" % "、".join(blocked))
+            # Carry the gate's own reasons: "预检未通过" alone sends the operator hunting.
+            detail = "；".join("%s: %s" % (account,
+                                          " / ".join((gates[account].get("problems") or [])[:4]))
+                              for account in blocked)
+            raise RuntimeError("预检未通过（%s）——%s；已停在落账之前"
+                               % ("、".join(blocked), detail))
 
         for account in accounts:
             if dry or account not in book_accounts:

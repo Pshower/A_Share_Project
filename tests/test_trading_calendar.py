@@ -5,7 +5,9 @@ them from January onward without a single error.  These tests pin the intended l
 """
 from __future__ import annotations
 
+import os
 import sys
+import time
 
 import pandas as pd
 import pytest
@@ -36,12 +38,17 @@ def test_the_horizon_asks_for_a_week_of_slack_not_a_year():
     assert trading_calendar.COVER <= 30
 
 
-def write_cache(root, last):
+def write_cache(root, last, age_days=0):
     root.mkdir(parents=True, exist_ok=True)
     index = pd.bdate_range(end=last, periods=40)
-    (root / "trade_dates.csv").write_text(
+    path = root / "trade_dates.csv"
+    path.write_text(
         pd.DataFrame({"trade_date": index.strftime("%Y-%m-%d")}).to_csv(index=False),
         encoding="utf-8")
+    if age_days:
+        stamp = time.time() - age_days * 86400
+        os.utime(path, (stamp, stamp))
+    return path
 
 
 class FakeAkshare:
@@ -71,12 +78,23 @@ def test_a_cache_with_a_week_of_slack_is_not_refetched(tmp_path, monkeypatch):
 
 def test_a_cache_that_runs_out_is_refetched(tmp_path, monkeypatch):
     today = pd.Timestamp.now().normalize()
-    write_cache(tmp_path, today)
+    write_cache(tmp_path, today, age_days=1)          # yesterday's fetch: due again
     FakeAkshare.calls = 0
     monkeypatch.setitem(sys.modules, "akshare", FakeAkshare)
     dates = trading_calendar.load(cache=tmp_path)
     assert FakeAkshare.calls == 1
     assert dates.max() > today + pd.Timedelta(days=trading_calendar.COVER)
+
+
+def test_a_cache_refreshed_today_is_not_refetched_again(tmp_path, monkeypatch):
+    """At the end of December the week of slack can never be met; one attempt per day is enough."""
+    today = pd.Timestamp.now().normalize()
+    write_cache(tmp_path, today)                       # written moments ago
+    FakeAkshare.calls = 0
+    monkeypatch.setitem(sys.modules, "akshare", FakeAkshare)
+    dates = trading_calendar.load(cache=tmp_path)
+    assert FakeAkshare.calls == 0
+    assert dates.max() >= today
 
 
 def test_a_failed_refresh_still_answers_from_a_cache_that_covers_today(tmp_path, monkeypatch):

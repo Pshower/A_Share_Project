@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import date, datetime
 from pathlib import Path
 
@@ -35,8 +36,14 @@ def load(refresh=False, cache=CACHE):
     cached = None
     if path.exists():
         cached = pd.to_datetime(pd.read_csv(path)["trade_date"])
-        if not refresh and _covers(cached, today):
-            return cached
+        if not refresh:
+            if _covers(cached, today):
+                return cached
+            if _covers(cached, today, days=0) and _refreshed_today(path):
+                # The exchange publishes to the next year end, so in the last days of December the
+                # week of slack can never be met.  One attempt per day is enough; the cache still
+                # answers today's question.
+                return cached
     import akshare as ak
     try:
         frame = ak.tool_trade_date_hist_sina()
@@ -46,8 +53,15 @@ def load(refresh=False, cache=CACHE):
             # must not turn "is today a trading day" into an exception.
             return cached
         raise
-    frame.to_csv(path, index=False)
+    temporary = path.with_name(path.name + ".tmp")
+    frame.to_csv(temporary, index=False)
+    os.replace(temporary, path)          # a half-written calendar would be worse than a stale one
     return pd.to_datetime(frame["trade_date"])
+
+
+def _refreshed_today(path: Path) -> bool:
+    stamp = datetime.fromtimestamp(path.stat().st_mtime).date()
+    return stamp == date.today()
 
 
 def is_trading_day(when=None, calendar=None):

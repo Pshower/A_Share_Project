@@ -117,10 +117,6 @@ def test_the_asset_table_covers_every_class_and_sums_to_one(tmp_path):
     assert total == pytest.approx(1.0, abs=0.01)
 
 
-def test_last_quarter():
-    pass
-
-
 def test_cash_safe_does_not_lock_the_book_in_either_mode(tmp_path):
     """Holding 511880 used to raise unless cash_safe, and cash_safe dropped it from the plan.
 
@@ -145,6 +141,19 @@ def test_cash_safe_names_the_cash_etf_in_the_asset_table(tmp_path):
                                   online=tmp_path / "online", base=tmp_path)
     names = {row["code"]: row for row in result["assets"]}
     assert "511880" in names and names["511880"]["weight"] > 0
+
+
+def test_an_off_plan_holding_is_sold_on_a_rebalance_day(tmp_path):
+    """Switching cash_safe off used to wedge the book: every rebalance raised instead of selling."""
+    write_prices(tmp_path / "online", scale=0.9,
+                 codes=("510300", "510500", "513500", "511010", "511880"))
+    write_book(tmp_path, extra={"511880": 2000, "511010": 2000})
+    result = daily.recommendation("paper", cash_safe=False,
+                                  online=tmp_path / "online", base=tmp_path)
+    assert result["action"] == "rebalance"
+    row = next(item for item in result["sleeves"] if item["code"] == "511880")
+    assert row["delta"] == -2000, "the off-plan leg is liquidated, not ignored"
+    assert any("计划外" in warning for warning in result["warnings"])
 
 
 def test_a_dry_run_records_nothing(tmp_path, monkeypatch):

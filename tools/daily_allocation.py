@@ -128,6 +128,7 @@ def recommendation(book: str = "paper", cash_safe: bool = False,
     # The no-trade band applies to the risky sleeve as a whole; inside it, nothing is booked.
     drift = risky_target - risky_now
     idle_weight = float(state["cash"]) / nav
+    off_plan = []
     if abs(drift) < BAND:
         # On a hold day the target *is* the current book, leg for leg: deriving per-leg targets
         # from fixed weights would restructure the sleeve inside the band, and dropping the cash
@@ -140,7 +141,13 @@ def recommendation(book: str = "paper", cash_safe: bool = False,
         plan_weights[SAFE] = plan_weights.get(SAFE, 0.0) + idle_weight
         action = "hold"
     else:
-        plan_weights = weights
+        plan_weights = dict(weights)
+        # A holding outside the plan (511880 after cash_safe was switched off) must not brick the
+        # book: ``orders()`` refuses an off-plan position, and that refusal used to repeat forever.
+        # On a rebalance day the target for such a leg is zero -- sell it and move on.
+        off_plan = [code for code in held if code not in plan_weights and int(held[code]) > 0]
+        for code in off_plan:
+            plan_weights[code] = 0.0
         action = "rebalance"
 
     plan = plan_orders.orders(plan_weights, nav, prices, held)
@@ -157,6 +164,9 @@ def recommendation(book: str = "paper", cash_safe: bool = False,
                 row["target_value"] = round((plan_weights[SAFE] - idle_weight) * nav, 2)
         plan["cash"] = float(state["cash"])
     warnings = []
+    if off_plan:
+        warnings.append("账上持有计划外的 %s，本次调仓按目标 0 全部卖出"
+                        % ", ".join(sorted(off_plan)))
     if state["unmarked_trades"]:
         warnings.append("%d 笔成交未记账，先跑 tools.account_ledger mark" % state["unmarked_trades"])
     if abs(nav - float(state["snapshot_nav"])) > 1.0:
@@ -257,7 +267,8 @@ def apply(result: dict, dry: bool = False, max_age_days: int | None = MAX_AGE_DA
     # and failing on the mark used to leave the book holding new positions with no snapshot for
     # the day, and the next run would book the same trade again.
     backup = None
-    if not dry and ledger.TRADES.exists():
+    existed = ledger.TRADES.exists()
+    if not dry and existed:
         backup = ledger.TRADES.read_text(encoding="utf-8")
     try:
         if result["action"] == "rebalance":
@@ -279,6 +290,9 @@ def apply(result: dict, dry: bool = False, max_age_days: int | None = MAX_AGE_DA
     except Exception:
         if backup is not None:
             ledger.TRADES.write_text(backup, encoding="utf-8")
+        elif not dry and not existed and ledger.TRADES.exists():
+            # First booking on a fresh book: "before" was the absence of a file, not empty content.
+            ledger.TRADES.unlink()
         raise
     log = dict(book=result["book"], as_of=result["as_of"], action=result["action"],
                opening=opening, age_days=int(age), nav=result["nav"],
