@@ -5,6 +5,8 @@
 
 ## 0. 结论
 
+> **追记（2026-11-19 01:38）**：`4a2483c` 收掉了第 1、4、5 项，以及 §6 里的 BOM（两个文件）、`append` 的 `fsync`、与闸门相反的文档。第 2 项**判断错了**：11-18 22:55 的 S2 提示词已经加上 `tools.shadow_variants --variants=ABCD`，首条自动记录是 11-19 20:00——写这句时确实读不到调度器（§9 已声明），但"没找到调用者"仍然不等于"没有调度"。复核：**296 passed / 1 skipped**（比上一轮多 7 条），`data_health` 首跑与 §5 的数字逐项一致，`calendar_left()` = **42**，摘要末尾出现"日历剩 42 天"，`doc_lint` 0 issue。仍开：第 3 项（备份任务）、§6 的网页端点与持有日 `invested`。
+
 | # | 级别 | 事 | 证据 | 建议 |
 | ---: | --- | --- | --- | --- |
 | 1 | **P1** | 交易日历停在 2026-12-31（42 天后）；数据源若到 1 月还没发出 2027，2027-01-04 起每日任务每天失败 | 今天实测数据源 8,797 行、max **2026-12-31**；`is_trading_day("2027-01-04")` 抛 `ValueError` | 摘要里显示"日历剩 N 天"；12 月加一次检查 |
@@ -76,6 +78,8 @@ D_shadow.jsonl 22:52:23
 
 建议：把 `python -B -m tools.shadow_variants` 接在 20:00 的 S2 命令后面（面板已经下好，实测四本一次 **2.65 s**），或者写进 21:30 的 `daily_ops`。前者更自然：同一天的面板只读一次就够。
 
+> **更正**：20:00 的 S2 提示词在 11-18 22:55 已经加上 `tools.shadow_variants --variants=ABCD`；本节"没有调度"的结论作废，首条自动记录是 11-19 20:00（见 §0 追记）。
+
 ## 4. 备份：工具写好了，任务一直没加
 
 - `doc/backup_20261114.md:72-74`：「**改定时任务需要你明确同意**——我没有动它」，并建议"21:00 任务末尾追加一次 `python -B -m tools.backup`"。
@@ -100,11 +104,14 @@ D_shadow.jsonl 22:52:23
 
 ## 6. 小项
 
-- **BOM**：`tools/unified_plan.py`、`tests/test_restate_book.py` 带 UTF-8 BOM。Python 自己容忍，但 `read_text("utf-8")` + `ast.parse` 会失败，lint 用 `lstrip("\ufeff")` 兜着，属于"下一个人会踩"的坑。
-- **`shadow_variants.append`** 仍是单次 `write`：断电可能留半行，读侧没有容错。
-- **网页没有变体端点**（第四轮 #12）：四本账只在 JSONL 里。
-- **文档与闸门相反**：`doc/daily_recommendation_20261115.md:66-69` 仍教「传 `--book-accounts=paper,live`，脚本会标出哪些账是仅建议」。`aca9fad` 之后这条路径会在 live 上失败关闭（行为是对的），文档应改成"传 live 会被拒绝；实盘成交用 `account_ledger trade`"。
-- **持有日 `invested`**（第四轮 #13）：没有消费方。
+> **追记**：BOM、`append` 的 `fsync`、文档与闸门相反，这三条已在 `4a2483c` 修掉；剩下网页端点与持有日 `invested`。
+
+- **`--dry` 的帮助与行为不符**（复核时新见）：`--dry` 写着"读一遍，不写任何文件"（`tools/daily_ops.py:277`），但 `run()` 末尾无条件写 `reports/runs/daily_ops/<date>.json`（`:286`）——同一天先跑真实任务、再跑一次 `--dry`，真实记录就被模拟结果覆盖了。覆盖物里带 `dry: true`，所以还能分辨，但"当天到底记了什么"已经不在了。建议要么让 `--dry` 写 `<date>.dry.json`，要么改帮助文字。
+- **BOM**（`4a2483c` 已去掉）：原先 `tools/unified_plan.py`、`tests/test_restate_book.py` 带 UTF-8 BOM，`read_text("utf-8")` + `ast.parse` 会失败；现在两文件 `ast.parse` 都通过。
+- **`shadow_variants.append`**（`4a2483c` 已加 `flush + fsync`）：原先单次 `write`，断电可能留半行。
+- **网页没有变体端点**（第四轮 #12，仍开）：四本账只在 JSONL 里。
+- **文档与闸门相反**（`4a2483c` 已改）：`doc/daily_recommendation_20261115.md:66-69` 现在写明传 `--book-accounts=paper,live` 会在 live 上失败关闭，实盘成交用 `account_ledger trade`。
+- **持有日 `invested`**（第四轮 #13，仍开）：没有消费方。
 
 ## 7. 健康项（这次没动，也不该动）
 
