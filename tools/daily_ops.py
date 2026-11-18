@@ -167,6 +167,13 @@ def run(day: str | None = None, accounts=DEFAULT_ACCOUNTS,
         if is_month_open(day):
             for account in accounts:
                 note("monthly:" + account, dict(skipped="dry run") if dry else monthly(account, day))
+
+        # Observability last, and in its own guard: a health report that cannot be produced is a
+        # note, never a failed booking.
+        try:
+            note("health", health())
+        except Exception as error:                                # noqa: BLE001
+            note("health", error="%s: %s" % (type(error).__name__, str(error)[:200]))
     except Exception as error:                                    # noqa: BLE001
         report["status"] = "failed"
         report["error"] = "%s: %s" % (type(error).__name__, str(error)[:400])
@@ -178,6 +185,7 @@ def run(day: str | None = None, accounts=DEFAULT_ACCOUNTS,
         except Exception:                                         # noqa: BLE001
             # A missing or stale yield cache is worth a blank clause, never a failed day.
             report["regime"] = None
+        report["calendar_days_left"] = calendar_left()
 
     report["summary"] = summary_line(report)
     return report
@@ -196,6 +204,30 @@ def regime() -> dict:
             return dict(y10=level, as_of=stamp, bucket=label,
                         daily_median=daily, monthly_median=monthly)
     raise ValueError("yield %.4f falls outside every bucket" % level)
+
+
+def calendar_left() -> int | None:
+    """Days of exchange calendar remaining after today; None when the cache cannot be read.
+
+    The calendar ends where the feed ends, and ``is_trading_day`` deliberately raises past it.  That
+    is the right failure -- but it is total: from the first session after the cache runs out, every
+    daily run fails.  Surfacing the countdown turns a January surprise into a November chore.
+    """
+    try:
+        from tools import trading_calendar
+        last = trading_calendar.load().max()
+        return int((pd.Timestamp(last).normalize() - pd.Timestamp(pd.Timestamp.now().date())).days)
+    except Exception:                                             # noqa: BLE001
+        return None
+
+
+def health() -> dict:
+    """Read-only health of the raw archive and the forward panel; never fails the day."""
+    from tools import data_health
+    payload = data_health.report()
+    panel = payload.get("panel") or {}
+    return dict(panel=panel.get("version"), missing=panel.get("missing_total"),
+                jumps=panel.get("jumps"), snapshots=payload["history"]["snapshots"])
 
 
 def _nav(report, account) -> dict:
@@ -230,6 +262,9 @@ def summary_line(report: dict) -> str:
         parts.append("%s 档：10y %.2f%%（%s），同档起点中位 %.2f%% 日频 / %.2f%% 月频"
                      % (rate["bucket"], rate["y10"], rate["as_of"],
                         rate["daily_median"] * 100, rate["monthly_median"] * 100))
+    left = report.get("calendar_days_left")
+    if isinstance(left, int) and left < 60:
+        parts.append("日历剩 %d 天" % left)
     return "；".join(parts)
 
 

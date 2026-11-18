@@ -62,7 +62,7 @@ HISTORICAL = {"implementation_plan.md", "README.md", "market_leverage_protocol_2
 # Reviews quote the commands they are complaining about; treating those quotes as instructions
 # would make the linter report the audit itself.
 RECORD_PREFIX = ("repository_review_", "investment_advice_review_", "delivery_")
-PLANNED = {"data_health"}          # named in the roadmap as work not yet written
+PLANNED = {"data_health"}          # now written; kept so archived mentions stay readable
 
 
 def _is_record(path) -> bool:

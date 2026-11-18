@@ -23,6 +23,9 @@ def green(monkeypatch, advice_action="hold"):
     monkeypatch.setattr(ops, "regime", lambda: dict(y10=1.5874, as_of="2026-11-09",
                                                     bucket="低 carry", daily_median=0.0067,
                                                     monthly_median=0.0124))
+    monkeypatch.setattr(ops, "calendar_left", lambda: 42)
+    monkeypatch.setattr(ops, "health", lambda: dict(panel="pool_test", missing=3, jumps=0,
+                                                    snapshots=500))
     return calls
 
 
@@ -119,6 +122,20 @@ def test_the_summary_names_the_rate_regime(monkeypatch):
     assert "0.67%" in report["summary"] and "1.24%" in report["summary"]
 
 
+def test_the_summary_counts_down_the_calendar(monkeypatch):
+    """When the calendar runs out every run fails; the countdown must appear before it bites."""
+    green(monkeypatch)
+    report = ops.run(day="2026-11-13")
+    assert "日历剩 42 天" in report["summary"]
+
+
+def test_a_distant_calendar_is_not_mentioned(monkeypatch):
+    green(monkeypatch)
+    monkeypatch.setattr(ops, "calendar_left", lambda: 300)
+    report = ops.run(day="2026-11-13")
+    assert "日历剩" not in report["summary"]
+
+
 def test_a_missing_yield_cache_never_fails_the_day(monkeypatch):
     calls = green(monkeypatch)
 
@@ -151,6 +168,21 @@ def test_a_blocked_gate_carries_its_reasons(monkeypatch):
     report = ops.run(day="2026-11-13")
     assert report["status"] == "failed"
     assert "510300" in report["error"], "the gate's own reason must survive into the failure message"
+
+
+def test_a_broken_health_report_is_a_note_not_a_failure(monkeypatch):
+    """Observability must never be the reason a day does not get booked."""
+    calls = green(monkeypatch)
+
+    def broken():
+        raise OSError("archive unreadable")
+
+    monkeypatch.setattr(ops, "health", broken)
+    report = ops.run(day="2026-11-13")
+    assert report["status"] == "ok"
+    assert calls["book"] == ["paper"]
+    step = next(item for item in report["steps"] if item["step"] == "health")
+    assert step["ok"] is False and "unreadable" in step["error"]
 
 
 def test_a_failed_summary_says_so(monkeypatch):

@@ -1,4 +1,4 @@
-﻿"""The restatement must refund only tax that was actually recorded."""
+"""The restatement must refund only tax that was actually recorded."""
 
 from __future__ import annotations
 

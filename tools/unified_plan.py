@@ -1,4 +1,4 @@
-﻿"""The unified strategy, simulated: one rule over cash, deposits, four bond durations, three
+"""The unified strategy, simulated: one rule over cash, deposits, four bond durations, three
 equity markets and gold -- the protocol's candidates, and its five adoption criteria.
 
 Design notes that matter for honesty:

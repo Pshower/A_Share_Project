@@ -65,8 +65,12 @@ python -B -m tools.daily_allocation --book=paper   # 单看一本账的建议
 
 **默认只对 `paper` 落账**（`--book-accounts=paper`）。`live` 每天同样做 `prepare` + `check` +
 只读建议，但**模型永远不会写实盘账**——这是仓库的第一不变量；真实成交用
-`account_ledger trade --account live` 手工录入。要临时改变落账对象必须显式传
-`--book-accounts=paper,live`，而脚本会在汇报里标出哪些账是「仅建议」。
+`account_ledger trade --account live` 手工录入。
+
+> **2026-11-19 更正**：本文原先写着"要临时改变落账对象就传 `--book-accounts=paper,live`"。
+> 那句话在 `aca9fad` 之后**不成立**：`apply()` 的 `allowed` 固定为 `("paper",)`，
+> 把 `live` 放进 `--book-accounts` 只会在 `book("live")` 时**失败关闭**（整轮 failed），
+> 而不是"标出仅建议"。这是有意为之——闸门是策略，不由调用方传参决定。
 
 `tools.daily_ops` 是每日唯一入口，它按顺序做完整条链，**两阶段写入**：
 

@@ -121,6 +121,8 @@ def append(letter, record, output=OUTPUT):
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())        # a half-written line would poison the ledger's read side
 
 
 def run_one(letter, dataset, force=False, output=OUTPUT, log=print):
