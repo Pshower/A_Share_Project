@@ -75,3 +75,10 @@
 | import 图 | `tools→src` 仅 `forward_panel.py:28-29`；`src→tools` 仅 `src/web` 两处；`src/web` 无 `ledger.use` |
 | `git show 3a0691a` | 逐行读：`record_path` + 测试 + README 行，验收通过 |
 | `python -B -m tools.doc_lint` | `0 issue(s): {}` |
+
+## 7. 追记（2026-11-20 凌晨，验收时补）
+
+1. **F2 的方向写反了**。实测 `git rev-list --left-right --count origin/master...master` = `0  117`：**master 比 origin/master 多 117 个提交**，不是"落后"。远端最后一个提交是 `b9eddf1`（2026-09-26 18:28）。这让 F2 更严重而不是更轻——**9 月 26 日之后的所有工作只存在于这台机器上**，CI 从未见过它们，异地副本（备份 zip）也不含 Git 历史。
+2. **F3 已收一半**。分册补上 `sessions_held`、显式 `null` 的 `interval`、`benchmark` 触发条件，以及交易日闸门（非交易日两边都不写行）；新增 `test_variant_a_books_its_intervals_exactly_like_the_main_ledger`、`test_a_holiday_appends_nothing_in_either_ledger`、`test_the_first_recorded_row_books_an_explicit_null_interval`。**引擎合并**仍按 §5 留在 2027-02 首次判读前，别在主账本代码路径上动刀。追记写在[并行分册](shadow_variants_20261118.md) §6。
+3. **§5 第三项（周六资金流抽查）已做**：`schedule-f41e0275` 于 2026-11-14 18:00 交付并执行成功，`data/online/fund_flow/status.json` 记 `requested 1799 / fetched 2 / skipped 1797 / failed 0`、`rows_added 240`、`last_date 2026-11-06`，下一次 2026-11-21——不是"从没跑过"。
+4. 追记后全套（完全权限）**301 passed / 0 failed / 0 skipped**。

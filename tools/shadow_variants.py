@@ -7,6 +7,10 @@ variant that needs a weight tuned after the fact is a new pre-registration, not 
 
 A is the control: twenty equal-weighted features, which must reproduce ``e1_rule.composite``
 exactly.  If A ever disagrees with the main ledger on a date, the harness is wrong, not the market.
+The same holds for what gets booked, not just what gets scored: ``interval`` / ``benchmark`` /
+``nav`` / ``sessions_held`` come from the main recorder's own functions, and
+``test_variant_a_books_its_intervals_exactly_like_the_main_ledger`` pins the two ledgers together
+key for key (2026-11-20).
 """
 from __future__ import annotations
 
@@ -140,6 +144,20 @@ def run_one(letter, dataset, force=False, output=OUTPUT, log=print):
         log("%s bad_data" % letter)
         return record
 
+    from tools import trading_calendar
+    try:
+        trading = trading_calendar.is_trading_day()
+    except Exception:                                  # noqa: BLE001 - calendar is optional
+        trading = True
+    if not trading:
+        # The main ledger refuses to book a holiday; a variant that books one drifts from the book
+        # it is the control for.  Nothing is appended -- a non-trading day is not news.
+        record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), variant=letter,
+                      status="nontrading", panel_date=str(panel.index.max().date()),
+                      reason="not a trading day in the exchange calendar; no decision recorded")
+        log("%s nontrading" % letter)
+        return record
+
     latest = panel.index.max()
     state = load_state(letter, output)
     if state.get("last_panel_date") == str(latest.date()) and not force:
@@ -167,21 +185,26 @@ def run_one(letter, dataset, force=False, output=OUTPUT, log=print):
 
     close = prices.xs("close", axis=1, level=1) if "close" in set(prices.columns.get_level_values(1)) \
         else prices.xs(prices.columns.get_level_values(1)[0], axis=1, level=1)
+    # The same accounting tuple as the main ledger, key for key.  A variant that books its
+    # intervals differently from the book it is the control for would make the 2027 comparison
+    # meaningless -- that is the one thing the two engines may not disagree on.
+    interval = dict(
+        **{"from": state.get("last_panel_date"), "to": str(latest.date()),
+           "sessions": shadow_run.sessions_between(panel.index, state.get("last_panel_date"),
+                                                   latest),
+           "return": shadow_run.basket_return(close, held, state.get("last_panel_date"), latest)}) \
+        if held and state.get("last_panel_date") else None
+    comparison = shadow_run.benchmarks(close, codes, state.get("last_panel_date"),
+                                       str(latest.date())) \
+        if state.get("last_panel_date") else None
     record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), variant=letter,
                   status="decided", panel_date=str(latest.date()), book=book,
                   score={code: round(float(score[code]), 6) for code in book if code in score},
                   nav=shadow_run.mark(close, book, latest),
                   held_from=state.get("entry_date"),
                   decision="rebalance" if due else "hold", rebalance_due=bool(due),
+                  sessions_held=sessions, interval=interval, benchmark=comparison,
                   construction=VARIANTS[letter]["label"])
-    if held and state.get("last_panel_date"):
-        record["interval"] = dict(
-            **{"from": state.get("last_panel_date"), "to": str(latest.date()),
-               "sessions": shadow_run.sessions_between(panel.index, state.get("last_panel_date"),
-                                                       latest),
-               "return": shadow_run.basket_return(close, held, state.get("last_panel_date"), latest)})
-        record["benchmark"] = shadow_run.benchmarks(close, codes, state.get("last_panel_date"),
-                                                    str(latest.date()))
     append(letter, record, output)
     save_state(letter, dict(status="running", last_panel_date=str(latest.date()), holdings=book,
                             entry_date=str(latest.date()) if due else state.get("entry_date"),

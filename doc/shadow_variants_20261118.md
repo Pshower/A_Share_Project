@@ -38,7 +38,7 @@ reports/shadow/variants/C_shadow.jsonl   C_state.json
 reports/shadow/variants/D_shadow.jsonl   D_state.json
 ```
 
-- 每行一天，字段与 `e1_shadow.jsonl` 同构（`status` / `panel_date` / `book` / `score` / `interval` / `benchmark` / `construction`）；
+- 每行一天，字段与 `e1_shadow.jsonl` **逐键同构**（`status` / `panel_date` / `book` / `score` / `nav` / `held_from` / `decision` / `rebalance_due` / `sessions_held` / `interval` / `benchmark` / `construction`）；开账那行的 `interval` 是显式 `null`，与主账本一致。`sessions_held`、显式 `null`、交易日闸门是 2026-11-20 补齐的（见 §6），**权重与规则没有改动**；
 - **主账本 `e1_shadow.jsonl` 不受任何影响**，构造参数一个字没动；
 - 工具：`python -B -m tools.shadow_variants [--variants=ABCD] [--dataset <path>] [--force]`。
 
@@ -79,3 +79,15 @@ A 与主账本的关系：**A 是"规则"的对照，不是"书"的对照**。�
 
 每天四次打分（同一份面板，不重复下载），约 2–3 秒；四本账各追加一行 JSONL。
 面板本身由 20:00 的 S2 任务已经下好，**没有额外网络开销**。
+
+## 6. 追记（2026-11-20）：记账也对齐了
+
+第四轮审查与[框架层审查](architecture_review_20261120.md) §3-F3 都指出：A 的 parity 测试只锁**打分**，不锁**记账**；两套记录器是仓库里唯一明知故犯的重复代码。本轮把记账这一半收掉，**权重与选股规则一个字没动**：
+
+1. 补 `sessions_held`、`interval` 改成显式 `null`（主账本一直这么写，分册原来是"有就写、没有就不写"）、`benchmark` 的触发条件从 `held` 改为 `last_panel_date`——三处都只是照搬主账本已有的口径。
+2. 补**交易日闸门**：主账本非交易日直接返回 `nontrading` 且**不追加任何行**，分册原本没有这道闸，会在节假日写一行 `stale` 污染账本。现在两边都不写。
+3. 新测试：`test_variant_a_books_its_intervals_exactly_like_the_main_ledger`（同一份状态、同一个间隔，两套引擎的 `interval` / `benchmark` / `nav` / `sessions_held` 逐位相同）、`test_a_holiday_appends_nothing_in_either_ledger`、`test_the_first_recorded_row_books_an_explicit_null_interval`。
+
+**口径影响**：2026-11-20 之前写下的行（每本分册的前两行）**没有** `sessions_held`，读的时候用 `.get()`；§3 的判据与 §1 的四个权重完全不变，旧账本不重写、不删。
+
+**持仓顺序两边可能不同**：分位数落在 1/2400 的格子上（20 个 k/120 的均值），Σ 相同的两只分数会**精确相等**，1e-16 的求和顺序差异就足以换序。所以 parity 测试比的是**名单集合**与记账字段，不是排列；名单本身按等权持有，顺序只是展示。

@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tools import e1_rule, shadow_variants as variants
+from tools import e1_rule, shadow_run, shadow_variants as variants, trading_calendar
 
 CODES = ["%06d" % index for index in range(120)]
 
@@ -82,3 +82,70 @@ def test_an_unknown_variant_is_refused(tmp_path):
     root = dataset(tmp_path / "pool")
     with pytest.raises(ValueError, match="unknown variant"):
         variants.run("AZ", root, output=tmp_path / "shadow", log=lambda *_: None)
+
+
+def seed_state(path, panel, holdings, held_since=24):
+    """Both engines start from the same book, so the test is about booking, not about picking."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"status": "running",
+                                "last_panel_date": str(panel.index[held_since].date()),
+                                "holdings": list(holdings),
+                                "entry_date": str(panel.index[held_since].date()),
+                                "runs": 1}), encoding="utf-8")
+
+
+def test_variant_a_books_its_intervals_exactly_like_the_main_ledger(tmp_path, monkeypatch):
+    """A is the control for the rule; this pins that it is the control for the accounting too.
+
+    Both engines are handed the same book and the same gap to the next panel date, so the only
+    thing left to disagree about is the booking: the interval return, the mark, the benchmark and
+    the sessions held have to come out bit-identical.  Holding *order* is presentation -- scores tie
+    exactly at the 1/2400 grid the percentiles live on -- so the book is compared as a set.
+    """
+    pool = dataset(tmp_path / "pool", days=30)
+    panel = pd.read_parquet(pool / "panel_data.parquet")
+    held = CODES[:30]
+    monkeypatch.setattr(shadow_run, "STATE", tmp_path / "e1_state.json")
+    monkeypatch.setattr(shadow_run, "LOG", tmp_path / "e1_shadow.jsonl")
+    monkeypatch.setattr(trading_calendar, "is_trading_day", lambda *a, **k: True)
+
+    output = tmp_path / "shadow"
+    seed_state(tmp_path / "e1_state.json", panel, held)
+    seed_state(variants.paths("A", output)[1], panel, held)
+    main = shadow_run.run(dataset=pool, log=lambda *_: None)
+    variant = variants.run_one("A", pool, output=output, log=lambda *_: None)
+
+    assert main["decision"] == variant["decision"] == "hold"
+    assert sorted(variant["book"]) == sorted(main["book"])
+    for field in ("status", "panel_date", "nav", "held_from", "decision", "rebalance_due",
+                  "sessions_held", "interval", "benchmark"):
+        assert variant[field] == main[field], field
+
+
+def test_the_first_recorded_row_books_an_explicit_null_interval(tmp_path, monkeypatch):
+    """Readers index ``record["interval"]``; a missing key and a null are not the same thing."""
+    pool = dataset(tmp_path / "pool")
+    monkeypatch.setattr(shadow_run, "STATE", tmp_path / "e1_state.json")
+    monkeypatch.setattr(shadow_run, "LOG", tmp_path / "e1_shadow.jsonl")
+    monkeypatch.setattr(trading_calendar, "is_trading_day", lambda *a, **k: True)
+    output = tmp_path / "shadow"
+    main = shadow_run.run(dataset=pool, log=lambda *_: None)
+    variant = variants.run_one("A", pool, output=output, log=lambda *_: None)
+    assert main["status"] == variant["status"] == "decided"
+    assert main["interval"] is None and variant["interval"] is None
+
+
+def test_a_holiday_appends_nothing_in_either_ledger(tmp_path, monkeypatch):
+    """A holiday is not news.  The main ledger knows that; a variant that books one has drifted."""
+    pool = dataset(tmp_path / "pool")
+    monkeypatch.setattr(shadow_run, "STATE", tmp_path / "e1_state.json")
+    monkeypatch.setattr(shadow_run, "LOG", tmp_path / "e1_shadow.jsonl")
+    monkeypatch.setattr(trading_calendar, "is_trading_day", lambda *a, **k: False)
+
+    main = shadow_run.run(dataset=pool, log=lambda *_: None)
+    output = tmp_path / "shadow"
+    variant = variants.run_one("A", pool, output=output, log=lambda *_: None)
+
+    assert main["status"] == variant["status"] == "nontrading"
+    assert not (tmp_path / "e1_shadow.jsonl").exists()
+    assert not (output / "A_shadow.jsonl").exists()
