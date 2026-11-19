@@ -185,6 +185,12 @@ def test_a_broken_health_report_is_a_note_not_a_failure(monkeypatch):
     assert step["ok"] is False and "unreadable" in step["error"]
 
 
+def test_a_dry_run_never_overwrites_the_real_record():
+    """The evening record is the only evidence of what was booked; a preview must not clobber it."""
+    assert ops.record_path("2026-11-19").name == "2026-11-19.json"
+    assert ops.record_path("2026-11-19", dry=True).name == "2026-11-19-dry.json"
+
+
 def test_a_failed_summary_says_so(monkeypatch):
     green(monkeypatch)
     monkeypatch.setattr(ops, "check", lambda account, day: dict(

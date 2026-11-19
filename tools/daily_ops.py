@@ -268,6 +268,15 @@ def summary_line(report: dict) -> str:
     return "；".join(parts)
 
 
+def record_path(day: str, dry: bool = False) -> Path:
+    """Where one run's record goes.
+
+    A dry run gets its own file: it must not overwrite the evening's real record, which is the
+    only evidence of what was actually booked that day.
+    """
+    return OUTPUT / ("%s%s.json" % (day, "-dry" if dry else ""))
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--day", default=None)
@@ -283,7 +292,7 @@ def main(argv=None) -> int:
                  refresh=not args.no_refresh, dry=args.dry)
     OUTPUT.mkdir(parents=True, exist_ok=True)
     if report["status"] != "closed":
-        (OUTPUT / ("%s.json" % report["day"])).write_text(
+        record_path(report["day"], dry=args.dry).write_text(
             json.dumps(report, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     print("SUMMARY:", report["summary"])
     for step in report["steps"]:
