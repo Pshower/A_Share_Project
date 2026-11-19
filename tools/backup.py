@@ -100,15 +100,31 @@ def destinations(explicit=None):
     return [root for root in _candidates() if writable(root)]
 
 
+def _on_removable_drive(path) -> bool:
+    """True when the candidate sits on one of the removable letters we archive to.
+
+    ``Path.drive`` is empty for relative paths, and UNC shares give a non-letter drive, so both
+    fall out as non-removable.
+    """
+    drive = Path(path).drive.upper()
+    return bool(drive) and drive in tuple(item.rstrip("/\\").upper() for item in REMOVABLE)
+
+
 def reachable_now(path):
     """Writable *without creating it* -- a status check must not conjure the directory it tests.
 
-    When the destination directory does not exist yet (a disk that was just plugged in), the drive
-    root is probed instead: the copy is reachable as soon as the disk is, even before the first
-    archive has ever been written to it.
+    The exception is a removable drive: ``E:/a_share_backups`` does not exist until the first run
+    writes there, so the drive root is probed instead -- the copy is reachable as soon as the disk
+    is, even before the first archive has ever been written to it.  On a fixed disk a missing
+    destination is simply missing: probing the drive root there would call every typo'd path on a
+    writable drive "reachable", which is how a status column ends up always True.  The old
+    behaviour only ever looked green because the verifying runs were sandboxed, and the sandbox
+    denied the root probe (2026-11-20).
     """
     path = Path(path)
     if not path.exists():
+        if not _on_removable_drive(path):
+            return False
         anchor = Path(path.anchor) if path.anchor else None
         if anchor is None or not anchor.exists():
             return False

@@ -106,6 +106,8 @@ D_shadow.jsonl 22:52:23
 
 > **追记**：BOM、`append` 的 `fsync`、文档与闸门相反，这三条已在 `4a2483c` 修掉；剩下网页端点与持有日 `invested`。
 
+> **追记（2026-11-20 01:00）**：`--dry` 覆盖当日记录一项已由 `3a0691a` 收掉——干跑现在写自己的 `<日期>-dry.json`（`tools/daily_ops.py:271` 的 `record_path()`，测试 `test_a_dry_run_never_overwrites_the_real_record` 守着）。§6 剩：网页变体端点、持有日 `invested`。
+
 - **`--dry` 的帮助与行为不符**（复核时新见）：`--dry` 写着"读一遍，不写任何文件"（`tools/daily_ops.py:277`），但 `run()` 末尾无条件写 `reports/runs/daily_ops/<date>.json`（`:286`）——同一天先跑真实任务、再跑一次 `--dry`，真实记录就被模拟结果覆盖了。覆盖物里带 `dry: true`，所以还能分辨，但"当天到底记了什么"已经不在了。建议要么让 `--dry` 写 `<date>.dry.json`，要么改帮助文字。
 - **BOM**（`4a2483c` 已去掉）：原先 `tools/unified_plan.py`、`tests/test_restate_book.py` 带 UTF-8 BOM，`read_text("utf-8")` + `ast.parse` 会失败；现在两文件 `ast.parse` 都通过。
 - **`shadow_variants.append`**（`4a2483c` 已加 `flush + fsync`）：原先单次 `write`，断电可能留半行。

@@ -32,6 +32,12 @@
 
 ## 执行层记录
 
+### 2026-11-20 01:10：架构与设计审查 —— 框架层验收；顺手修掉一个完全权限下才现形的 P1
+
+- 新文档 [architecture_review_20261120.md](architecture_review_20261120.md)：实测 import 图与文件清单、五条设计支柱逐条验证。**1 项 P1 已修**：`backup.status()` 的 `reachable` 对不存在的目录探**盘根**，固定盘上永远 True，与测试钉的语义矛盾——在沙箱里盘根写入被拒才假绿（出自 `cc4ee4e`）。修法：盘根探针只保留给可移动盘（`tools/backup.py` 的 `_on_removable_drive`），修后全套 **298 passed / 0 failed / 0 skipped**（完全权限、无 shim；沙箱那轮的 1 个 skipped 也现形为机器相关的 `test_the_default_destination_is_outside_the_project`）。
+- 其余：两项 P2 留给决策与后续——**CI 三件套从未执行**（execution 无 upstream、master 落后 origin/master 117、备份 zip 不含 git 历史）与**双影子引擎**（打分 parity 有测试、记账没有，建议 2027-02 判读前合并）；pipeline.md 的地图停在 11-15，本轮八处刷新；README 里建议文档的两行重复索引合并；`3a0691a`（干跑写 `<日期>-dry.json`）验收进运营检查 §6 追记。
+- 顺手修：implementation_plan 维护段两条本分支跑不了的命令加归属注释，并把"沙箱 0 failed 即可"的判据更正为"完全权限全绿才算"。
+
 ### 2026-11-20：投资建议快照 v1 —— 已有信息并成一张逐日清单
 
 - 新文档 [daily_recommendation_20261120.md](daily_recommendation_20261120.md)：不引入新口径，把账本、利率档、影子层、数据面并成当天可执行清单。本次内容：paper 带内持有（47.20% vs 48.65%，差 1.45pp）；live 建仓单按 2026-11-19 收盘重算（995,290.60 元、佣金 298.59、闲置 4,709.40），附“挂单期间已发生的价格路径”（同一 60/40 篮子比 11-12 实际成交低 2.38%、比 11-13 建议价低 1.59%）；低 carry 档期望表照抄交付记录 §4；E1 第 4/20 交易日链式 −2.19%（同池等权 −0.98%、沪深300 −0.78%），四变体第 1/60 天且随机对照 D 反而最好；运维清单（备份仍欠、日历剩 41 天 / 30 个交易日、12-01 自动出 11 月月报）。
@@ -810,6 +816,8 @@ A 臂对照诊断是部分过程证据，不替代最终运行记录。更早研
 
 ```powershell
 python -B -m pytest -q -p no:cacheprovider
+
+# 下面两条只在 research/supply-pressure 分支可跑；本分支没有 src/backtest、src/training 与 configs/ppo.json
 python -B -m src.backtest.run --config configs/research.json
 python -B -m src.training.train --config configs/ppo.json --check-only
 
@@ -821,5 +829,5 @@ python -B -m pytest tests/test_research_timing.py::test_reference_uses_latest_si
 - 训练必须显式启动；联网下载必须单独授权；最终测试必须显式冻结并确认曝光。
 - `reports/runs/`、`data/` 和 `.workbench/` 中的本地产物不纳入 Git。文档中的这些路径是本地证据位置，其他机器需按运行说明复现。
 - 2026-11-08 默认离线套件为 **`2731 passed, 18 deselected, 11 warnings`**（较 2026-11-07 的 `2668 passed` 新增 63 项：10 项策略 CAPM 分解、15 项全市场面板与下载账本、32 项全市场 CAPM 检验、6 项等权溢价指数对照）。2026-11-07 为 `2668 passed`（较当日早间新增 14 项先验归因测试）。当日上午为 `2654 passed`（含 6 项成本感知回测测试。当日依次为 `2648 passed` 含 8 项自回归诊断、`2640 passed` 含 5 项价格特征重测、`2635 passed` 含 12 项满仓映射、`2623 passed` 含 11 项奖励模式与检查点回测、`2612 passed` 含 35 项 alpha 度量、`2577 passed` 含 27 项 alpha 预算算术。排除的 18 项不变，仍是 13 项联网测试与 5 项历史源码基线检查）。此前 2026-11-05 为 `2550 passed, 18 deselected, 11 warnings`（较 11-04 新增 36 项：8 项新数据块信号筛选、14 项数据清单工具、7 项仓位机制度量、7 项仓位规则评估）。此前的 `2543 passed`（同日，阶段一之后）、`2536 passed`（同日，新数据块信号筛选之后）、`2528 passed`（同日，数据清单之后）、`2514 passed`（2026-11-04，调仓日敏感性之后）、`2511 passed`（同日，门槛与整手之后）、`2507 passed`（2026-11-03，单因子 IC 之后）、`2503 passed`（同日，曲线接入工作台后）、`2501 passed`（2026-11-02）、`2490 passed`（同日，账本与 PIT 之后）、`2473 passed`（2026-11-01，修复源码守卫后）与 `2464 passed, 14 deselected`（2026-10-25）属于各自时点，不含此后新增的用例。历史报告中的测试数量属于各自提交时点，不相加、不冒充当前总数。
-- 该套件需在**完全权限**下执行：Windows 沙箱禁止进程列出其新建的临时目录，`pytest` 的 `tmp_path` 会在 setup 阶段批量报 `PermissionError`，与代码无关。沙箱下仍可用的判据是 `0 failed`，而不是通过总数。
+- 该套件需在**完全权限**下执行：Windows 沙箱禁止进程列出其新建的临时目录，`pytest` 的 `tmp_path` 会在 setup 阶段批量报 `PermissionError`，与代码无关。~~沙箱下仍可用的判据是 `0 failed`~~ **2026-11-20 更正：`0 failed` 也不够**——沙箱拒掉盘根探针时，`backup.status` 的错误语义曾假绿（[架构审查](architecture_review_20261120.md) F1）；**完全权限下的全绿才算**（本轮实测 298 passed / 0 failed / 0 skipped，无需任何 shim）。
 - `historical_source` 检查要求当前源码与 2026-10-11 的 91 文件参考完全一致。该前提已不可满足：其中 12 个原始源文件随联网与前端工作变更（`src/data/{download,online,sina,snapshots}.py`、`src/inference/live.py`、6 个 `src/web/*`），另新增 `src/data/{pit,macro}.py`。因此这类检查只能在匹配的旧提交复核，不在默认套件中运行；不得通过修改旧参考、扩充 `NEW_SOURCE_FILES` 或改写已签文档来消除差异。

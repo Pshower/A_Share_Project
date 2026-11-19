@@ -108,7 +108,7 @@ CPPI 算式（唯一自由度，与 v7 相同）：楼层 = 0.90 × 峰值 = **9
 | 备份 | **唯一每日人工项**（任务一直没建）：`& 'D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe' -B -m tools.backup`，验包加 `--verify`、看落点加 `--status`；48 文件 456 KB、保留 30 份 | [备份](backup_20261114.md) |
 | 11 月月报 | **12-01（12 月首个交易日）21:30 自动生成**，不用人做 | `tools/daily_ops.py:99` |
 
-其余开项不在本文复制：见[运营检查](operations_20261119.md) §6（`--dry` 会覆盖当日运行记录、web 变体端点未建、hold 日 `invested` 语义待定）。
+其余开项不在本文复制：见[运营检查](operations_20261119.md) §6——`--dry` 覆盖记录一项当晚已被 `3a0691a` 收掉（干跑改写 `<日期>-dry.json`），剩 web 变体端点未建、hold 日 `invested` 语义待定。
 
 ## 6. 本文的数字怎么核的
 

@@ -7,7 +7,7 @@
 
 ## 1. 这个仓库现在做什么
 
-三层，彼此不共享代码：
+三层。依赖方向实测（2026-11-20）：执行层（`tools` 的每日链）不 import `src/`；唯一跨层复用是影子层的 `forward_panel` 用数据层抓取与预处理（`tools/forward_panel.py:28-29`）：
 
 | 层 | 做什么 | 入口 |
 | --- | --- | --- |
@@ -15,7 +15,7 @@
 | **执行层** | 三本账（live / paper / backtest）、CPPI 目标权重、盘前闸门、每日检查 | `tools/account_ledger.py`、`tools/plan_orders.py`、`tools/plan_backtest.py` |
 | **影子层** | 把 E1 反转规则放到前向面板上逐日记录，只花日历时间、不花样本 | `tools/shadow_run.py`、`tools/forward_panel.py` |
 
-研究侧的读数工具只有一个还在活跃：`tools/market_leverage.py`（市场级杠杆闸门，已按预登记关闭）。
+支撑与读数工具不再只有一个：`stats`（Newey-West）、`doc_lint`（文档自检，CI 也跑它）、`backup`（每日备份，**任务仍靠人工**）、`data_health`（原始档案体检，已接入 21:30 链）；`market_leverage` 已按预登记关闭。
 
 ## 2. 目录
 
@@ -24,16 +24,18 @@
 | `src/data/preprocess.py` | `DataPreprocessor`：全市场面板构建、特征、scaler、manifest |
 | `src/data/online.py`、`snapshots.py`、`rate_limit.py` | 在线抓取、快照登记、限速与重试 |
 | `src/data/feature_definitions.py` | 特征定义与校验 |
-| `tools/` | 执行层 5 个、影子 2 个、研究 2 个、支撑 1 个（见下） |
+| `tools/` | 29 个 Python 模块 + 1 个脚本：每日链 8、影子 4、回测与研究复算 13、支撑 4（见下） |
 | `src/web/` + `web/` | 只读工作台：三本账与影子运行的一个页面 |
 | `data/` | `clean/`（面板与池）、`online/`（抓取归档）、`raw/`（原始） |
 | `reports/account/<book>/` | 每本账的 `account.json` + `trades.jsonl` + `snapshots.jsonl` |
-| `reports/shadow/` | `e1_shadow.jsonl`（只追加）与 `e1_state.json` |
+| `reports/shadow/` | `e1_shadow.jsonl`（只追加）与 `e1_state.json`；`variants/` 下 A/B/C/D 四本冻结权重分册（2026-11-18 开账，判据见[影子分册](doc/shadow_variants_20261118.md)） |
+| `reports/runs/` | 每日观测面（本地、不入 Git）：`daily_ops/<日期>.json`（干跑写 `<日期>-dry.json`）、`data_health/<日期>.json` 与各研究判定输出 |
 
-工具清单：`account_ledger`（账本/闸门/报表）、`plan_orders`（CPPI → 整手订单）、
-`plan_backtest`（真实 ETF 回测与导出）、`mark_when_ready`（等报价发布再补当日净值）、
-`audit_marks`（按当日真实收盘价重算并修复）、`shadow_run`（S2 记录器）、`forward_panel`（前向面板）、
-`market_leverage`（杠杆闸门）、`stats`（Newey-West）、`trading_calendar`。
+工具清单（2026-11-20 实点，`git ls-files tools` 29 个模块 + 1 个脚本）：
+**每日链（21:30 一条命令）**：`daily_ops`（唯一入口）、`daily_allocation`（12 类资产建议与落账）、`account_ledger`（账本/闸门/报表）、`plan_orders`（CPPI → 整手订单）、`fund_vehicles`（载体与价格缓存）、`asset_panel`（利率与资产曲线）、`trading_calendar`（官方日历）、`data_health`（档案体检，只记 note）。
+**影子层**：`shadow_run`（S2 主记录器）、`shadow_variants`（A/B/C/D 四本冻结权重分册）、`forward_panel`（前向面板）、`e1_rule`（冻结的打分规则）。
+**回测与结论复算**：`plan_backtest`、`unified_plan`、`plan_sensitivity`、`e1_topk`、`survivorship`、`etf_premium`、`feature_audit`、`market_leverage`、`restate_book`、`data_scorecard`、`data_catalog`、`audit_marks`、`mark_when_ready`。
+**支撑**：`stats`（Newey-West）、`archive_fund_flow`（周六归档）、`doc_lint`（文档自检）、`backup`（每日备份，任务仍靠人工）、`opencode_proxy.ps1`。
 
 ## 3. 执行层的不变量
 
@@ -56,6 +58,7 @@
   （`decision="hold"`）。此前每天重判，实测 105× 年换手，价差会吃掉全部收益——见
   [影子节奏](doc/shadow_cadence_20261114.md)。
 - 账本 `reports/shadow/e1_shadow.jsonl` 只追加，每天一行 `decided` / `stale` / `no_score`。
+- **并行分册（2026-11-18 起）**：同一套选股 / 20 日持有 / 带宽规则、四种**冻结权重**（A 等权对照、B 反转两因子、C 反转+低波、D 随机对照）各记一本，落在 `reports/shadow/variants/`；预登记要求 ≥60 个交易日后才首次比较（约 2027-02 中旬），主账本构造一字未动。
 - `equal_weight_nav` 是持仓的**等权平均价格**（成分一变就跳），**不是收益**；
   要看收益读记录里的 `interval.return` 复合出的**链式净值**（页面上的"链式净值"）。
 
@@ -63,7 +66,7 @@
 
 | 时间 | 任务 | 说明 |
 | --- | --- | --- |
-| 交易日 20:00 | S2 影子记录 | 先全量重下前向面板，再记录 |
+| 交易日 20:00 | S2 影子记录 + 四本分册 | 先全量重下前向面板，再记主账本与 `tools.shadow_variants --variants=ABCD`（11-18 22:55 进提示词，首条自动记录 11-19） |
 | 交易日 **21:30** | 执行层 + 全资产落账 | **一条命令** `python -B -m tools.daily_ops`：刷新行情 → 两本账 `sync-dividends → mark` → 预检 → 落账 → 曲线；预检全过才写成交，任一步失败整体失败（退出码 2） |
 | 每周六 18:00 | 资金流归档 | 为日后研究积累，暂不分析 |
 
@@ -81,8 +84,8 @@
 ## 7. 本地工具链
 
 ```powershell
-# 解释器（本机）
-D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe
+# 解释器（本机）；下文的 $py 都指它
+$py = 'D:\ProgramFiles\Anaconda3\envs\AShareGPU\python.exe'
 
 # 测试：全离线，任何联网或被改动的真实账本都会让用例失败
 & $py -B -m pytest -q -p no:cacheprovider
