@@ -26,6 +26,12 @@ def green(monkeypatch, advice_action="hold"):
     monkeypatch.setattr(ops, "calendar_left", lambda: 42)
     monkeypatch.setattr(ops, "health", lambda: dict(panel="pool_test", missing=3, jumps=0,
                                                     snapshots=500))
+    # The advisory path reads prices off the disk.  A daily-chain test must not need a price cache:
+    # CI checks out the repository alone, and the first green run there is the proof it does not.
+    monkeypatch.setattr(ops.daily_allocation, "recommendation",
+                        lambda book="paper", cash_safe=False: dict(
+                            book=book, as_of="2026-11-13", action="hold", sleeves=[],
+                            nav=1000.0, risky_target=0.6, risky_now=0.6))
     return calls
 
 

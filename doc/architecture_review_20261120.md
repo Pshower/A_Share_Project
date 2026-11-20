@@ -83,3 +83,4 @@
 3. **§5 第三项（周六资金流抽查）已做**：`schedule-f41e0275` 于 2026-11-14 18:00 交付并执行成功，`data/online/fund_flow/status.json` 记 `requested 1799 / fetched 2 / skipped 1797 / failed 0`、`rows_added 240`、`last_date 2026-11-06`，下一次 2026-11-21——不是"从没跑过"。
 4. 追记后全套（完全权限）**301 passed / 0 failed / 0 skipped**。
 5. **F2 已收（22:28）**：`execution`（`e502479`）与 `master`（`35edf5c`，117 个提交快进）推到 origin，两个分支都设了 upstream，CI 第一次真正执行（run #1）。副作用记在这里：远端仓库是**公开**的，而推送前 `reports/` 从未进过远端（`git ls-tree 35edf5c reports` = **0 个文件**）——这次推送把三本执行账与影子账一并公开了。要不要改为私有或从历史里摘掉，由用户决定。
+6. **CI 第一次跑就抓到东西**（正是 F2 说的"没有常年守夜人"）：干净检出（`git archive` 解到临时目录，无 `data/`、无 `reports/runs/`）下 **6 条 `test_daily_ops` 失败**——`green()` 没打桩 `daily_allocation.recommendation`，而它会去读 `data/online/fund/hist_510300.csv`（被 gitignore 的行情缓存）。本地全绿只是因为缓存一直躺在盘上，**这套 suite 从来不是自足的**。修法：把 advisory 调用也纳入 `green()` 的打桩，并在注释里写清"每日链的测试不该需要行情缓存"。修后干净检出 **301 passed**（44 s）。
