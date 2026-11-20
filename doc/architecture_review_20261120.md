@@ -82,3 +82,4 @@
 2. **F3 已收一半**。分册补上 `sessions_held`、显式 `null` 的 `interval`、`benchmark` 触发条件，以及交易日闸门（非交易日两边都不写行）；新增 `test_variant_a_books_its_intervals_exactly_like_the_main_ledger`、`test_a_holiday_appends_nothing_in_either_ledger`、`test_the_first_recorded_row_books_an_explicit_null_interval`。**引擎合并**仍按 §5 留在 2027-02 首次判读前，别在主账本代码路径上动刀。追记写在[并行分册](shadow_variants_20261118.md) §6。
 3. **§5 第三项（周六资金流抽查）已做**：`schedule-f41e0275` 于 2026-11-14 18:00 交付并执行成功，`data/online/fund_flow/status.json` 记 `requested 1799 / fetched 2 / skipped 1797 / failed 0`、`rows_added 240`、`last_date 2026-11-06`，下一次 2026-11-21——不是"从没跑过"。
 4. 追记后全套（完全权限）**301 passed / 0 failed / 0 skipped**。
+5. **F2 已收（22:28）**：`execution`（`e502479`）与 `master`（`35edf5c`，117 个提交快进）推到 origin，两个分支都设了 upstream，CI 第一次真正执行（run #1）。副作用记在这里：远端仓库是**公开**的，而推送前 `reports/` 从未进过远端（`git ls-tree 35edf5c reports` = **0 个文件**）——这次推送把三本执行账与影子账一并公开了。要不要改为私有或从历史里摘掉，由用户决定。
