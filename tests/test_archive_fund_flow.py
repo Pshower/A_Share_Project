@@ -90,3 +90,29 @@ def test_a_code_already_at_the_target_is_skipped(tmp_path, monkeypatch):
     monkeypatch.setattr(flow, "last_trading_day", lambda today=None: pd.Timestamp("2026-11-13"))
     summary = flow.run(codes=["600519"], store=store, log=lambda *_: None)
     assert summary["skipped"] == 1 and summary["fetched"] == 0
+
+
+def test_a_silent_socket_cannot_hold_the_weekly_job_open(monkeypatch):
+    """On 2026-11-21 one ESTABLISHED socket stalled the run for 50 minutes at 37 s of CPU.
+
+    ``akshare`` passes no timeout to ``requests``, so the only lever is the socket default.  It has
+    to be in force *during* the call -- setting it afterwards would protect nothing -- and it has to
+    be put back, or this module would quietly change the timeout of everything else in the process.
+    """
+    import socket
+    import sys
+
+    seen = {}
+
+    class FakeAkshare:
+        @staticmethod
+        def stock_individual_fund_flow(stock, market):
+            seen["timeout"] = socket.getdefaulttimeout()
+            raise socket.timeout("timed out")
+
+    monkeypatch.setitem(sys.modules, "akshare", FakeAkshare)
+    before = socket.getdefaulttimeout()
+    with pytest.raises(socket.timeout):
+        flow.fetch("600519")
+    assert seen["timeout"] == flow.FETCH_TIMEOUT
+    assert socket.getdefaulttimeout() == before

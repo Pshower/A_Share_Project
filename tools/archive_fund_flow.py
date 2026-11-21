@@ -15,6 +15,7 @@ from datetime import date
 
 import argparse
 import json
+import socket
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,6 +26,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 UNIVERSE = PROJECT_ROOT / "data" / "online" / "universe" / "a_share_spot.json"
 STORE = PROJECT_ROOT / "data" / "online" / "fund_flow"
 KEEP = ["date", "code", "close", "pct_change", "main_net", "main_pct"]
+FETCH_TIMEOUT = 20        # seconds; the feed accepts a connection and can then say nothing forever
 
 
 def universe_codes(limit=None):
@@ -44,11 +46,24 @@ def existing(index_path):
 
 
 def fetch(code, pause=0.0):
+    """One code's rolling flow, with a socket timeout imposed on the third-party call.
+
+    ``akshare`` builds its request with ``requests`` and passes no timeout, so a peer that completes
+    the handshake and then says nothing holds the caller open forever.  That is not hypothetical:
+    the 2026-11-21 run sat on one ESTABLISHED socket for 50 minutes with 37 s of CPU.  A socket is
+    still created inside ``akshare``, so the default timeout is the only lever available here --
+    set for the call, restored afterwards so importing this module changes nothing else.
+    """
     import time
     if pause:
         time.sleep(pause)
     import akshare as ak
-    frame = ak.stock_individual_fund_flow(stock=code, market=market_of(code))
+    previous = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(FETCH_TIMEOUT)
+    try:
+        frame = ak.stock_individual_fund_flow(stock=code, market=market_of(code))
+    finally:
+        socket.setdefaulttimeout(previous)
     if frame is None or frame.empty:
         return None
     frame = frame.rename(columns={"日期": "date", "收盘价": "close", "涨跌幅": "pct_change",

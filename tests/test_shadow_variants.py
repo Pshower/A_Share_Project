@@ -16,6 +16,16 @@ from tools import e1_rule, shadow_run, shadow_variants as variants, trading_cale
 CODES = ["%06d" % index for index in range(120)]
 
 
+@pytest.fixture(autouse=True)
+def always_trading(monkeypatch):
+    """The recorder asks the exchange calendar before it books anything.
+
+    Without this, every test in the file would pass Monday to Friday and fail at the weekend --
+    the answer would be about the day the suite happens to run, not about the recorder.
+    """
+    monkeypatch.setattr(trading_calendar, "is_trading_day", lambda *a, **k: True)
+
+
 def dataset(root, days=25):
     index = pd.bdate_range("2026-01-05", periods=days)
     rng = np.random.default_rng(7)

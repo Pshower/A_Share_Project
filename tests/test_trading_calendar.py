@@ -5,6 +5,7 @@ them from January onward without a single error.  These tests pin the intended l
 """
 from __future__ import annotations
 
+import datetime
 import os
 import sys
 import time
@@ -17,6 +18,31 @@ from tools import trading_calendar
 
 def calendar():
     return pd.DatetimeIndex(pd.to_datetime(["2026-11-12", "2026-11-13", "2026-11-16"]))
+
+
+class FrozenDate(datetime.date):
+    """A Thursday, so "the cache ends today" means a cache that ends on a session.
+
+    ``load`` asks ``date.today()`` whether the cache answers today's question, and the calendar can
+    only ever contain trading days.  With the real clock these tests therefore pass Monday to Friday
+    and fail at the weekend, which is not a property of the calendar but of the test.
+    """
+
+    @classmethod
+    def today(cls):
+        return cls(2026, 11, 19)
+
+
+def freeze(monkeypatch):
+    monkeypatch.setattr(trading_calendar, "date", FrozenDate, raising=False)
+    return pd.Timestamp(FrozenDate.today())
+
+
+def stamp_at(root, when):
+    """Backdate the cache file onto the frozen clock: ``_refreshed_today`` reads its mtime."""
+    path = root / "trade_dates.csv"
+    moment = pd.Timestamp(when).timestamp()
+    os.utime(path, (moment, moment))
 
 
 def test_a_session_inside_the_calendar_is_true():
@@ -67,7 +93,7 @@ class BrokenAkshare:
 
 
 def test_a_cache_with_a_week_of_slack_is_not_refetched(tmp_path, monkeypatch):
-    today = pd.Timestamp.now().normalize()
+    today = freeze(monkeypatch)
     write_cache(tmp_path, today + pd.Timedelta(days=30))
     FakeAkshare.calls = 0
     monkeypatch.setitem(sys.modules, "akshare", FakeAkshare)
@@ -77,7 +103,7 @@ def test_a_cache_with_a_week_of_slack_is_not_refetched(tmp_path, monkeypatch):
 
 
 def test_a_cache_that_runs_out_is_refetched(tmp_path, monkeypatch):
-    today = pd.Timestamp.now().normalize()
+    today = freeze(monkeypatch)
     write_cache(tmp_path, today, age_days=1)          # yesterday's fetch: due again
     FakeAkshare.calls = 0
     monkeypatch.setitem(sys.modules, "akshare", FakeAkshare)
@@ -88,8 +114,9 @@ def test_a_cache_that_runs_out_is_refetched(tmp_path, monkeypatch):
 
 def test_a_cache_refreshed_today_is_not_refetched_again(tmp_path, monkeypatch):
     """At the end of December the week of slack can never be met; one attempt per day is enough."""
-    today = pd.Timestamp.now().normalize()
+    today = freeze(monkeypatch)
     write_cache(tmp_path, today)                       # written moments ago
+    stamp_at(tmp_path, today)
     FakeAkshare.calls = 0
     monkeypatch.setitem(sys.modules, "akshare", FakeAkshare)
     dates = trading_calendar.load(cache=tmp_path)
@@ -98,7 +125,7 @@ def test_a_cache_refreshed_today_is_not_refetched_again(tmp_path, monkeypatch):
 
 
 def test_a_failed_refresh_still_answers_from_a_cache_that_covers_today(tmp_path, monkeypatch):
-    today = pd.Timestamp.now().normalize()
+    today = freeze(monkeypatch)
     write_cache(tmp_path, today)
     monkeypatch.setitem(sys.modules, "akshare", BrokenAkshare)
     dates = trading_calendar.load(cache=tmp_path)
