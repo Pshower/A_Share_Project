@@ -84,3 +84,4 @@
 4. 追记后全套（完全权限）**301 passed / 0 failed / 0 skipped**。
 5. **F2 已收（22:28）**：`execution`（`e502479`）与 `master`（`35edf5c`，117 个提交快进）推到 origin，两个分支都设了 upstream，CI 第一次真正执行（run #1）。副作用记在这里：远端仓库是**公开**的，而推送前 `reports/` 从未进过远端（`git ls-tree 35edf5c reports` = **0 个文件**）——这次推送把三本执行账与影子账一并公开了。要不要改为私有或从历史里摘掉，由用户决定。
 6. **CI 第一次跑就抓到东西**（正是 F2 说的"没有常年守夜人"）：干净检出（`git archive` 解到临时目录，无 `data/`、无 `reports/runs/`）下 **6 条 `test_daily_ops` 失败**——`green()` 没打桩 `daily_allocation.recommendation`，而它会去读 `data/online/fund/hist_510300.csv`（被 gitignore 的行情缓存）。本地全绿只是因为缓存一直躺在盘上，**这套 suite 从来不是自足的**。修法：把 advisory 调用也纳入 `green()` 的打桩，并在注释里写清"每日链的测试不该需要行情缓存"。修后干净检出 **301 passed**（44 s）。
+7. **用户逐项复核（2026-11-21 深夜收到）**：六项判断五项确认——F1 修后行为（E/F/G 报 false、OneDrive 报 true，30 份备份）、结构清点（src 16 文件、tools 29 模块 + 1 脚本、reports 23 入 Git、`.gitignore:24` 是 `reports/runs/`）、import 图、行号引用逐项吻合（`:77-79` 钉的是 live 闸门）。唯一异议是 F2 的方向（与追记 1 同一结论：多 117，不是"落后"）；`implementation_plan.md` 62 行的同句笔误同日更正。

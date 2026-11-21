@@ -59,7 +59,7 @@
 ### 2026-11-20 01:10：架构与设计审查 —— 框架层验收；顺手修掉一个完全权限下才现形的 P1
 
 - 新文档 [architecture_review_20261120.md](architecture_review_20261120.md)：实测 import 图与文件清单、五条设计支柱逐条验证。**1 项 P1 已修**：`backup.status()` 的 `reachable` 对不存在的目录探**盘根**，固定盘上永远 True，与测试钉的语义矛盾——在沙箱里盘根写入被拒才假绿（出自 `cc4ee4e`）。修法：盘根探针只保留给可移动盘（`tools/backup.py` 的 `_on_removable_drive`），修后全套 **298 passed / 0 failed / 0 skipped**（完全权限、无 shim；沙箱那轮的 1 个 skipped 也现形为机器相关的 `test_the_default_destination_is_outside_the_project`）。
-- 其余：两项 P2 留给决策与后续——**CI 三件套从未执行**（execution 无 upstream、master 落后 origin/master 117、备份 zip 不含 git 历史）与**双影子引擎**（打分 parity 有测试、记账没有，建议 2027-02 判读前合并）；pipeline.md 的地图停在 11-15，本轮八处刷新；README 里建议文档的两行重复索引合并；`3a0691a`（干跑写 `<日期>-dry.json`）验收进运营检查 §6 追记。
+- 其余：两项 P2 留给决策与后续——**CI 三件套从未执行**（execution 无 upstream、master 比 origin/master **多 117 个提交**——原句误写"落后"，2026-11-21 经用户复核更正；备份 zip 不含 git 历史。同日 22:28 已推远端、CI 首跑即抓到 `test_daily_ops` 对本地行情缓存的依赖并已修，见[架构审查 §7 追记](architecture_review_20261120.md)）与**双影子引擎**（打分 parity 有测试、记账没有，建议 2027-02 判读前合并）；pipeline.md 的地图停在 11-15，本轮八处刷新；README 里建议文档的两行重复索引合并；`3a0691a`（干跑写 `<日期>-dry.json`）验收进运营检查 §6 追记。
 - 顺手修：implementation_plan 维护段两条本分支跑不了的命令加归属注释，并把"沙箱 0 failed 即可"的判据更正为"完全权限全绿才算"。
 
 ### 2026-11-20：投资建议快照 v1 —— 已有信息并成一张逐日清单
