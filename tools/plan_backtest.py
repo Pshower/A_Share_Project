@@ -10,11 +10,12 @@ fixes.  Two of the four series contain unit splits recorded as zero-amount "dist
 reports as 0.000.  Left alone they read as losses and every drawdown below is inflated by
 roughly the size of the split.  So each series is turned into a **total-return** index first:
 
-* a move of 30% or more carrying no recorded payout is a split, and history before it is
-  rescaled;
-* a drop of 10% or more with no recorded payout is a distribution the interface lost, and the
-  implied amount (previous close minus close) is added back;
-* recorded payouts are used as given.
+* a gap of 30% or more only becomes a split when it lands on a simple split ratio (1/2, 1/3,
+  2/3, 3/4, 1/5, 1/10, 3% tolerance); history before it is rescaled and the repair is logged.
+  Any other fall that size is a real crash and stays, reported as an unrepaired fall -- the first
+  rule here silently erased a -10% tariff day in April 2025, which is why it is gone;
+* payouts come only from the fund's published table, never inferred from a price gap;
+* recorded payouts are reinvested as given.
 
 The result is a series that can be held as an index.  Cash dividends in the real account are
 handled by the ledger, not here; the difference is that this reinvests them.
