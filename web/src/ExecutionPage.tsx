@@ -35,6 +35,8 @@ export default function ExecutionPage({
   const [name, setName] = useState('paper')
   const [detail, setDetail] = useState<Row | null>(null)
   const [shadow, setShadow] = useState<Row | null>(null)
+  const [variants, setVariants] = useState<Row[]>([])
+  const [allocBooks, setAllocBooks] = useState<Row[]>([])
   const [rec, setRec] = useState<Row | null>(null)
   const [recBook, setRecBook] = useState('paper')
   const [busy, setBusy] = useState(false)
@@ -44,14 +46,18 @@ export default function ExecutionPage({
   async function load() {
     setBusy(true)
     try {
-      const [list, sh, advice] = await Promise.all([
+      const [list, sh, advice, vs, al] = await Promise.all([
         api<Row[]>('/execution/books'),
         api<Row>('/execution/shadow'),
         api<Row>(`/recommend/unified?book=${recBook}`).catch(() => null),
+        api<Row[]>('/execution/shadow/variants').catch(() => []),
+        api<Row[]>('/execution/shadow/alloc').catch(() => []),
       ])
       setBooks(list)
       setShadow(sh)
       setRec(advice)
+      setVariants(vs)
+      setAllocBooks(al)
       const days = sh.days || []
       if (days.length && !days.some((d: Row) => d.panel_date === day)) {
         setDay(days[days.length - 1].panel_date)
@@ -668,6 +674,91 @@ export default function ExecutionPage({
                         <td>{row.reason || '—'}</td>
                       </tr>
                     ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="section">
+            <div className="section-heading">
+              <h2>四本分册</h2>
+              <span>权重冻结；≥60 个交易日前不作判定</span>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>册</th>
+                    <th>构造</th>
+                    <th>链式净值</th>
+                    <th>同池</th>
+                    <th>沪深300</th>
+                    <th>决策数</th>
+                    <th>最新决策</th>
+                    <th>持有天数</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {variants.map((row: Row) => (
+                    <tr key={row.letter}>
+                      <td>
+                        <strong>{row.letter}</strong>
+                      </td>
+                      <td>{row.label || '—'}</td>
+                      <td>{row.opened ? number(row.chained_nav, 4) : '未开账'}</td>
+                      <td>{row.opened ? number(row.chained_pool, 4) : '—'}</td>
+                      <td>{row.opened ? number(row.chained_hs300, 4) : '—'}</td>
+                      <td>{number(row.decided)}</td>
+                      <td>{row.latest?.panel_date || '—'}</td>
+                      <td>{number(row.latest?.sessions_held)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="section">
+            <div className="section-heading">
+              <h2>三本配置影子</h2>
+              <span>单位净值口径；2026-11-20 收盘开账，满 252 个交易日前不作判定</span>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>账本</th>
+                    <th>规则</th>
+                    <th>最新日期</th>
+                    <th>动作</th>
+                    <th>净值</th>
+                    <th>当前权重</th>
+                    <th>累计换手</th>
+                    <th>累计成本</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allocBooks.map((row: Row) => {
+                    const weights = row.latest?.weights || {}
+                    const held = Object.entries(weights)
+                      .filter(([, v]) => Number(v) > 0)
+                      .map(([code, v]) => `${code} ${(Number(v) * 100).toFixed(0)}%`)
+                      .join(' · ')
+                    return (
+                      <tr key={row.arm}>
+                        <td>
+                          <strong>{row.arm}</strong>
+                        </td>
+                        <td>{row.label || '—'}</td>
+                        <td>{row.latest?.price_date || '未开账'}</td>
+                        <td>{row.latest?.action || '—'}</td>
+                        <td>{number(row.latest?.nav, 4)}</td>
+                        <td className="mono">{held || '—'}</td>
+                        <td>{number(row.latest?.turnover_total, 2)}</td>
+                        <td>{number(row.latest?.cost_total, 4)}</td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

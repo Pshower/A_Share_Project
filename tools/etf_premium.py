@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from pathlib import Path
 
@@ -25,6 +26,7 @@ import numpy as np
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+ONLINE = PROJECT_ROOT / "data" / "online"
 OUTPUT = PROJECT_ROOT / "reports" / "runs" / "etf_premium"
 CODE = "513500"
 SHARE_OF_NAV = 0.30           # 513500's target weight in the plan
@@ -92,6 +94,32 @@ def premium(close, nav, drop_splits=True):
         joined = joined.loc[~joined.index.isin(broken)]
         joined.attrs["split_days"] = sorted(str(stamp.date()) for stamp in broken)
     return joined
+
+
+def refresh_cache(code: str = CODE, online: Path | None = None, nav=None, close=None,
+                  keep: int = 60) -> dict:
+    """Fetch both published sides, compute the premium, cache the tail atomically.
+
+    ``daily_allocation.recommendation`` is offline by rule, so this is the one networked step
+    that feeds its circuit breaker: the daily job calls it before advising, and the breaker
+    always speaks with the cache's own date, never with a number it cannot date.  Split days
+    are dropped exactly as in the study; ``nav``/``close`` are injectable so tests never need
+    the network.
+    """
+    close = close_series(code) if close is None else close
+    nav = nav_history(code) if nav is None else nav
+    frame = premium(close, nav)
+    tail = frame.tail(int(keep)).reset_index().rename(columns={"index": "date"})
+    tail["date"] = tail["date"].dt.strftime("%Y-%m-%d")
+    path = Path(online or ONLINE) / "fund" / ("premium_%s.csv" % code)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    tail.to_csv(temporary, index=False, columns=["date", "close", "nav", "premium"])
+    os.replace(temporary, path)
+    latest = frame.iloc[-1]
+    return dict(code=code, date=str(frame.index[-1].date()), close=float(latest["close"]),
+                nav=float(latest["nav"]), premium=float(latest["premium"]),
+                rows_cached=int(len(tail)))
 
 
 def entry_cost(frame, threshold=0.03, hold_sessions=20):

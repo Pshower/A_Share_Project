@@ -30,6 +30,13 @@ FLOOR, MULTIPLIER, BAND = plan_orders.FLOOR, plan_orders.MULTIPLIER, plan_orders
 RISKY = dict(plan_orders.LEGS)                       # 25% 300 / 25% 500 / 50% S&P
 SAFE = plan_orders.SAFE                              # 511010
 CASH_ETF = "511880"                                  # money-market ETF, the cash half of the safe leg
+# The QDII leg's circuit breaker, from etf_premium_20261114: the post-2024 premium's 95th
+# percentile is 9.52%, and the study's frozen recommendation is "refuse to *add* at or above
+# p95, otherwise buy whenever the plan says" -- a hard gate would have blocked 73% of days at
+# a worse expected cost.  This marks advice only: the paper book keeps its frozen rule (a
+# model fill is never edited by an overlay), and a live fill stays a human decision.
+QDII_LEG = "513500"
+PREMIUM_BREAKER = 0.0952
 # A quote older than this is refused by ``apply``: over a long weekend, Friday's close is 3 days
 # old, so 4 is the smallest number that does not block the Monday run when data is a day late.
 MAX_AGE_DAYS = 4
@@ -111,6 +118,24 @@ def book_state(book: str, base: Path | None = None) -> dict:
                 snapshot_date=str(last["date"]) if last else None,
                 peak=ledger.peak_of(snapshots, cfg["capital"]),
                 unmarked_trades=len(trailing), capital=float(cfg["capital"]))
+
+
+def premium_reading(online: Path | None = None) -> dict | None:
+    """The latest cached premium for the QDII leg, with its own date; None if never cached.
+
+    Offline by construction: the cache is written by ``etf_premium.refresh_cache`` in the
+    daily chain.  A QDII NAV publishes on a lag, so "latest" is the newest *knowable* reading,
+    and every consumer must show the date with the number.
+    """
+    online = online or ONLINE
+    path = online / "fund" / ("premium_%s.csv" % QDII_LEG)
+    if not path.exists():
+        return None
+    frame = pd.read_csv(path)
+    if not len(frame):
+        return None
+    row = frame.iloc[-1]
+    return dict(premium=float(row["premium"]), nav_date=str(row["date"]))
 
 
 def recommendation(book: str = "paper", cash_safe: bool = False,
@@ -208,6 +233,23 @@ def recommendation(book: str = "paper", cash_safe: bool = False,
                            value=round(float(row["target_value"]), 2),
                            note="cash_safe 把安全腿的一半放进货币 ETF，避开长债的久期"))
 
+    # The QDII premium breaker rides on the cached reading, never on a live fetch: advice stays
+    # offline, and the number always carries the NAV date it was knowable on.
+    breaker = None
+    reading = premium_reading(online)
+    if reading is not None:
+        breaker = dict(leg=QDII_LEG, threshold=PREMIUM_BREAKER, **reading)
+        breaker["tripped"] = bool(reading["premium"] >= PREMIUM_BREAKER)
+        if breaker["tripped"]:
+            deferred = [row for row in sleeves if row["code"] == QDII_LEG and row["delta"] > 0]
+            for row in deferred:
+                row["circuit_breaker"] = "缓建"
+            if deferred:
+                warnings.append(
+                    "513500 最新可知溢价 %.2f%%（净值截至 %s）≥ 熔断线 %.2f%%：按研究熔断该腿缓建加仓；"
+                    "本标记不改自动落账（paper 规则冻结），实盘是否缓建由你决定"
+                    % (reading["premium"] * 100, reading["nav_date"], PREMIUM_BREAKER * 100))
+
     return dict(book=book, as_of=str(stamp.date()), generated_at=str(pd.Timestamp.now())[:19],
                 cash_safe=bool(cash_safe), nav=round(nav, 2), peak=round(peak, 2),
                 drawdown=round(nav / peak - 1.0, 4), cash=round(float(state["cash"]), 2),
@@ -216,7 +258,7 @@ def recommendation(book: str = "paper", cash_safe: bool = False,
                 invested=plan["invested"], idle_cash=round(idle_cash, 2),
                 prices={code: float(value) for code, value in sorted(prices.items())},
                 price_dates={code: str(day.date()) for code, day in price_dates.items()},
-                sleeves=sleeves, assets=assets, warnings=warnings,
+                sleeves=sleeves, assets=assets, warnings=warnings, breaker=breaker,
                 note="权重按上一交易日收盘计算；未成交前不进入账本")
 
 

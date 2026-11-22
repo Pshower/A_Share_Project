@@ -63,3 +63,20 @@ def test_a_gate_restricts_which_days_count():
 
 def test_entry_cost_returns_nothing_when_the_window_is_too_short():
     assert etf_premium.entry_cost(frame([0.01, 0.02]), threshold=0.03, hold_sessions=5) == {}
+
+
+def test_refresh_cache_writes_the_dated_tail_and_reports_the_latest(tmp_path):
+    """The advice's breaker reads this file offline, so its shape and dating are the contract."""
+    index = pd.bdate_range("2026-10-01", periods=10)
+    close = pd.Series(np.full(10, 2.253), index=index)
+    nav = pd.Series(np.full(10, 2.0), index=index)
+    out = etf_premium.refresh_cache(online=tmp_path, nav=nav, close=close, keep=5)
+    assert out["premium"] == pytest.approx(2.253 / 2.0 - 1.0)
+    assert out["date"] == str(index[-1].date())
+    assert out["rows_cached"] == 5
+    cached = pd.read_csv(tmp_path / "fund" / "premium_513500.csv")
+    assert list(cached.columns) == ["date", "close", "nav", "premium"]
+    assert len(cached) == 5
+    assert cached["date"].iloc[-1] == str(index[-1].date())
+    # No temporary file survives the atomic swap.
+    assert not (tmp_path / "fund" / "premium_513500.csv.tmp").exists()

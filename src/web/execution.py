@@ -19,6 +19,10 @@ from tools import account_ledger as ledger
 BOOKS = ledger.ACCOUNTS
 SHADOW = Path("reports") / "shadow" / "e1_shadow.jsonl"
 SHADOW_STATE = Path("reports") / "shadow" / "e1_state.json"
+VARIANTS = Path("reports") / "shadow" / "variants"
+ALLOC = Path("reports") / "shadow" / "alloc"
+VARIANT_LABELS = {"A": "20 特征等权（对照）", "B": "反转两因子", "C": "反转+低波", "D": "随机对照"}
+ALLOC_LABELS = {"fixed6040": "现行腿（静态参照）", "minvar": "最小方差", "cvar": "CVaR95"}
 NAMES = Path("data") / "stock_list" / "stock_names.csv"
 
 _name_cache = {"key": None, "map": {}}
@@ -213,3 +217,67 @@ def shadow(root, limit=8):
                            entry_date=state.get("entry_date"),
                            last_panel_date=state.get("last_panel_date"),
                            runs=state.get("runs")))
+
+
+def variant_books(root):
+    """The four frozen weightings, side by side: each chain, its latest decision, its stale rows.
+
+    Reads only what the variant recorder wrote -- same rule as every other view here, the books
+    are the only truth and this page never re-derives a number they do not already carry.
+    """
+    out = []
+    for letter in sorted(VARIANT_LABELS):
+        rows = _read(Path(root) / VARIANTS / ("%s_shadow.jsonl" % letter))
+        if not rows:
+            out.append(dict(letter=letter, label=VARIANT_LABELS[letter], opened=False))
+            continue
+        chain = _chain(rows)
+        decided = [row for row in rows if row.get("status") == "decided"]
+        latest = decided[-1] if decided else None
+        out.append(dict(
+            letter=letter, label=VARIANT_LABELS[letter], opened=True,
+            rows=len(rows), decided=len(decided),
+            stale=len([row for row in rows if row.get("status") == "stale"]),
+            latest=dict(panel_date=(latest or {}).get("panel_date"),
+                        decision=(latest or {}).get("decision"),
+                        sessions_held=(latest or {}).get("sessions_held"),
+                        holdings=len((latest or {}).get("book") or []),
+                        interval=(latest or {}).get("interval")),
+            chained_nav=round(chain[-1][0], 6) if chain else 1.0,
+            chained_pool=round(chain[-1][1], 6) if chain else 1.0,
+            chained_hs300=round(chain[-1][2], 6) if chain else 1.0,
+            recent=[dict(recorded_at=row.get("recorded_at"), status=row.get("status"),
+                         panel_date=row.get("panel_date"), reason=row.get("reason"))
+                    for row in rows[-4:]]))
+    return out
+
+
+def alloc_books(root):
+    """The three allocation shadow books: latest decision row each, with the weights it holds.
+
+    The books are unit-level (nav starts at 1 - cost on the establishment row), and the page
+    shows them exactly at that level -- no annualisation, no verdicts before the frozen date.
+    """
+    out = []
+    for arm in ("fixed6040", "minvar", "cvar"):
+        rows = _read(Path(root) / ALLOC / ("%s_alloc.jsonl" % arm))
+        decisions = [row for row in rows if row.get("kind") == "decision"]
+        if not decisions:
+            out.append(dict(arm=arm, label=ALLOC_LABELS[arm], opened=False))
+            continue
+        latest = decisions[-1]
+        status_rows = [row for row in rows if row.get("kind") == "status"]
+        out.append(dict(
+            arm=arm, label=ALLOC_LABELS[arm], opened=True, rows=len(rows),
+            decisions=len(decisions),
+            latest=dict(price_date=latest.get("price_date"), steps=latest.get("steps"),
+                        action=latest.get("action"), nav=latest.get("nav"),
+                        weights=latest.get("weights") or {},
+                        turnover_total=latest.get("turnover_total"),
+                        cost_total=latest.get("cost_total"),
+                        rebalance_every=latest.get("rebalance_every"),
+                        capital=latest.get("capital")),
+            last_status=(status_rows[-1].get("status") if status_rows else None),
+            judged_from="2026-11-20",            # the frozen open date; first read due ~2027-11
+        ))
+    return out

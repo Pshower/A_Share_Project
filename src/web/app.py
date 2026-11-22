@@ -68,6 +68,18 @@ def create_app(root=ROOT):
         from . import execution
         return execution.shadow(root)
 
+    @app.get("/api/execution/shadow/variants")
+    def execution_shadow_variants():
+        """The four frozen E1 weightings, one row per book, read straight from their ledgers."""
+        from . import execution
+        return execution.variant_books(root)
+
+    @app.get("/api/execution/shadow/alloc")
+    def execution_shadow_alloc():
+        """The three allocation shadow books; a record, not a result, until the frozen read date."""
+        from . import execution
+        return execution.alloc_books(root)
+
     @app.get("/api/recommend/unified")
     def recommend_unified(book: str = "paper", cash_safe: bool = False):
         """Today's all-asset recommendation for one book, computed from its own NAV and peak.

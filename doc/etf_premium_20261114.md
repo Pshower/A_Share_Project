@@ -69,3 +69,7 @@
 python -B -m tools.etf_premium                 # 需要网络：新浪价格 + 基金页净值
 python -B -m pytest -q tests/test_etf_premium.py
 ```
+
+## 7. 追记（2026-11-23）：熔断已接进建议路径
+
+本文 §0 第 4 条的熔断建议当天接进了 `tools.daily_allocation`：**当最新可知溢价 ≥ p95（9.52%，`PREMIUM_BREAKER`）且建议里 513500 是加仓时**，该腿标注 `circuit_breaker: "缓建"` 并在 warnings 里写明溢价与净值截至日——**只标注、不改单**：paper 的自动落账按冻结规则照常执行（模型单永不被执行层覆盖改写），实盘是否缓建由你决定。数据由 `daily_ops` 的新增步骤 `refresh_premium` 每晚刷新（`etf_premium.refresh_cache` 写 `data/online/fund/premium_513500.csv`，原子写、拆分日剔除、读失败则按旧读数及其日期标注）。QDII 净值 T+2 发布，所以"最新可知"永远带日期，页面上与数字并排显示。探针照旧可用：`reports/runs/premium_20261122/probe.py`。

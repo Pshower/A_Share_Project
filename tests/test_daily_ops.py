@@ -12,6 +12,11 @@ def green(monkeypatch, advice_action="hold"):
     monkeypatch.setattr(ops, "is_month_open", lambda day: False)
     monkeypatch.setattr(ops, "refresh_prices", lambda: calls.__setitem__("refresh", calls["refresh"] + 1)
                         or dict(carriers=9))
+    monkeypatch.setattr(ops, "refresh_premium_cache",
+                        lambda: dict(code="513500", premium=0.1268, date="2026-11-18",
+                                     rows_cached=60))
+    monkeypatch.setattr(ops, "refresh_rates",
+                        lambda: dict(status="fresh", last_date="2026-11-20", appended=0))
     monkeypatch.setattr(ops, "prepare", lambda account, day: calls["prepare"].append(account)
                         or dict(dividends=0, nav=1000.0, cash=10.0))
     monkeypatch.setattr(ops, "check", lambda account, day: calls["check"].append(account)
@@ -42,6 +47,26 @@ def test_a_closed_day_touches_nothing(monkeypatch):
     assert report["status"] == "closed"
     assert report["steps"] == []
     assert "休市" in report["summary"]
+
+
+def test_the_premium_cache_refresh_is_a_step_of_its_own(monkeypatch):
+    calls = green(monkeypatch)
+    report = ops.run(day="2026-11-13")
+    names = [step["step"] for step in report["steps"]]
+    assert names[:2] == ["refresh", "refresh_premium"]
+    assert all(step["ok"] for step in report["steps"] if step["step"] == "refresh_premium")
+
+
+def test_a_failed_premium_fetch_returns_a_note_not_an_exception(monkeypatch):
+    from tools import etf_premium
+
+    def broken():
+        raise RuntimeError("eastmoney unreachable")
+
+    monkeypatch.setattr(etf_premium, "refresh_cache", broken)
+    result = ops.refresh_premium_cache()
+    assert "error" in result
+    assert "旧读数" in result["note"]
 
 
 def test_every_account_is_checked_before_any_is_booked(monkeypatch):

@@ -214,3 +214,75 @@ def test_apply_refuses_a_quote_that_stopped_updating(tmp_path):
     with pytest.raises(ValueError, match="拒绝"):
         daily.apply(result, max_age_days=daily.MAX_AGE_DAYS)
     assert (tmp_path / "paper" / "trades.jsonl").read_text(encoding="utf-8") == before
+
+
+# --------------------------------------------------------------------- QDII 熔断
+
+def write_premium(root, premium=0.1268, day="2026-11-18"):
+    (root / "fund").mkdir(parents=True, exist_ok=True)
+    frame = pd.DataFrame([dict(date=day, close=2.253, nav=2.0, premium=premium)])
+    frame.to_csv(root / "fund" / "premium_513500.csv", index=False)
+
+
+def test_the_breaker_threshold_is_the_studied_p95():
+    """etf_premium_20261114: the post-2024 premium's p95 is 9.52%; the constant may not drift."""
+    assert daily.PREMIUM_BREAKER == pytest.approx(0.0952)
+    assert daily.QDII_LEG == "513500"
+
+
+def test_a_tripped_breaker_marks_the_buy_row_but_never_the_fills(tmp_path):
+    # An underweight risky sleeve at the peak: the CPPI target is 60%, the book holds 48%, so
+    # the plan buys every leg -- 513500 included -- without any price move being needed.
+    write_prices(tmp_path / "online", scale=1.0)
+    write_book(tmp_path, legs=(30000, 20000, 120000))
+    write_premium(tmp_path / "online")
+    marked = daily.recommendation("paper", online=tmp_path / "online", base=tmp_path)
+    row = next(r for r in marked["sleeves"] if r["code"] == "513500")
+    assert row["delta"] > 0
+    assert row["circuit_breaker"] == "缓建"
+    assert marked["breaker"]["tripped"] is True
+    assert marked["breaker"]["nav_date"] == "2026-11-18"
+    assert any("熔断" in warning for warning in marked["warnings"])
+
+    # The same book without a cache proposes identical fills: the breaker is a label, not a rule.
+    bare = tmp_path / "bare"
+    write_prices(bare / "online", scale=1.0)
+    write_book(bare, legs=(30000, 20000, 120000))
+    plain = daily.recommendation("paper", online=bare / "online", base=bare)
+    plain_row = next(r for r in plain["sleeves"] if r["code"] == "513500")
+    assert plain_row["delta"] == row["delta"]
+    assert plain_row["target_shares"] == row["target_shares"]
+    assert plain["breaker"] is None
+
+
+def test_a_calm_premium_leaves_the_rows_unmarked(tmp_path):
+    write_prices(tmp_path / "online", scale=1.0)
+    write_book(tmp_path, legs=(30000, 20000, 120000))
+    write_premium(tmp_path / "online", premium=0.05, day="2026-11-18")
+    result = daily.recommendation("paper", online=tmp_path / "online", base=tmp_path)
+    row = next(r for r in result["sleeves"] if r["code"] == "513500")
+    assert row["delta"] > 0
+    assert "circuit_breaker" not in row
+    assert result["breaker"]["tripped"] is False
+    assert not any("熔断" in warning for warning in result["warnings"])
+
+
+def test_a_sell_day_trips_the_reading_but_defers_nothing(tmp_path):
+    """The breaker refuses to *add*; a day that only sells the leg carries no advice to defer."""
+    write_prices(tmp_path / "online", scale=0.9)          # falling prices -> the plan cuts
+    write_book(tmp_path)
+    write_premium(tmp_path / "online")
+    result = daily.recommendation("paper", online=tmp_path / "online", base=tmp_path)
+    row = next(r for r in result["sleeves"] if r["code"] == "513500")
+    assert row["delta"] < 0
+    assert "circuit_breaker" not in row
+    assert result["breaker"]["tripped"] is True
+    assert not any("熔断" in warning for warning in result["warnings"])
+
+
+def test_a_missing_premium_cache_is_silent(tmp_path):
+    write_prices(tmp_path / "online", scale=1.1)
+    write_book(tmp_path)
+    result = daily.recommendation("paper", online=tmp_path / "online", base=tmp_path)
+    assert result["breaker"] is None
+    assert not any("熔断" in warning for warning in result["warnings"])

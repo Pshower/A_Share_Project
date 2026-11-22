@@ -170,3 +170,56 @@ def test_a_stale_row_between_decisions_does_not_shift_the_chain(tmp_path):
     assert data["chained_nav"] == pytest.approx(1.01 * 1.02)
     assert data["days"][-1]["chained_nav"] == pytest.approx(data["chained_nav"])
     assert data["days"][-1]["pool_return"] == pytest.approx(0.01)
+
+
+def test_the_variant_view_reads_every_letter_the_recorder_wrote():
+    rows = execution.variant_books(ROOT)
+    assert {row["letter"] for row in rows} == {"A", "B", "C", "D"}
+    for row in rows:
+        path = ROOT / execution.VARIANTS / ("%s_shadow.jsonl" % row["letter"])
+        if not path.exists():
+            assert row["opened"] is False
+            continue
+        log = execution._read(path)
+        decided = [record for record in log if record.get("status") == "decided"]
+        assert row["opened"] is True
+        assert row["rows"] == len(log)
+        assert row["decided"] == len(decided)
+        if decided:
+            assert row["latest"]["panel_date"] == decided[-1]["panel_date"]
+
+
+def test_the_variant_chain_is_compounded_from_the_ledgers_own_intervals():
+    for row in execution.variant_books(ROOT):
+        if not row.get("opened"):
+            continue
+        log = execution._read(ROOT / execution.VARIANTS / ("%s_shadow.jsonl" % row["letter"]))
+        level = 1.0
+        for record in log:
+            change = (record.get("interval") or {}).get("return")
+            if change is not None:
+                level *= 1.0 + float(change)
+        assert row["chained_nav"] == pytest.approx(level, abs=1e-6)
+
+
+def test_the_alloc_view_reads_the_three_books_and_their_latest_rows():
+    rows = execution.alloc_books(ROOT)
+    assert {row["arm"] for row in rows} == {"fixed6040", "minvar", "cvar"}
+    for row in rows:
+        path = ROOT / execution.ALLOC / ("%s_alloc.jsonl" % row["arm"])
+        if not path.exists():
+            assert row["opened"] is False
+            continue
+        log = execution._read(path)
+        decisions = [record for record in log if record.get("kind") == "decision"]
+        assert row["opened"] is True
+        assert row["decisions"] == len(decisions)
+        assert row["latest"]["price_date"] == decisions[-1]["price_date"]
+        assert row["latest"]["weights"] == decisions[-1]["weights"]
+        assert row["judged_from"] == "2026-11-20"
+
+
+def test_the_shadow_views_do_not_invent_unopened_books(tmp_path):
+    (tmp_path / "reports").mkdir()
+    assert all(row["opened"] is False for row in execution.variant_books(tmp_path))
+    assert all(row["opened"] is False for row in execution.alloc_books(tmp_path))

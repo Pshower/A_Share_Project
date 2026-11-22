@@ -55,6 +55,33 @@ def refresh_prices(pace: float = 0.3) -> dict:
     return dict(carriers=len(fund_vehicles.CARRIERS))
 
 
+def refresh_premium_cache() -> dict:
+    """Best-effort refresh of the QDII premium cache that feeds the advice's circuit breaker.
+
+    A failed fetch must never fail the day: the breaker then speaks from the stale cache and
+    dates itself, which the advice shows next to the number.
+    """
+    from tools import etf_premium
+    try:
+        return etf_premium.refresh_cache()
+    except Exception as exc:                                   # noqa: BLE001
+        return dict(error=str(exc),
+                    note="溢价缓存未刷新；建议将按旧读数及其日期标注")
+
+
+def refresh_rates() -> dict:
+    """Best-effort refresh of the treasury curve the nightly regime line reads.
+
+    Until 2026-11-23 this file was maintained by hand; a stale curve makes every summary quote
+    an outdated bucket, so it belongs in the nightly refresh, not in a weekly chore.
+    """
+    from tools import rates
+    try:
+        return rates.refresh()
+    except Exception as exc:                                   # noqa: BLE001
+        return dict(error=str(exc), note="利率曲线未刷新；今晚的 regime 档将按旧读数标注")
+
+
 def prepare(account: str, day: str) -> dict:
     """Facts: distributions the log is missing, then the day's mark."""
     ledger.use(account)
@@ -126,6 +153,8 @@ def run(day: str | None = None, accounts=DEFAULT_ACCOUNTS,
 
         if refresh and not dry:
             note("refresh", refresh_prices())
+            note("refresh_premium", refresh_premium_cache())
+            note("refresh_rates", refresh_rates())
         for account in accounts:
             note("prepare:" + account, dict(skipped="dry run") if dry else prepare(account, day))
 

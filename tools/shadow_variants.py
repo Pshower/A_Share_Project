@@ -136,36 +136,19 @@ def run_one(letter, dataset, force=False, output=OUTPUT, log=print):
     prices = pd.read_parquet(directory / "prices.parquet")
     codes = [code for code in manifest["stock_codes"]
              if code in set(panel.columns.get_level_values(0))]
-    if len(codes) < 0.9 * len(manifest["stock_codes"]):
-        record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), variant=letter,
-                      status="bad_data", panel_date=str(panel.index.max().date()),
-                      reason="panel only has %d of %d codes" % (len(codes), len(manifest["stock_codes"])))
-        append(letter, record, output)
-        log("%s bad_data" % letter)
-        return record
-
-    from tools import trading_calendar
-    try:
-        trading = trading_calendar.is_trading_day()
-    except Exception:                                  # noqa: BLE001 - calendar is optional
-        trading = True
-    if not trading:
-        # The main ledger refuses to book a holiday; a variant that books one drifts from the book
-        # it is the control for.  Nothing is appended -- a non-trading day is not news.
-        record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), variant=letter,
-                      status="nontrading", panel_date=str(panel.index.max().date()),
-                      reason="not a trading day in the exchange calendar; no decision recorded")
-        log("%s nontrading" % letter)
-        return record
-
     latest = panel.index.max()
     state = load_state(letter, output)
-    if state.get("last_panel_date") == str(latest.date()) and not force:
-        record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), variant=letter,
-                      status="stale", panel_date=str(latest.date()),
-                      reason="panel has not advanced since the last run; no decision recorded")
-        append(letter, record, output)
-        log("%s stale" % letter)
+
+    # The guard chain and the interval tuple come from the main recorder, not from a local copy:
+    # two recorders carrying their own guards had already drifted in wording, and the parity
+    # test pins this book to the main ledger through the shared code (2026-11-23 merge).
+    stop = shadow_run.shared_guards(codes, len(manifest["stock_codes"]), state, latest,
+                                    force=force)
+    if stop:
+        record = dict(stop["record"], variant=letter)
+        if stop["append"]:
+            append(letter, record, output)
+        log("%s %s" % (letter, stop["kind"]))
         return record
 
     score = score_for(letter, panel, codes, latest)
@@ -188,12 +171,7 @@ def run_one(letter, dataset, force=False, output=OUTPUT, log=print):
     # The same accounting tuple as the main ledger, key for key.  A variant that books its
     # intervals differently from the book it is the control for would make the 2027 comparison
     # meaningless -- that is the one thing the two engines may not disagree on.
-    interval = dict(
-        **{"from": state.get("last_panel_date"), "to": str(latest.date()),
-           "sessions": shadow_run.sessions_between(panel.index, state.get("last_panel_date"),
-                                                   latest),
-           "return": shadow_run.basket_return(close, held, state.get("last_panel_date"), latest)}) \
-        if held and state.get("last_panel_date") else None
+    interval = shadow_run.interval_for(panel.index, close, held, state, latest)
     comparison = shadow_run.benchmarks(close, codes, state.get("last_panel_date"),
                                        str(latest.date())) \
         if state.get("last_panel_date") else None

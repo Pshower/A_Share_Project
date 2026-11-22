@@ -165,6 +165,64 @@ def benchmarks(close, pool_codes, start, end):
                 hs300=index_return("sh000300", start, end))
 
 
+def stop_record(kind, latest, reason):
+    """A guard's record: dated, honest, and shaped like every other row in the log."""
+    return dict(recorded_at=datetime.now(timezone.utc).isoformat(), status=kind,
+                panel_date=str(latest.date()), reason=reason)
+
+
+def shared_guards(codes, expected, state, latest, force=False):
+    """The guard chain every shadow book runs before it may record a decision.
+
+    Returns ``None`` when the book may proceed, else a dict with the ``kind`` ("bad_data" /
+    "nontrading" / "stale"), the ``record`` to return, and whether it should be ``append``ed.
+    Two shadow recorders used to carry this chain as parallel copies and the wording had already
+    drifted; one copy is the whole point of the merge (2026-11-23), and the parity test pins
+    the two books together through it.
+
+    ``bad_data`` -- a truncated panel would freeze a shrunken pool into the book; refuse.
+    ``nontrading`` -- nothing is appended: a holiday is not news, from either ledger's view.
+    ``stale`` -- the panel has not advanced; re-deciding on it would double-count a session.
+    """
+    if len(codes) < 0.9 * expected:
+        return dict(kind="bad_data", append=True,
+                    record=stop_record(
+                        "bad_data", latest,
+                        "panel only has %d of %d pool codes; a truncated download, not a decision"
+                        % (len(codes), expected)))
+    from tools import trading_calendar
+    try:
+        trading = trading_calendar.is_trading_day()
+    except Exception:                                  # noqa: BLE001 - calendar is optional
+        trading = True
+    if not trading:
+        return dict(kind="nontrading", append=False,
+                    record=stop_record(
+                        "nontrading", latest,
+                        "not a trading day in the exchange calendar; no decision recorded"))
+    if state.get("last_panel_date") == str(latest.date()) and not force:
+        return dict(kind="stale", append=True,
+                    record=stop_record(
+                        "stale", latest,
+                        "panel has not advanced since the last run; no decision recorded"))
+    return None
+
+
+def interval_for(index, close, held, state, latest):
+    """The accounting tuple every shadow book must book identically, key for key.
+
+    ``test_variant_a_books_its_intervals_exactly_like_the_main_ledger`` (2026-11-20) pins the
+    two recorders to this one construction: an interval a variant books differently from the
+    book it is the control for would make the 2027 comparison meaningless.
+    """
+    if held and state.get("last_panel_date"):
+        return dict(**{"from": state.get("last_panel_date"), "to": str(latest.date()),
+                       "sessions": sessions_between(index, state.get("last_panel_date"), latest),
+                       "return": basket_return(close, held,
+                                               state.get("last_panel_date"), latest)})
+    return None
+
+
 def chain(records):
     """Turn the log's interval returns into an index, starting at 1.0 before the first decision.
 
@@ -190,37 +248,17 @@ def run(force=False, dataset=DATASET, log=print):
     features = list(manifest["feature_cols"])
     latest = panel.index.max()
     state = load_state()
-    # A truncated download would silently shrink the pool and the recorded book would come from a
-    # different universe than the one the rule was frozen on.  Refuse instead of recording.
+    # A truncated download would silently shrink the pool and the recorded book would come
+    # from a different universe than the one the rule was frozen on -- refused in the guards.
     expected = len(manifest["stock_codes"])
-    if len(codes) < 0.9 * expected:
-        record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), status="bad_data",
-                      panel_date=str(latest.date()),
-                      reason="panel only has %d of %d pool codes; a truncated download, not a decision"
-                             % (len(codes), expected))
-        append(record)
-        log("bad_data: %d of %d codes" % (len(codes), expected))
-        return record
-    from tools import trading_calendar
-    try:
-        trading = trading_calendar.is_trading_day()
-    except Exception:                                  # noqa: BLE001 - calendar is optional
-        trading = True
-    if not trading:
-        # A holiday and a broken feed look identical from the ledger, so the calendar answers
-        # the question before it is asked.  Nothing is appended: a non-trading day is not news.
-        record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), status="nontrading",
-                      panel_date=str(latest.date()),
-                      reason="not a trading day in the exchange calendar; no decision recorded")
-        log("nontrading: %s" % date.today())
-        return record
-    if state.get("last_panel_date") == str(latest.date()) and not force:
-        record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), status="stale",
-                      panel_date=str(latest.date()),
-                      reason="panel has not advanced since the last run; no decision recorded")
-        append(record)
-        log("stale: panel still ends %s" % latest.date())
-        return record
+    stop = shared_guards(codes, expected, state, latest, force=force)
+    if stop:
+        if stop["append"]:
+            append(stop["record"])
+        log({"bad_data": "bad_data: %d of %d codes" % (len(codes), expected),
+             "nontrading": "nontrading: %s" % date.today(),
+             "stale": "stale: panel still ends %s" % latest.date()}[stop["kind"]])
+        return stop["record"]
     held = state.get("holdings", [])
     sessions = sessions_between(panel.index, state.get("entry_date"), latest)
     # The frozen rule holds a book for twenty sessions; deciding every session is what turned a
@@ -243,10 +281,7 @@ def run(force=False, dataset=DATASET, log=print):
     close = prices.xs("close", axis=1, level=1) if "close" in set(prices.columns.get_level_values(1)) else None
     close = close if close is not None else prices.xs(prices.columns.get_level_values(1)[0], axis=1, level=1)
     nav = mark(close, book, latest)
-    interval = dict(**{"from": state.get("last_panel_date"), "to": str(latest.date()),
-                       "sessions": sessions_between(panel.index, state.get("last_panel_date"), latest),
-                       "return": basket_return(close, held, state.get("last_panel_date"), latest)}
-                    ) if held and state.get("last_panel_date") else None
+    interval = interval_for(panel.index, close, held, state, latest)
     comparison = benchmarks(close, codes, state.get("last_panel_date"), str(latest.date())) \
         if state.get("last_panel_date") else None
     record = dict(recorded_at=datetime.now(timezone.utc).isoformat(), status="decided",
